@@ -1,0 +1,22 @@
+import { module } from './_cat.js';
+import { A } from '../../core/registry.js';
+import { parseHex, decodeLatin1, bytesToHex } from '../../core/util.js';
+import { xtsEncrypt } from './_xts.js';
+
+function sectorToTweak(sector) {
+  let n = BigInt(sector);
+  const out = new Uint8Array(16);
+  for (let i = 0; i < 16; i++) { out[i] = Number(n & 0xffn); n >>= 8n; }
+  return out;
+}
+
+module('AES-XTS Encrypt', 'AES-XTS: the disk/sector encryption mode used by BitLocker, LUKS, FileVault. Needs two AES keys (data key + tweak key) and a sector/tweak number.',
+  [A.toggle('Key 1 (data)', '', ['Hex', 'UTF8', 'Latin1', 'Base64'], 'Hex'), A.toggle('Key 2 (tweak)', '', ['Hex', 'UTF8', 'Latin1', 'Base64'], 'Hex'),
+    A.string('Sector number', '0'), A.select('Input', ['Raw', 'Hex']), A.select('Output', ['Hex', 'Raw'])],
+  (data, k1, k2, sector, inp, out) => {
+    if (inp === 'Hex') data = parseHex(decodeLatin1(data));
+    if (data.length < 16) throw new Error('XTS needs at least one 16-byte block');
+    const tweak = sectorToTweak(sector);
+    const res = xtsEncrypt(k1, k2, tweak, data);
+    return out === 'Hex' ? bytesToHex(res) : res;
+  });

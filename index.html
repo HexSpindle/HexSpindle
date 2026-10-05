@@ -1,0 +1,148 @@
+<!doctype html>
+<html lang="en" data-theme="dark" data-accent="cyan">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>HexSpindle — Data Transformation Workbench</title>
+<link rel="canonical" href="https://hexspindle.github.io/">
+<meta name="theme-color" content="#060a14">
+<meta property="og:type" content="website">
+<meta property="og:title" content="HexSpindle — Data Transformation Workbench">
+<meta property="og:description" content="Browser-based workbench for decoding, encoding, analysis, forensics, cryptography, compression, and data transformation.">
+<meta property="og:url" content="https://hexspindle.github.io/">
+<meta name="description" content="A browser-based data transformation workbench for decoding, encoding, analysis, forensics, cryptography, compression, and data manipulation.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop stop-color='%2338f2ff'/%3E%3Cstop offset='1' stop-color='%23ff3d9a'/%3E%3C/linearGradient%3E%3C/defs%3E%3Cpath d='M16 2 29 9v14L16 30 3 23V9z' fill='none' stroke='url(%23g)' stroke-width='2.5'/%3E%3Cpath d='M10 12h12M10 16h12M10 20h7' stroke='url(%23g)' stroke-width='2' stroke-linecap='round'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+
+<noscript>
+  <div class="noscript-message">
+    <h1>HexSpindle requires JavaScript</h1>
+    <p>
+      HexSpindle is a browser-based data transformation workbench and requires JavaScript to run. Please enable JavaScript and reload this page.
+    </p>
+  </div>
+</noscript>
+
+<canvas id="bg" aria-hidden="true"></canvas>
+
+<header class="top">
+  <div class="brand">
+    <svg viewBox="0 0 32 32" class="logo" aria-hidden="true"><defs><linearGradient id="lg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="var(--accent)"/><stop offset="1" stop-color="var(--accent2)"/></linearGradient></defs><path d="M16 2 29 9v14L16 30 3 23V9z" fill="none" stroke="url(#lg)" stroke-width="2.4"/><path d="M10 12h12M10 16h12M10 20h7" stroke="url(#lg)" stroke-width="2" stroke-linecap="round"/></svg>
+    <div><div class="brand-name">HEX<b>SPINDLE</b></div><div class="brand-sub">transform · decode · analyse</div></div>
+  </div>
+  <button class="palette-btn" id="btnPalette" title="Command palette (Ctrl+K)"><span class="ico" data-i="search"></span><span>Find an operation…</span><kbd>Ctrl K</kbd></button>
+  <div class="top-actions">
+    <button class="btn ghost" id="btnExamples"><span class="ico" data-i="spark"></span>Examples</button>
+    <button class="btn ghost" id="btnSuggest" title="Describe what you want in plain English and get a suggested recipe. Requires your own Anthropic API key; requests are sent directly to Anthropic."><span class="ico" data-i="ai"></span>Suggest</button>
+    <button class="btn ghost" id="btnBatch"><span class="ico" data-i="layers"></span>Batch</button>
+    <button class="btn ghost" id="btnRecipeIO"><span class="ico" data-i="save"></span>Save / Load</button>
+    <button class="btn ghost" id="btnTheme" title="Toggle light / dark"><span class="ico" data-i="sun"></span></button>
+	<div class="accents" id="accents" title="Accent colour"><i data-a="cyan"></i><i data-a="magenta"></i><i data-a="lime"></i><i data-a="amber"></i><i data-a="violet"></i></div>
+	<button class="btn ghost" id="btnHelp" title="Help &amp; shortcuts"><span class="ico" data-i="help"></span></button>
+	
+	<a class="icon-btn"
+	href="https://github.com/HexSpindle"
+	target="_blank"
+	rel="noopener noreferrer"
+	title="HexSpindle on GitHub"
+	aria-label="HexSpindle on GitHub">
+	<svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" fill="currentColor">
+		<path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38
+		0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13
+		-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66
+		.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15
+		-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82A7.54 7.54 0 0 1 8 3.84
+		c.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12
+		.51.56.82 1.28.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48
+		0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8
+		c0-4.42-3.58-8-8-8Z"/>
+	</svg>
+	</a>
+  </div>
+</header>
+
+<nav class="mtabs" id="mtabs" aria-label="Panels"><button data-p="ops">Operations</button><button data-p="recipe">Recipe</button><button data-p="io" class="io-tab">Input / Output</button></nav>
+
+<div class="progress" id="progress" hidden><i></i></div>
+
+<main id="main">
+  <aside class="panel" id="opsPane">
+    <div class="panel-h"><span class="ph-title"><span class="ico" data-i="grid"></span>Operations</span><span class="count" id="opCount"></span></div>
+    <div class="search"><span class="ico" data-i="search"></span><input id="opSearch" type="search" placeholder="Search operations…" autocomplete="off" spellcheck="false"></div>
+    <div class="cat-chips" id="catChips"></div>
+    <div class="ops-head">
+      <button class="btn ghost" id="btnExpandAll">Expand all</button>
+      <button class="btn ghost" id="btnCollapseAll">Collapse all</button>
+    </div>
+    <div id="opList" class="scroll"></div>
+  </aside>
+  <div class="split v" id="split1" role="separator" aria-orientation="vertical"></div>
+
+  <section class="panel" id="recipePane">
+    <div class="panel-h"><span class="ph-title"><span class="ico" data-i="layers"></span>Recipe</span>
+      <span class="tools">
+        <button class="icon-btn" id="btnUndo" title="Undo (Ctrl+Z in recipe)"><span class="ico" data-i="undo"></span></button>
+        <button class="icon-btn" id="btnClearRecipe" title="Clear recipe"><span class="ico" data-i="trash"></span></button>
+      </span></div>
+    <div id="recipeList" class="scroll"></div>
+    <div class="bake-bar">
+      <label class="switch" title="Bake automatically when anything changes"><input type="checkbox" id="autoBake" checked><i></i><span>Auto-bake</span></label>
+      <button class="btn" id="btnStep" title="Step through the recipe one operation at a time"><span class="ico" data-i="step"></span>Step</button>
+      <button class="btn primary" id="btnBake" title="Bake (Ctrl+Enter)"><span class="ico" data-i="flame"></span>BAKE</button>
+    </div>
+  </section>
+  <div class="split v" id="split2" role="separator" aria-orientation="vertical"></div>
+
+  <section id="ioPane">
+    <div class="panel" id="inPane">
+      <div class="panel-h">
+        <span class="ph-title"><span class="ico" data-i="in"></span>Input</span>
+        <div class="tabs" id="inTabs"></div>
+        <span class="tools">
+          <select id="inEnc" title="How the input text is converted to bytes"><option value="utf8">UTF-8</option><option value="latin1">Raw bytes (Latin-1)</option><option value="hex">Hex</option><option value="base64">Base64</option></select>
+          <button class="icon-btn" id="btnWrapIn" title="Toggle word wrap"><span class="ico" data-i="wrap"></span></button>
+          <button class="icon-btn" id="btnPaste" title="Paste from clipboard"><span class="ico" data-i="paste"></span></button>
+          <button class="icon-btn" id="btnOpen" title="Open file(s)"><span class="ico" data-i="open"></span></button>
+          <button class="icon-btn" id="btnClearIn" title="Clear input"><span class="ico" data-i="trash"></span></button>
+        </span>
+      </div>
+      <div class="io-body"><textarea id="input" spellcheck="false" placeholder="Type, paste, or drop a file here…"></textarea><div class="drop" id="drop">Drop file to load</div></div>
+      <div class="foot"><span id="inStats"></span></div>
+      <input type="file" id="fileInput" multiple hidden>
+      <input type="file" id="batchInput" multiple hidden accept=".zip,*/*">
+    </div>
+    <div class="split h" id="split3" role="separator" aria-orientation="horizontal"></div>
+    <div class="panel" id="outPane">
+      <div class="panel-h">
+        <span class="ph-title"><span class="ico" data-i="out"></span>Output</span>
+        <span class="tools">
+          <select id="outView" title="How to display the output"><option value="auto">Auto</option><option value="text">Text (UTF-8)</option><option value="latin1">Text (Latin-1)</option><option value="hex">Hex dump</option><option value="base64">Base64</option><option value="render">Rendered (HTML / image)</option><option value="files">Files (archive browser)</option></select>
+          <button class="icon-btn" id="btnWrap" title="Toggle word wrap"><span class="ico" data-i="wrap"></span></button>
+          <button class="icon-btn" id="btnMagic" title="Magic: suggest how to decode the output"><span class="ico" data-i="wand"></span></button>
+          <button class="icon-btn" id="btnCompare" title="Compare: run this recipe against two input tabs and diff the results"><span class="ico" data-i="compare"></span></button>
+          <button class="icon-btn" id="btnFind" title="Find in output (Ctrl+F)"><span class="ico" data-i="search"></span></button>
+          <button class="icon-btn" id="btnCopy" title="Copy output"><span class="ico" data-i="copy"></span></button>
+          <button class="icon-btn" id="btnSave" title="Save output to file"><span class="ico" data-i="download"></span></button>
+          <button class="icon-btn" id="btnSwap" title="Use output as input"><span class="ico" data-i="swap"></span></button>
+        </span>
+      </div>
+      <div class="banner" id="banner" hidden></div>
+      <div class="findbar" id="findbar" hidden><input id="findInput" placeholder="Find…" autocomplete="off" spellcheck="false"><span id="findCount"></span><button class="icon-btn" id="findPrev" title="Previous (Shift+Enter)">&uarr;</button><button class="icon-btn" id="findNext" title="Next (Enter)">&darr;</button><label class="switch" title="Regex"><input type="checkbox" id="findRegex"><i></i><span>.*</span></label><button class="icon-btn" id="findClose">&times;</button></div>
+      <div class="io-body" id="outBody"><textarea id="output" readonly spellcheck="false"></textarea></div>
+      <div class="foot"><span id="outStats"></span><span id="outMore"></span><span id="outTime"></span></div>
+    </div>
+  </section>
+</main>
+
+<footer class="status"><span class="dot" id="statusDot"></span><span id="statusText">Loading…</span><span class="grow"></span><span id="statusRight"></span></footer>
+
+<div class="overlay" id="overlay" hidden><div class="modal" id="modal" role="dialog" aria-modal="true"></div></div>
+<div class="overlay palette" id="paletteOverlay" hidden>
+  <div class="modal pal" role="dialog" aria-modal="true"><input id="palInput" placeholder="Type an operation name…" autocomplete="off" spellcheck="false"><div id="palList"></div><div class="pal-foot"><kbd>↑↓</kbd> navigate <kbd>Enter</kbd> add to recipe <kbd>Esc</kbd> close</div></div>
+</div>
+<div id="toasts"></div>
+<script type="module" src="app.js"></script>
+</body>
+</html>

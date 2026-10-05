@@ -1,0 +1,9 @@
+{
+  "name": "hexspindle-ci-tools",
+  "private": true,
+  "type": "module",
+  "description": "Dev-only tooling for CI (headless-browser smoke test). Not part of the deployed app.",
+  "devDependencies": {
+    "playwright": "^1.56.0"
+  }
+}
