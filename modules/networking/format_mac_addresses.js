@@ -3,21 +3,26 @@ import { A } from '../../core/registry.js';
 
 module('Format MAC addresses', 'Re-formats MAC addresses into hyphen, colon, Cisco-dotted and plain styles.',
   [A.select('Output case', ['Both', 'Upper only', 'Lower only']), A.boolean('Hyphen-delimited', true), A.boolean('Colon-delimited', true),
-    A.boolean('Cisco style (dotted)', true), A.boolean('No delimiters', true)],
-  (t, kase, hy, co, ci, no) => {
+    A.boolean('Cisco style (dotted)', false), A.boolean('No delimiters', true), A.boolean('IPv6 interface ID', false)],
+  (t, kase, hy, co, ci, no, v6 = false) => {
+    if (!t) return '';
     const out = [];
-    const re = /\b(?:[0-9A-Fa-f]{2}[:\-.]?){5}[0-9A-Fa-f]{2}\b|\b[0-9A-Fa-f]{4}\.[0-9A-Fa-f]{4}\.[0-9A-Fa-f]{4}\b/g;
-    let m;
-    while ((m = re.exec(t)) !== null) {
-      const h = m[0].replace(/[^0-9A-Fa-f]/g, '');
-      if (h.length !== 12) continue;
+    for (const mac of t.toLowerCase().split(/[,\s\r\n]+/)) {
+      const clean = mac.replace(/[:.-]+/g, '');
+      let ipv6 = (clean.slice(0, 6) + 'fffe' + clean.slice(6)).replace(/(.{4}(?=.))/g, '$1:');
+      ipv6 = (parseInt(ipv6.slice(0, 2), 16) ^ 2).toString(16).padStart(2, '0') + ipv6.slice(2);
       const forms = [];
-      if (hy) forms.push([h.slice(0, 2), h.slice(2, 4), h.slice(4, 6), h.slice(6, 8), h.slice(8, 10), h.slice(10, 12)].join('-'));
-      if (co) forms.push([h.slice(0, 2), h.slice(2, 4), h.slice(4, 6), h.slice(6, 8), h.slice(8, 10), h.slice(10, 12)].join(':'));
-      if (ci) forms.push([h.slice(0, 4), h.slice(4, 8), h.slice(8, 12)].join('.'));
-      if (no) forms.push(h);
-      const cases = { Both: [s => s.toLowerCase(), s => s.toUpperCase()], 'Upper only': [s => s.toUpperCase()], 'Lower only': [s => s.toLowerCase()] }[kase];
-      out.push(forms.flatMap(x => cases.map(f => f(x))).join(','));
+      if (no) forms.push(clean);
+      if (hy) forms.push(clean.replace(/(.{2}(?=.))/g, '$1-'));
+      if (co) forms.push(clean.replace(/(.{2}(?=.))/g, '$1:'));
+      if (ci) forms.push(clean.replace(/(.{4}(?=.))/g, '$1.'));
+      if (v6) forms.push(ipv6);
+      for (const f of forms) {
+        if (kase === 'Lower only') out.push(f);
+        else if (kase === 'Upper only') out.push(f.toUpperCase());
+        else out.push(f, f.toUpperCase());
+      }
+      out.push('');
     }
     return out.join('\n');
   }, { text: true });

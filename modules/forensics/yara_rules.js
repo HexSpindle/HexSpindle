@@ -48,7 +48,7 @@ module('YARA Rules',
       const countStr = nMatches === 0 ? '' : (showCounts ? ` (${nMatches} time${nMatches > 1 ? 's' : ''})` : '');
 
       if (nMatches === 0 || !(showStrings || showLengths)) {
-        out += `Input matches rule "${rule.ruleName}"${meta}${countStr}.\n`;
+        out += `Input matches rule "${rule.ruleName}"${meta}${countStr ? ` ${countStr}` : ''}.\n`;
       } else {
         out += `Rule "${rule.ruleName}"${meta} matches${countStr}:\n`;
         for (let j = 0; j < nMatches; j++) {
@@ -58,7 +58,6 @@ module('YARA Rules',
       }
     }
 
-    if (!nRules && !nErrors) return 'No rules matched.';
-    return out || 'No rules matched.';
+    return out;
   }
 );

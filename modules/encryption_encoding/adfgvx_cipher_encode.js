@@ -13,12 +13,12 @@ function buildSquare(keyword, alphabet) {
 
 function adfgvxEncode(t, squareKey, transKey, adfgx) {
   const size = adfgx ? 5 : 6;
-  const labels = adfgx ? SQ_LETTERS.slice(1) : SQ_LETTERS;
-  const alphabet = adfgx ? 'ABCDEFGHIJKLMNOPQRSTUVWXYZ' : '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ';
-  const sq = buildSquare(squareKey, alphabet).slice(0, size * size);
+  const labels = adfgx ? 'ADFGX' : SQ_LETTERS;
+  const alphabet = adfgx ? 'ABCDEFGHIKLMNOPQRSTUVWXYZ' : '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+  const sq = buildSquare(adfgx ? squareKey.toUpperCase().replace(/J/g, 'I') : squareKey, alphabet).slice(0, size * size);
   if (sq.length < size * size) throw new Error(`Square key must cover all ${size * size} symbols`);
   let letters = [...t.toUpperCase()].filter(c => /[A-Z0-9]/.test(c));
-  if (adfgx) letters = letters.filter(c => /[A-Z]/.test(c));
+  if (adfgx) letters = letters.filter(c => /[A-Z]/.test(c)).map(c => c === 'J' ? 'I' : c);
   const coords = [];
   for (const c of letters) {
     const idx = sq.indexOf(c);

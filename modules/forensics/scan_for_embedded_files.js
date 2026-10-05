@@ -28,5 +28,7 @@ module('Scan for Embedded Files', 'Searches the whole input for file signatures 
       while (i !== -1) { out.push([i, name]); i = indexOfBytes(data, magic, i + 1); }
     }
     out.sort((a, b) => a[0] - b[0] || (a[1] < b[1] ? -1 : a[1] > b[1] ? 1 : 0));
-    return out.map(([o, n]) => `Offset ${o} (0x${o.toString(16)}): ${n}`).join('\n') || 'No embedded files found.';
+    const header = "Scanning data for 'magic bytes' which may indicate embedded files. The following results may be false positives and should not be treated as reliable. Any sufficiently long file is likely to contain these magic bytes coincidentally.\n";
+    if (!out.length) return header + '\nNo embedded files were found.';
+    return header + '\n' + out.map(([o, n]) => `Offset ${o} (0x${o.toString(16)}): ${n}`).join('\n');
   });

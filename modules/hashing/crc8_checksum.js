@@ -1,5 +1,6 @@
 import { module } from './_cat.js';
 import { A } from '../../core/registry.js';
+import { customArgs, customCrc } from './_crc_catalogue.js';
 
 function reflect(v, bits) {
   let r = 0n;
@@ -65,5 +66,5 @@ export const CRC8 = {
 };
 
 module('CRC-8 Checksum', '8-bit cyclic redundancy check (many variants).',
-  [A.select('Algorithm', Object.keys(CRC8))],
-  (data, alg) => crcHex(data, CRC8[alg]));
+  [A.select('Algorithm', [...Object.keys(CRC8), 'Custom']), ...customArgs()],
+  (data, alg, ...custom) => (alg === 'Custom' ? customCrc(data, ...custom) : crcHex(data, CRC8[alg])));

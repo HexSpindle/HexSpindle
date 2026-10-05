@@ -1,6 +1,7 @@
 import { module } from './_cat.js';
 import { A } from '../../core/registry.js';
 import { crcHex } from './crc8_checksum.js';
+import { customArgs, customCrc } from './_crc_catalogue.js';
 
 export const CRC64 = {
   'CRC-64/ECMA-182': [64, 0x42F0E1EBA9EA3693n, 0x0n, false, false, 0x0n],
@@ -10,5 +11,5 @@ export const CRC64 = {
 };
 
 module('CRC-64 Checksum', '64-bit cyclic redundancy check (many variants).',
-  [A.select('Algorithm', Object.keys(CRC64))],
-  (data, alg) => crcHex(data, CRC64[alg]));
+  [A.select('Algorithm', [...Object.keys(CRC64), 'Custom']), ...customArgs()],
+  (data, alg, ...custom) => (alg === 'Custom' ? customCrc(data, ...custom) : crcHex(data, CRC64[alg])));

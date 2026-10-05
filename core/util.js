@@ -19,6 +19,16 @@ export function delim(name) {
   return name.replace(/\\n/g, '\n').replace(/\\t/g, '\t').replace(/\\r/g, '\r');
 }
 
+const DELIM_REGEX = {
+  'Space': /\s+/g, 'Percent': /%/g, 'Comma': /,/g, 'Semi-colon': /;/g, 'Colon': /:/g,
+  'Line feed': /\n/g, 'CRLF': /\r\n/g, 'Forward slash': /\//g, 'Backslash': /\\/g,
+  '0x with comma': /,?0x/g, '0x': /0x/g, '\\x': /\\x/g, 'None': /\s+/g,
+};
+export function delimRegex(name) {
+  if (name in DELIM_REGEX) return new RegExp(DELIM_REGEX[name].source, 'g');
+  return new RegExp(delim(name).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g');
+}
+
 export function parseHex(s) {
   let clean = s.replace(/0x|\\x|[^0-9a-fA-F]/g, '');
   if (clean.length % 2) clean = '0' + clean;

@@ -1,6 +1,7 @@
 import { module } from './_cat.js';
 import { A } from '../../core/registry.js';
 import { crcHex } from './crc8_checksum.js';
+import { customArgs, customCrc } from './_crc_catalogue.js';
 
 export const CRC16 = {
   'CRC-16/ARC': [16, 0x8005n, 0x0000n, true, true, 0x0000n],
@@ -24,5 +25,5 @@ export const CRC16 = {
 };
 
 module('CRC-16 Checksum', '16-bit cyclic redundancy check (many variants).',
-  [A.select('Algorithm', Object.keys(CRC16))],
-  (data, alg) => crcHex(data, CRC16[alg]));
+  [A.select('Algorithm', [...Object.keys(CRC16), 'Custom']), ...customArgs()],
+  (data, alg, ...custom) => (alg === 'Custom' ? customCrc(data, ...custom) : crcHex(data, CRC16[alg])));

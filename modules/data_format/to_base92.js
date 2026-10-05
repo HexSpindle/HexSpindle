@@ -3,9 +3,9 @@ import { module } from './_cat.js';
 export const ALPHA = '!' + Array.from({ length: 96 - 35 }, (_, i) => String.fromCharCode(35 + i)).join('')
   + Array.from({ length: 126 - 97 }, (_, i) => String.fromCharCode(97 + i)).join('');
 
-module('To Base92', "Encodes data as Base92 (thenoviceoof variant; '~' denotes empty input).", [],
+module('To Base92', "Encodes data as Base92 (thenoviceoof variant; empty input gives empty output).", [],
   (data) => {
-    if (!data.length) return '~';
+    if (!data.length) return '';
     let bits = '';
     for (const b of data) bits += b.toString(2).padStart(8, '0');
     const out = [];

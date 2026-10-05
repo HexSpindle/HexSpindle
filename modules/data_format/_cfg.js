@@ -1,5 +1,7 @@
 export class Flt { constructor(v) { this.v = v; } }
 
+// ---------- YAML ----------
+
 const TRUEWORDS = /^(true|True|TRUE|yes|Yes|YES|on|On|ON)$/;
 const FALSEWORDS = /^(false|False|FALSE|no|No|NO|off|Off|OFF)$/;
 const NULLWORDS = /^(null|Null|NULL|~)$/;
@@ -102,6 +104,7 @@ export function yamlDump(obj) {
   return yamlScalar(obj) + '\n...\n';
 }
 
+// --- YAML parsing ---
 
 function stripComment(line) {
   let inS = false, inD = false;
@@ -261,6 +264,30 @@ export function yamlLoad(text) {
     return strip ? text2 : text2 + '\n';
   }
 
+  function plainScalar(content, parentIndent) {
+    if (/^[\[{'"]/.test(content)) return parseScalarOrFlow(content);
+    const parts = [content];
+    let sepBefore = [];
+    let blanks = 0;
+    if (stripComment(lines[i - 1] ?? '').trimEnd().length === (lines[i - 1] ?? '').trimEnd().length) {
+      while (i < lines.length) {
+        const raw = lines[i];
+        if (raw.trim() === '') { blanks++; i++; continue; }
+        const s = stripComment(raw);
+        const t = s.trim();
+        const ind = s.length - s.trimStart().length;
+        if (t === '' || ind <= parentIndent || (ind === 0 && (t === '---' || t === '...'))) break;
+        parts.push(t);
+        sepBefore.push(blanks ? '\n'.repeat(blanks) : ' ');
+        blanks = 0;
+        i++;
+        if (s.trimEnd().length !== raw.trimEnd().length) break;  // a comment ends the scalar
+      }
+    }
+    if (parts.length === 1) return coerceScalar(content);
+    return parts.reduce((acc, p, k) => acc + sepBefore[k - 1] + p);
+  }
+
   function parseNested(pindent) {
     const j = peek();
     if (j < 0) return null;
@@ -269,7 +296,7 @@ export function yamlLoad(text) {
       if (isSeqItem(content)) return parseSeq(indent);
       if (findTopColon(content) >= 0) return parseMap(indent);
       i = j + 1;
-      return parseScalarOrFlow(content);
+      return plainScalar(content, pindent);
     }
     if (indent === pindent && isSeqItem(content)) return parseSeq(pindent);
     return null;
@@ -313,7 +340,7 @@ export function yamlLoad(text) {
       const remainder = cur.content.slice(colon + 1).trim();
       if (remainder === '') result[key] = parseNested(indent);
       else if (/^[|>][-+]?$/.test(remainder)) result[key] = readLiteralBlock(remainder, indent + 2);
-      else result[key] = parseScalarOrFlow(remainder);
+      else result[key] = plainScalar(remainder, indent);
     }
     return result;
   }
@@ -324,8 +351,10 @@ export function yamlLoad(text) {
   if (isSeqItem(content)) return parseSeq(indent);
   if (findTopColon(content) >= 0) return parseMap(indent);
   i = j + 1;
-  return parseScalarOrFlow(content);
+  return plainScalar(content, -1);
 }
+
+// ---------- TOML ----------
 
 export function tomlDump(obj) {
   const lines = [];
@@ -412,6 +441,8 @@ export function tomlLoad(text) {
   }
   return root;
 }
+
+// ---------- INI ----------
 
 export function iniDump(obj) {
   const lines = [];

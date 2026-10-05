@@ -1,10 +1,10 @@
 import { module } from './_cat.js';
 import { MOD } from './to_modhex.js';
+import { fromHexCC } from './from_hex.js';
 
 module('From Modhex', 'Converts Yubico modified hexadecimal back to bytes.', [],
   (t) => {
-    const v = [...t.toLowerCase()].filter(c => MOD.includes(c)).map(c => MOD.indexOf(c));
-    const out = [];
-    for (let i = 0; i + 1 < v.length; i += 2) out.push((v[i] << 4) | v[i + 1]);
-    return new Uint8Array(out);
+    const hex = t.toLowerCase().replace(/\s/g, '').split(/[^cbdefghijklnrtuv]/gi).join('')
+      .replace(/./g, c => '0123456789abcdef'[MOD.indexOf(c)]);
+    return fromHexCC(hex, 'None');
   }, { text: true });

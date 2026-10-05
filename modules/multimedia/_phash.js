@@ -1,7 +1,7 @@
 import { loadImage } from './_img.js';
 
 async function toGrayArray(data, width, height = width) {
-  const { canvas: src } = await loadImage(data);
+  const { canvas: src } = typeof data === 'object' && data && data.canvas ? data : await loadImage(data);
   const small = new OffscreenCanvas(width, height);
   const ctx = small.getContext('2d');
   ctx.drawImage(src, 0, 0, width, height);
@@ -91,11 +91,13 @@ function haarLL(a) {
 }
 
 export async function whash(data, size = 8) {
-  let a = await toGrayArray(data, size * 4);
+  const loaded = await loadImage(data);
+  const minSide = Math.min(loaded.canvas.width, loaded.canvas.height);
+  const scale = Math.max(2 ** Math.floor(Math.log2(minSide)), size);
+  let a = await toGrayArray(loaded, scale);
   a = a.map(row => Array.from(row, v => v / 255));
-  a = haarLL(a);
-  a = haarLL(a);
-  const values = a.flat();
+  while (a.length > size && a.length % 2 === 0) a = haarLL(a);
+  const values = a.flatMap(row => Array.from(row));
   const sorted = [...values].sort((x, y) => x - y);
   const mid = sorted.length / 2;
   const median = sorted.length % 2 ? sorted[(sorted.length - 1) / 2] : (sorted[mid - 1] + sorted[mid]) / 2;

@@ -6,9 +6,9 @@ module('ADFGVX Cipher Decode', 'Decodes ADFGVX / ADFGX ciphertext.',
   [A.string('Square key (fills a 6x6 or 5x5 grid)', 'PH0QG64MEA1YL2NOFDXKR3CVS5ZW7I89UTB'), A.string('Transposition keyword', 'GERMAN'), A.boolean('ADFGX (letters only, 5x5)', false)],
   (t, squareKey, transKey, adfgx) => {
     const size = adfgx ? 5 : 6;
-    const labels = adfgx ? SQ_LETTERS.slice(1) : SQ_LETTERS;
-    const alphabet = adfgx ? 'ABCDEFGHIJKLMNOPQRSTUVWXYZ' : '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ';
-    const sq = buildSquare(squareKey, alphabet).slice(0, size * size);
+    const labels = adfgx ? 'ADFGX' : SQ_LETTERS;
+    const alphabet = adfgx ? 'ABCDEFGHIKLMNOPQRSTUVWXYZ' : '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+    const sq = buildSquare(adfgx ? squareKey.toUpperCase().replace(/J/g, 'I') : squareKey, alphabet).slice(0, size * size);
     const cipher = [...t.toUpperCase()].filter(c => labels.includes(c));
     const key = transKey.toUpperCase();
     const nk = key.length;

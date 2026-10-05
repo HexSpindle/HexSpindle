@@ -1,24 +1,42 @@
 import { module } from './_cat.js';
 import { A } from '../../core/registry.js';
-import { bytesToHex, decodeLatin1 } from '../../core/util.js';
 
-module('Parse TLV', 'Splits BER-style tag-length-value records into a readable list.', [A.boolean('Show values as hex', true)],
-  (data, hexv) => {
-    const out = [];
-    let i = 0;
-    while (i < data.length) {
-      const tag = data[i];
-      let ln = data[i + 1];
-      i += 2;
-      if (ln & 0x80) {
-        const k = ln & 0x7f;
-        ln = 0;
-        for (let j = 0; j < k; j++) ln = ln * 256 + data[i + j];
-        i += k;
+module('Parse TLV', 'Converts a Type-Length-Value (TLV) encoded byte stream into a JSON array of {key, length, value} records.',
+  [A.boolean('Show values as hex', true), A.number('Type/Key size', 1), A.number('Length size', 1), A.boolean('Use BER', false)],
+  (data, _hexv, bytesInKey = 1, bytesInLength = 1, ber = false) => {
+    bytesInKey = Number(bytesInKey); bytesInLength = Number(bytesInLength);
+    if (bytesInKey <= 0 && bytesInLength <= 0) throw new Error('Type or Length size must be greater than 0');
+    let loc = 0;
+    const getValue = n => {
+      const v = [];
+      for (let i = 0; i < n; i++) {
+        if (loc > data.length) return v;
+        v.push(data[loc]);
+        loc++;
       }
-      const val = data.subarray(i, i + ln);
-      out.push(`Tag 0x${tag.toString(16).padStart(2, '0')}  Length ${ln}  Value ${hexv ? bytesToHex(val) : decodeLatin1(val)}`);
-      i += ln;
+      return v;
+    };
+    const getLength = () => {
+      let n = bytesInLength, bigEndian = false;
+      if (ber) {
+        const first = data[loc];
+        loc++;
+        if (first & 0x80) { n = first & ~0x80; bigEndian = true; } else return first & ~0x80;
+      }
+      let length = 0;
+      for (let i = 0; i < n; i++) {
+        if (bigEndian) length = (length << 8) + data[loc];
+        else length += data[loc] * Math.pow(Math.pow(2, 8), i);
+        loc++;
+      }
+      return length;
+    };
+    const out = [];
+    while (data.length > loc) {
+      const key = bytesInKey ? getValue(bytesInKey) : undefined;
+      const length = getLength();
+      const value = getValue(length);
+      out.push({ key, length, value });
     }
-    return out.join('\n');
+    return JSON.stringify(out, null, 4);
   });

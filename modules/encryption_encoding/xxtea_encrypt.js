@@ -14,8 +14,6 @@ function mx(s, y, z, p, e, key) {
   return (sum1 ^ sum2) >>> 0;
 }
 
-/** XXTEA's "Corrected Block TEA" core, ported directly from the Python btea().
- *  v: array of uint32 words (mutated in place and returned); key: 4 uint32 words. */
 export function btea(v, key, encrypt) {
   const n = v.length;
   if (n < 2) throw new Error('XXTEA needs at least 8 bytes of data');
@@ -71,9 +69,56 @@ export function wordsToBytesLE(v) {
   return out;
 }
 
-module('XXTEA Encrypt', 'XXTEA block cipher (16-byte key). Input is padded with zeros to a multiple of 4 bytes; output is hex.',
-  [A.toggle('Key', '', ['UTF8', 'Hex', 'Latin1', 'Base64'], 'UTF8')],
-  (data, key) => {
+export const XXTEA_FORMATS = ['Raw (xxtea.js, length word)', 'Hex (zero-padded, no length word)'];
+
+function toWords(bytes, includeLength) {
+  const n = (bytes.length + 3) >> 2;
+  const v = new Array(includeLength ? n + 1 : n).fill(0);
+  if (includeLength) v[n] = bytes.length;
+  for (let i = 0; i < bytes.length; i++) v[i >> 2] = (v[i >> 2] | (bytes[i] << ((i & 3) << 3))) >>> 0;
+  return v;
+}
+export function xxteaKeyWords(key) {
+  const k = new Uint8Array(Math.max(16, key.length));
+  k.set(key);
+  return toWords(k, false);
+}
+
+function cmx(s, y, z, p, e, k) {
+  return ((((z >>> 5) ^ (y << 2)) + ((y >>> 3) ^ (z << 4))) ^ ((s ^ y) + (k[(p & 3) ^ e] ^ z))) >>> 0;
+}
+export function xxteaJsEncrypt(data, key) {
+  if (data.length === 0) return new Uint8Array(0);
+  const v = toWords(data, true), k = xxteaKeyWords(key);
+  const n = v.length - 1;
+  let z = v[n], s = 0;
+  for (let q = Math.floor(6 + 52 / v.length); q > 0; --q) {
+    s = (s + DELTA) >>> 0;
+    const e = (s >>> 2) & 3;
+    for (let p = 0; p < n; ++p) z = v[p] = (v[p] + cmx(s, v[p + 1], z, p, e, k)) >>> 0;
+    z = v[n] = (v[n] + cmx(s, v[0], z, n, e, k)) >>> 0;
+  }
+  return wordsToBytesLE(v);
+}
+export function xxteaJsDecrypt(data, key) {
+  if (data.length === 0) return new Uint8Array(0);
+  const v = toWords(data, false), k = xxteaKeyWords(key);
+  const n = v.length - 1;
+  let y = v[0];
+  for (let s = (Math.floor(6 + 52 / v.length) * DELTA) >>> 0; s !== 0; s = (s - DELTA) >>> 0) {
+    const e = (s >>> 2) & 3;
+    for (let p = n; p > 0; --p) y = v[p] = (v[p] - cmx(s, y, v[p - 1], p, e, k)) >>> 0;
+    y = v[0] = (v[0] - cmx(s, y, v[n], 0, e, k)) >>> 0;
+  }
+  const m = v[n], len = n * 4;
+  if (m < len - 3 || m > len) throw new Error('Unable to decrypt using this key');
+  return wordsToBytesLE(v).slice(0, m);
+}
+
+module('XXTEA Encrypt', 'XXTEA block cipher (16-byte key; shorter keys are zero-padded). Default format is xxtea.js',
+  [A.toggle('Key', '', ['Hex', 'UTF8', 'Latin1', 'Base64'], 'Hex'), A.select('Format', XXTEA_FORMATS, XXTEA_FORMATS[0])],
+  (data, key, format) => {
+    if (format !== XXTEA_FORMATS[1]) return xxteaJsEncrypt(data, key);
     if (key.length !== 16) throw new Error('Key must be 16 bytes');
     const padLen = (4 - (data.length % 4)) % 4;
     const padded = new Uint8Array(data.length + padLen);

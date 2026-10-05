@@ -1,5 +1,5 @@
 import { module } from './_cat.js';
 import { zstdDecompress } from './_zstd.js';
 
-module('Zstandard Decompress', "Decompresses Zstandard (zstd) frames made of Raw/RLE blocks only. Real-world zstd output almost always uses 'Compressed' blocks (Huffman/FSE entropy coding), which aren't implemented in this browser-side port, and will throw a clear error rather than produce garbage.",
+module('Zstandard Decompress', 'Decompresses Zstandard (zstd) data - all block types (Raw, RLE and Huffman/FSE-compressed), multiple and skippable frames - using the bundled pure-JS fzstd decoder. Each frame’s declared content size and content checksum (when present) are verified. Dictionary-compressed frames are not supported.',
   [], (data) => zstdDecompress(data));

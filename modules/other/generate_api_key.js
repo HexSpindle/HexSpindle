@@ -27,7 +27,7 @@ module('Generate API Key / Token', 'Generates random API keys/tokens in common f
     for (let c = 0; c < count; c++) {
       if (fmt === 'Hex') out.push(bytesToHex(crypto.getRandomValues(new Uint8Array(nbytes))));
       else if (fmt === 'URL-safe Base64') out.push(tokenUrlsafe(nbytes));
-      else if (fmt === 'Alphanumeric') out.push(Array.from({ length: nbytes }, () => ALPHANUM[randomInt(ALPHANUM.length)]).join(''));
+      else if (fmt === 'Alphanumeric') out.push(Array.from({ length: Math.ceil(nbytes * 8 / Math.log2(ALPHANUM.length)) }, () => ALPHANUM[randomInt(ALPHANUM.length)]).join(''));
       else out.push(prefix + tokenUrlsafe(nbytes));
     }
     return out.join('\n');

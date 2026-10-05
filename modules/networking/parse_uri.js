@@ -1,103 +1,177 @@
 import { module } from './_cat.js';
 
-const SCHEME_RE = /^[A-Za-z][A-Za-z0-9+\-.]*$/;
+const protocolPattern = /^([a-z0-9.+-]+:)/i;
+const portPattern = /:[0-9]*$/;
+const simplePathPattern = /^(\/\/?(?!\/)[^?\s]*)(\?[^\s]*)?$/;
+const delims = ['<', '>', '"', '`', ' ', '\r', '\n', '\t'];
+const unwise = ['{', '}', '|', '\\', '^', '`'].concat(delims);
+const autoEscape = ['\''].concat(unwise);
+const nonHostChars = ['%', '/', '?', ';', '#'].concat(autoEscape);
+const hostEndingChars = ['/', '?', '#'];
+const hostnameMaxLen = 255;
+const hostnamePartPattern = /^[+a-z0-9A-Z_-]{0,63}$/;
+const hostnamePartStart = /^([+a-z0-9A-Z_-]{0,63})(.*)$/;
+const hostlessProtocol = { 'javascript': true, 'javascript:': true };
+const unsafeProtocol = hostlessProtocol;
+const slashedProtocol = { 'http:': true, 'https:': true, 'ftp:': true, 'gopher:': true, 'file:': true };
 
-function splitNetloc(url, start) {
-  let delim = url.length;
-  for (const c of ['/', '?', '#']) {
-    const idx = url.indexOf(c, start);
-    if (idx >= 0) delim = Math.min(delim, idx);
+function toASCII(host) {
+  if (!/[^\x00-\x7f]/.test(host)) return host;
+  try { return new URL('http://' + host).hostname; } catch { return ''; }
+}
+
+function urlParse(url) {
+  const u = { protocol: null, auth: null, port: null, hostname: null, hash: null, query: null, pathname: null };
+  let hasHash = false, hasAt = false, start = -1, end = -1, rest = '', lastPos = 0;
+  for (let i = 0, inWs = false, split = false; i < url.length; ++i) {
+    const code = url.charCodeAt(i);
+    const isWs = code < 33 || code === 0xa0 || code === 0xfeff;
+    if (start === -1) {
+      if (isWs) continue;
+      lastPos = start = i;
+    } else if (inWs) {
+      if (!isWs) { end = -1; inWs = false; }
+    } else if (isWs) {
+      end = i;
+      inWs = true;
+    }
+    if (!split) {
+      if (code === 0x40) hasAt = true;
+      else if (code === 0x23) { hasHash = true; split = true; }
+      else if (code === 0x3f) split = true;
+      else if (code === 0x5c) {
+        if (i - lastPos > 0) rest += url.slice(lastPos, i);
+        rest += '/';
+        lastPos = i + 1;
+      }
+    } else if (!hasHash && code === 0x23) {
+      hasHash = true;
+    }
   }
-  return [url.slice(start, delim), url.slice(delim)];
-}
-
-/** Mirrors urllib.parse.urlsplit()'s component-splitting algorithm (not full RFC validation). */
-function urlsplit(url) {
-  let scheme = '', netloc = '', query = '', fragment = '', rest = url;
-  const i = rest.indexOf(':');
-  if (i > 0 && SCHEME_RE.test(rest.slice(0, i))) { scheme = rest.slice(0, i).toLowerCase(); rest = rest.slice(i + 1); }
-  if (rest.slice(0, 2) === '//') { [netloc, rest] = splitNetloc(rest, 2); }
-  const hashIdx = rest.indexOf('#');
-  if (hashIdx !== -1) { fragment = rest.slice(hashIdx + 1); rest = rest.slice(0, hashIdx); }
-  const qIdx = rest.indexOf('?');
-  if (qIdx !== -1) { query = rest.slice(qIdx + 1); rest = rest.slice(0, qIdx); }
-  return { scheme, netloc, path: rest, query, fragment };
-}
-
-function userinfo(netloc) {
-  const at = netloc.lastIndexOf('@');
-  if (at === -1) return [null, null];
-  const info = netloc.slice(0, at);
-  const colon = info.indexOf(':');
-  return colon === -1 ? [info, null] : [info.slice(0, colon), info.slice(colon + 1)];
-}
-
-function hostinfo(netloc) {
-  const at = netloc.lastIndexOf('@');
-  const hp = at === -1 ? netloc : netloc.slice(at + 1);
-  const br = hp.indexOf('[');
-  let hostname, port;
-  if (br !== -1) {
-    const brEnd = hp.indexOf(']', br);
-    hostname = brEnd === -1 ? hp.slice(br + 1) : hp.slice(br + 1, brEnd);
-    const after = brEnd === -1 ? '' : hp.slice(brEnd + 1);
-    const colon = after.indexOf(':');
-    port = colon === -1 ? null : after.slice(colon + 1);
-  } else {
-    const colon = hp.indexOf(':');
-    [hostname, port] = colon === -1 ? [hp, null] : [hp.slice(0, colon), hp.slice(colon + 1)];
+  if (start !== -1) {
+    if (lastPos === start) rest = end === -1 ? url.slice(start) : url.slice(start, end);
+    else if (end === -1 && lastPos < url.length) rest += url.slice(lastPos);
+    else if (end !== -1 && lastPos < end) rest += url.slice(lastPos, end);
   }
-  return [hostname || null, port || null];
-}
 
-function hostnameOf(netloc) {
-  const [h] = hostinfo(netloc);
-  if (!h) return null;
-  const pct = h.indexOf('%');
-  return pct === -1 ? h.toLowerCase() : h.slice(0, pct).toLowerCase() + h.slice(pct);
-}
-function portOf(netloc) {
-  const [, p] = hostinfo(netloc);
-  if (p === null) return null;
-  if (!/^[0-9]+$/.test(p)) throw new Error(`Port could not be cast to integer value as '${p}'`);
-  const n = parseInt(p, 10);
-  if (n < 0 || n > 65535) throw new Error('Port out of range 0-65535');
-  return n;
-}
-
-function unquotePlus(s) {
-  const withSpaces = s.replace(/\+/g, ' ');
-  try { return decodeURIComponent(withSpaces); }
-  catch { return withSpaces.replace(/%[0-9A-Fa-f]{2}/g, m => { try { return decodeURIComponent(m); } catch { return '�'; } }); }
-}
-
-function parseQs(qs) {
-  const map = new Map();
-  for (const nv of qs.split('&')) {
-    if (!nv) continue;
-    const eq = nv.indexOf('=');
-    const name = eq === -1 ? nv : nv.slice(0, eq);
-    const value = eq === -1 ? '' : nv.slice(eq + 1);
-    const k = unquotePlus(name), v = unquotePlus(value);
-    if (!map.has(k)) map.set(k, []);
-    map.get(k).push(v);
+  if (!hasHash && !hasAt) {
+    const simplePath = simplePathPattern.exec(rest);
+    if (simplePath) {
+      u.pathname = simplePath[1];
+      if (simplePath[2]) u.query = simplePath[2].substr(1);
+      return u;
+    }
   }
-  return map;
+
+  let proto = protocolPattern.exec(rest), lowerProto, slashes;
+  if (proto) {
+    proto = proto[0];
+    lowerProto = proto.toLowerCase();
+    u.protocol = lowerProto;
+    rest = rest.substr(proto.length);
+  }
+  if (proto || rest.match(/^\/\/[^@/]+@[^@/]+/)) {
+    slashes = rest.substr(0, 2) === '//';
+    if (slashes && !(proto && hostlessProtocol[proto])) rest = rest.substr(2);
+  }
+
+  if (!hostlessProtocol[proto] && (slashes || (proto && !slashedProtocol[proto]))) {
+    let hostEnd = -1;
+    for (const c of hostEndingChars) {
+      const hec = rest.indexOf(c);
+      if (hec !== -1 && (hostEnd === -1 || hec < hostEnd)) hostEnd = hec;
+    }
+    const atSign = hostEnd === -1 ? rest.lastIndexOf('@') : rest.lastIndexOf('@', hostEnd);
+    if (atSign !== -1) {
+      u.auth = decodeURIComponent(rest.slice(0, atSign));
+      rest = rest.slice(atSign + 1);
+    }
+    hostEnd = -1;
+    for (const c of nonHostChars) {
+      const hec = rest.indexOf(c);
+      if (hec !== -1 && (hostEnd === -1 || hec < hostEnd)) hostEnd = hec;
+    }
+    if (hostEnd === -1) hostEnd = rest.length;
+    let host = rest.slice(0, hostEnd);
+    rest = rest.slice(hostEnd);
+    const port = portPattern.exec(host);
+    if (port) {
+      if (port[0] !== ':') u.port = port[0].substr(1);
+      host = host.substr(0, host.length - port[0].length);
+    }
+    u.hostname = host || '';
+
+    const ipv6Hostname = u.hostname[0] === '[' && u.hostname[u.hostname.length - 1] === ']';
+    if (!ipv6Hostname) {
+      const hostparts = u.hostname.split(/\./);
+      for (let i = 0; i < hostparts.length; i++) {
+        const part = hostparts[i];
+        if (!part || part.match(hostnamePartPattern)) continue;
+        let newpart = '';
+        for (let j = 0; j < part.length; j++) newpart += part.charCodeAt(j) > 127 ? 'x' : part[j];
+        if (!newpart.match(hostnamePartPattern)) {
+          const validParts = hostparts.slice(0, i);
+          const notHost = hostparts.slice(i + 1);
+          const bit = part.match(hostnamePartStart);
+          if (bit) { validParts.push(bit[1]); notHost.unshift(bit[2]); }
+          if (notHost.length) rest = '/' + notHost.join('.') + rest;
+          u.hostname = validParts.join('.');
+          break;
+        }
+      }
+    }
+    u.hostname = u.hostname.length > hostnameMaxLen ? '' : u.hostname.toLowerCase();
+    if (!ipv6Hostname) u.hostname = toASCII(u.hostname);
+    if (ipv6Hostname) {
+      u.hostname = u.hostname.substr(1, u.hostname.length - 2);
+      if (rest[0] !== '/') rest = '/' + rest;
+    }
+  }
+
+  if (!unsafeProtocol[lowerProto]) {
+    for (const ae of autoEscape) {
+      if (rest.indexOf(ae) === -1) continue;
+      let esc = encodeURIComponent(ae);
+      if (esc === ae) esc = escape(ae);
+      rest = rest.split(ae).join(esc);
+    }
+  }
+  const hash = rest.indexOf('#');
+  if (hash !== -1) { u.hash = rest.substr(hash); rest = rest.slice(0, hash); }
+  const qm = rest.indexOf('?');
+  if (qm !== -1) { u.query = rest.substr(qm + 1); rest = rest.slice(0, qm); }
+  if (rest) u.pathname = rest;
+  if (slashedProtocol[lowerProto] && u.hostname && !u.pathname) u.pathname = '/';
+  return u;
 }
 
-module('Parse URI', 'Splits a URI into scheme, host, port, path, query parameters and fragment.', [],
+module('Parse URI', 'Splits a URI into protocol, auth, host, port, path, query arguments and hash.', [],
   (t) => {
-    const u = urlsplit(t.trim());
-    const [username, password] = userinfo(u.netloc);
-    const hostname = hostnameOf(u.netloc);
-    const port = portOf(u.netloc);
-    const out = [];
-    for (const [k, v] of [['Protocol', u.scheme], ['Username', username], ['Password', password], ['Hostname', hostname], ['Port', port], ['Path', u.path], ['Fragment', u.fragment]]) {
-      if (v !== null && v !== undefined && v !== '') out.push(`${k}:\t${v}`);
+    const uri = urlParse(t);
+    let output = '';
+    if (uri.protocol) output += 'Protocol:\t' + uri.protocol + '\n';
+    if (uri.auth) output += 'Auth:\t\t' + uri.auth + '\n';
+    if (uri.hostname) output += 'Hostname:\t' + uri.hostname + '\n';
+    if (uri.port) output += 'Port:\t\t' + uri.port + '\n';
+    if (uri.pathname) output += 'Path name:\t' + uri.pathname + '\n';
+    if (uri.query) {
+      const queryObj = Object.create(null);
+      for (const [key, value] of new URLSearchParams(uri.query)) {
+        if (Object.prototype.hasOwnProperty.call(queryObj, key)) {
+          if (Array.isArray(queryObj[key])) queryObj[key].push(value);
+          else queryObj[key] = [queryObj[key], value];
+        } else {
+          queryObj[key] = value;
+        }
+      }
+      let padding = 0;
+      for (const k of Object.keys(queryObj)) padding = k.length > padding ? k.length : padding;
+      output += 'Arguments:\n';
+      for (const key in queryObj) {
+        output += '\t' + key.padEnd(padding, ' ');
+        output += queryObj[key].length ? ' = ' + queryObj[key] + '\n' : '\n';
+      }
     }
-    if (u.query) {
-      out.push('Arguments:');
-      for (const [k, vs] of parseQs(u.query)) for (const v of vs) out.push(`\t${k} = ${v}`);
-    }
-    return out.join('\n');
+    if (uri.hash) output += 'Hash:\t\t' + uri.hash + '\n';
+    return output;
   }, { text: true });

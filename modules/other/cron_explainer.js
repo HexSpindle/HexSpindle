@@ -11,15 +11,28 @@ function pyInt(s) {
   return parseInt(s, 10);
 }
 
+function cronVal(s, lo, hi, names) {
+  const t = s.trim();
+  let v;
+  if (names && /^[A-Za-z]{3}$/.test(t)) {
+    const hit = Object.keys(names).find(k => names[k].toLowerCase() === t.toLowerCase());
+    if (hit === undefined) throw new Error(`Unknown name '${t}'`);
+    v = Number(hit);
+  } else v = pyInt(t);
+  if (v < lo || v > hi) throw new Error(`Value ${v} out of range ${lo}-${hi}`);
+  return v;
+}
+
 function expand(field, lo, hi, names) {
   let out = [];
   for (let part of field.split(',')) {
     let step = 1;
     if (part.includes('/')) { const sp = part.split('/'); part = sp[0]; step = pyInt(sp[1]); }
     let rng;
+    if (step < 1) throw new Error(`Invalid step '${step}'`);
     if (part === '*') rng = rangeIncl(lo, hi);
-    else if (part.includes('-')) { const [a, b] = part.split('-').map(pyInt); rng = rangeIncl(a, b); }
-    else rng = [pyInt(part)];
+    else if (part.includes('-')) { const [a, b] = part.split('-').map(x => cronVal(x, lo, hi, names)); rng = rangeIncl(a, b); }
+    else rng = [cronVal(part, lo, hi, names)];
     if (step !== 1) out.push(...rng.filter(v => (v - rng[0]) % step === 0));
     else out.push(...rng);
   }

@@ -2,7 +2,7 @@ import { module } from './_cat.js';
 import { A } from '../../core/registry.js';
 
 module('Template', 'Renders a template against JSON input, substituting {{placeholder}} variables - a practical subset of Handlebars/Mustache syntax (see source comment for exactly what is supported).',
-  [A.area('Template', 'Hello {{name}}!')],
+  [A.area('Template', '')],
   (jsonText, templateStr) => {
     let data;
     try { data = JSON.parse(jsonText); } catch (e) { throw new Error(`Invalid input JSON: ${e.message}`); }

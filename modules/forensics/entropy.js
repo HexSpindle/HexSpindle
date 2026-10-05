@@ -2,19 +2,19 @@ import { module } from './_cat.js';
 import { A, Html } from '../../core/registry.js';
 
 function shannon(u8) {
-  if (!u8.length) return 0.0;
-  const n = u8.length;
-  const counts = new Map();
-  for (const b of u8) counts.set(b, (counts.get(b) || 0) + 1);
+  if (!u8.length) return 0;
+  const counts = new Array(256).fill(0);
+  for (const b of u8) counts[b]++;
   let e = 0;
-  for (const c of counts.values()) { const p = c / n; e -= p * Math.log2(p); }
-  return Math.max(0, e);
+  for (const c of counts) { if (c > 0) { const p = c / u8.length; e += p * Math.log(p) / Math.log(2); } }
+  return -e || 0;
 }
 
 module('Entropy', 'Shannon entropy of the input, with optional block-entropy or histogram visualisations.',
-  [A.select('Visualisation', ['Shannon scale', 'Block entropy', 'Histogram (byte frequency)']), A.number('Block size', 256, 16)],
+  [A.select('Visualisation', ['Shannon scale', 'Block entropy', 'Histogram (byte frequency)', 'Number only']), A.number('Block size', 256, 16)],
   (data, vis, block) => {
     const e = shannon(data);
+    if (vis === 'Number only') return String(e);
     if (vis === 'Shannon scale') {
       const verdict = e > 7.5 ? 'Very high (likely compressed or encrypted)' : e > 6.5 ? 'High (packed/compressed?)' : e > 4.5 ? 'Medium (code / mixed data)' : e > 1 ? 'Low (text / structured)' : 'Very low (repetitive)';
       return `Shannon entropy: ${e.toFixed(6)} bits/byte (max 8)\nScale: ${verdict}`;

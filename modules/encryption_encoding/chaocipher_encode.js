@@ -7,17 +7,17 @@ const DEFAULT_R = 'PTLNBQDEOYSFAVZKGJRIHWXUMC';
 function step(left, right, idx, encrypt) {
   let pos, ct;
   if (encrypt) {
-    pos = left.indexOf(idx);
-    ct = right[pos];
-  } else {
     pos = right.indexOf(idx);
     ct = left[pos];
+  } else {
+    pos = left.indexOf(idx);
+    ct = right[pos];
   }
   left = left.slice(pos).concat(left.slice(0, pos));
   left = [left[0]].concat(left.slice(2, 14), [left[1]], left.slice(14));
   right = right.slice(pos).concat(right.slice(0, pos));
   right = right.slice(1).concat(right.slice(0, 1));
-  right = right.slice(0, 2).concat(right.slice(3), [right[2]]);
+  right = right.slice(0, 2).concat(right.slice(3, 14), [right[2]], right.slice(14));
   return [left, right, ct];
 }
 

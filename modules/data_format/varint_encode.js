@@ -14,6 +14,6 @@ export function encodeVarint(n) {
 
 module('VarInt Encode', 'Encodes integers as protobuf-style base-128 varints (one per line of input).', [],
   (t) => {
-    const toks = t.match(/-?\d+/g) || [];
+    const toks = t.match(/-?\d+/g) || (t.trim() ? [] : ['0']);
     return concatBytes(toks.map(tok => encodeVarint(BigInt(tok))));
   }, { text: true });

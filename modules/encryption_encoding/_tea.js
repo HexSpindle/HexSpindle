@@ -55,10 +55,48 @@ export function xteaDecryptBlock(v0, v1, key, rounds = 32) {
   return [v0 & MASK, v1 & MASK];
 }
 
-function blocks(data, encryptFn, key, rounds) {
-  const padLen = (-data.length % 8 + 8) % 8;
-  const padded = new Uint8Array(data.length + padLen);
-  padded.set(data);
+export const TEA_PADDINGS = ['PKCS5', 'NO', 'ZERO', 'RANDOM', 'BIT'];
+
+function applyPadding(data, padding) {
+  const rem = data.length % 8;
+  if (rem === 0 && padding !== 'PKCS5') return data;
+  const n = 8 - rem;
+  const out = new Uint8Array(data.length + n);
+  out.set(data);
+  switch (padding) {
+    case 'NO':
+      throw new Error(`No padding requested but input length (${data.length} bytes) is not a multiple of 8 bytes.`);
+    case 'PKCS5': out.fill(n, data.length); break;
+    case 'ZERO': break;
+    case 'RANDOM': crypto.getRandomValues(out.subarray(data.length)); break;
+    case 'BIT': out[data.length] = 0x80; break;
+    default: throw new Error(`Unknown padding type: ${padding}`);
+  }
+  return out;
+}
+
+function removePadding(data, padding) {
+  if (data.length === 0) return data;
+  switch (padding) {
+    case 'PKCS5': {
+      const p = data[data.length - 1];
+      if (p > 0 && p <= 8) {
+        for (let i = 0; i < p; i++) if (data[data.length - 1 - i] !== p) throw new Error('Invalid PKCS#5 padding.');
+        return data.slice(0, data.length - p);
+      }
+      throw new Error('Invalid PKCS#5 padding.');
+    }
+    case 'BIT':
+      for (let i = data.length - 1; i >= 0; i--) {
+        if (data[i] === 0x80) return data.slice(0, i);
+        if (data[i] !== 0) throw new Error('Invalid BIT padding.');
+      }
+      throw new Error('Invalid BIT padding.');
+    default: return data;
+  }
+}
+
+function blocks(padded, encryptFn, key, rounds) {
   const out = new Uint8Array(padded.length);
   for (let i = 0; i < padded.length; i += 8) {
     let v0 = (((padded[i] << 24) | (padded[i + 1] << 16) | (padded[i + 2] << 8) | padded[i + 3]) >>> 0);
@@ -79,11 +117,19 @@ function keyWords(key16) {
   return key;
 }
 
-export function teaEcb(data, key16, rounds, decrypt) {
+function ecb(data, key16, rounds, decrypt, padding, encFn, decFn) {
   const key = keyWords(key16);
-  return blocks(data, decrypt ? teaDecryptBlock : teaEncryptBlock, key, rounds);
+  if (data.length === 0) return new Uint8Array(0);
+  if (decrypt) {
+    if (data.length % 8) throw new Error(`Invalid ciphertext length: ${data.length} bytes. Must be a multiple of 8.`);
+    return removePadding(blocks(data, decFn, key, rounds), padding);
+  }
+  return blocks(applyPadding(data, padding), encFn, key, rounds);
 }
-export function xteaEcb(data, key16, rounds, decrypt) {
-  const key = keyWords(key16);
-  return blocks(data, decrypt ? xteaDecryptBlock : xteaEncryptBlock, key, rounds);
+
+export function teaEcb(data, key16, rounds, decrypt, padding = 'ZERO') {
+  return ecb(data, key16, rounds, decrypt, padding, teaEncryptBlock, teaDecryptBlock);
+}
+export function xteaEcb(data, key16, rounds, decrypt, padding = 'ZERO') {
+  return ecb(data, key16, rounds, decrypt, padding, xteaEncryptBlock, xteaDecryptBlock);
 }

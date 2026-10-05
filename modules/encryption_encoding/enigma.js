@@ -12,6 +12,39 @@ const REFLECTORS = {
 };
 const A_ = 65;
 
+const REFLECTOR_ALIASES = { 'B THIN': 'B-thin', 'C THIN': 'C-thin' };
+
+function parseReflector(spec) {
+  const s = String(spec).trim();
+  const name = Object.hasOwn(REFLECTORS, s) ? s : REFLECTOR_ALIASES[s.toUpperCase()];
+  if (name) return [...REFLECTORS[name]].map(c => c.charCodeAt(0) - A_);
+  const u = s.toUpperCase();
+  if (/^[A-Z]{26}$/.test(u)) {
+    const rf = [...u].map(c => c.charCodeAt(0) - A_);
+    if (!rf.every((v, i) => v !== i && rf[v] === i)) throw new Error('Reflector must pair every letter with a different letter');
+    return rf;
+  }
+  const rf = new Array(26).fill(-1);
+  for (const pair of u.split(/\s+/).filter(Boolean)) {
+    if (!/^[A-Z]{2}$/.test(pair)) throw new Error(`Unknown reflector '${s}': use a name (${Object.keys(REFLECTORS).join(', ')}) or 13 letter pairs`);
+    const a = pair.charCodeAt(0) - A_, b = pair.charCodeAt(1) - A_;
+    if (a === b || rf[a] !== -1 || rf[b] !== -1) throw new Error(`Invalid reflector pair ${pair}`);
+    rf[a] = b; rf[b] = a;
+  }
+  if (rf.includes(-1)) throw new Error('Reflector must have exactly 13 pairs covering every letter');
+  return rf;
+}
+
+function parseRotor(tok) {
+  if (Object.hasOwn(ROTORS, tok)) return ROTORS[tok];
+  const m = /^([A-Za-z]{26})(?:<([A-Za-z]*))?$/.exec(tok);
+  if (!m) throw new Error(`Unknown rotor '${tok}': use a name (${Object.keys(ROTORS).join(', ')}) or a wiring like EKMFLGDQVZNTOWYHXUSPAIBRCJ<R`);
+  const w = m[1].toUpperCase();
+  if (new Set(w).size !== 26) throw new Error('Rotor wiring must have each letter exactly once');
+  const notches = [...(m[2] || '').toUpperCase()].map(c => String.fromCharCode((c.charCodeAt(0) - A_ + 25) % 26 + A_)).join('');
+  return [w, notches];
+}
+
 function parsePlug(s) {
   const m = {};
   const pairs = s.toUpperCase().match(/[A-Z]{2}/g) || [];
@@ -23,8 +56,8 @@ function parsePlug(s) {
   return m;
 }
 
-module('Enigma', 'Simulates the Enigma machine (M3 / M4). Rotor lists are left to right as seen: slowest first.',
-  [A.select('Reflector', Object.keys(REFLECTORS)), A.string('Rotors (slow→fast)', 'I II III', 'Roman numerals / Beta / Gamma separated by spaces'),
+module('Enigma', 'Simulates the Enigma machine (M3 / M4). Rotor lists are left to right as seen: slowest first. Rotors and reflector can be given by name or by wiring. With strict output, letters are output in 5-letter groups.',
+  [A.combo('Reflector', Object.keys(REFLECTORS).map(k => [k, k])), A.string('Rotors (slow→fast)', 'I II III', 'Names (I-VIII, Beta, Gamma) or wirings like EKMFLGDQVZNTOWYHXUSPAIBRCJ<R, separated by spaces'),
    A.string('Ring settings', 'A A A'), A.string('Start positions', 'A A A'), A.string('Plugboard', '', 'e.g. AB CD EF'), A.boolean('Strict output (letters only)', true)],
   (t, refl, rotors, ringsS, startsS, plug, strict) => {
     const names = rotors.split(/\s+/).filter(Boolean);
@@ -33,10 +66,11 @@ module('Enigma', 'Simulates the Enigma machine (M3 / M4). Rotor lists are left t
     if (!(names.length === rings.length && rings.length === pos.length) || ![3, 4].includes(names.length)) {
       throw new Error('Rotors, ring settings and start positions need 3 (or 4) entries each');
     }
-    const wiring = names.map(n => [...ROTORS[n][0]].map(c => c.charCodeAt(0) - A_));
+    const specs = names.map(parseRotor);
+    const wiring = specs.map(sp => [...sp[0]].map(c => c.charCodeAt(0) - A_));
     const inv = wiring.map(w => { const r = new Array(26); for (let i = 0; i < 26; i++) r[w[i]] = i; return r; });
-    const notches = names.map(n => [...ROTORS[n][1]].map(c => c.charCodeAt(0) - A_));
-    const rf = [...REFLECTORS[refl]].map(c => c.charCodeAt(0) - A_);
+    const notches = specs.map(sp => [...sp[1]].map(c => c.charCodeAt(0) - A_));
+    const rf = parseReflector(refl);
     const pb = parsePlug(plug);
     const n = names.length;
     const out = [];
@@ -66,7 +100,8 @@ module('Enigma', 'Simulates the Enigma machine (M3 / M4). Rotor lists are left t
       }
       let c = String.fromCharCode(x + A_);
       c = pb[c] || c;
-      out.push((ch === ch.toUpperCase() || strict) ? c : c.toLowerCase());
+      out.push(c);
     }
-    return out.join('');
+    const res = out.join('');
+    return strict ? res.replace(/([A-Z]{5})(?!$)/g, '$1 ') : res;
   }, { text: true });

@@ -9,9 +9,9 @@ export function cetaceanDecode(input) {
     else bits.push(ch === 'e' ? 1 : 0);
   }
   let out = '';
-  for (let i = 0; i + 16 <= bits.length; i += 16) {
+  for (let i = 0; i < bits.length; i += 16) {
     let code = 0;
-    for (let j = 0; j < 16; j++) code = (code << 1) | bits[i + j];
+    for (let j = i; j < Math.min(i + 16, bits.length); j++) code = (code << 1) | bits[j];
     out += String.fromCharCode(code);
   }
   return out;

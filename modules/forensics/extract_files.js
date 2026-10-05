@@ -104,6 +104,7 @@ function gzipMemberEnd(data, s) {
   } catch { return -1; }
 }
 
+// --- Byte carving -----------------------------------------------------------------------------
 function matchesLit(data, i, pat) {
   if (i + pat.length > data.length) return false;
   for (let j = 0; j < pat.length; j++) if (data[i + j] !== pat[j]) return false;
@@ -175,5 +176,5 @@ module('Extract Files', 'Carves embedded JPEG/PNG/GIF/PDF/ZIP/GZIP files out of 
       const [s, e] = files[idx - 1];
       return data.subarray(s, Math.min(e, data.length));
     }
-    return files.map(([s, e, n], i) => `#${i + 1}: ${n} at offset ${s} (0x${s.toString(16)}), ${Math.min(e, data.length) - s} bytes`).join('\n') || 'No files found.';
+    return files.map(([s, e, n], i) => `#${i + 1}: ${n} at offset ${s} (0x${s.toString(16)}), ${Math.min(e, data.length) - s} bytes`).join('\n');
   });

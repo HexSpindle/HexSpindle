@@ -203,48 +203,36 @@ function getMappedCodePoint(style, offset, upper) {
   if (Array.isArray(source)) {
     return source[offset];
   }
-
   return source + offset;
+}
+
+function applyStyle(t, style) {
+  if (style === 'Underline') return [...t].map(c => c + '\u0332').join('');
+  if (style === 'Strikethrough') return [...t].map(c => c + '\u0336').join('');
+  if (style === 'Circled') return mapLetters(t, (off, upper) => String.fromCodePoint((upper ? 0x24b6 : 0x24d0) + off));
+  if (MAPS[style]) return mapLetters(t, (off, upper) => String.fromCodePoint(getMappedCodePoint(style, off, upper)));
+  return t;
 }
 
 module(
   'Unicode Text Format',
-  'Re-renders letters in a Unicode mathematical style, or underlines / strikes through text.',
+  'Re-renders letters in a Unicode mathematical style, and/or adds combining underline / strikethrough marks to every character.',
   [
     A.select('Style', [
       ...Object.keys(MAPS),
       'Underline',
       'Strikethrough',
       'Circled',
-    ]),
+      'None',
+    ], 'None'),
+    A.boolean('Underline', true),
+    A.boolean('Strikethrough', true),
   ],
-  (t, style) => {
-    if (style === 'Underline') {
-      return [...t].map(c => c + '\u0332').join('');
-    }
-
-    if (style === 'Strikethrough') {
-      return [...t].map(c => c + '\u0336').join('');
-    }
-
-    if (style === 'Circled') {
-      return mapLetters(
-        t,
-        (off, upper) =>
-          String.fromCodePoint(
-            (upper ? 0x24b6 : 0x24d0) + off
-          )
-      );
-    }
-
-    if (MAPS[style]) {
-      return mapLetters(t, (off, upper) => {
-        const cp = getMappedCodePoint(style, off, upper);
-        return String.fromCodePoint(cp);
-      });
-    }
-
-    return t;
+  (t, style, underline = true, strikethrough = true) => {
+    t = applyStyle(t, style);
+    if (!underline && !strikethrough) return t;
+    const marks = (strikethrough ? '\u0336' : '') + (underline ? '\u0332' : '');
+    return [...t].map(c => c + marks).join('');
   },
   { text: true }
 );

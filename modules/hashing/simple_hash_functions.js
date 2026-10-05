@@ -43,7 +43,7 @@ export function simpleHash(fn, data) {
   if (fn.startsWith('FNV')) {
     const bits64 = fn.includes('64');
     const prime = bits64 ? 0x100000001b3n : 0x01000193n;
-    const offset = bits64 ? 0xcbf29ce484222325n : 0x811c9dc5n;
+    const offset = fn.startsWith('FNV-0') ? 0n : (bits64 ? 0xcbf29ce484222325n : 0x811c9dc5n);
     const mask = bits64 ? 0xffffffffffffffffn : 0xffffffffn;
     let h = offset;
     for (const byte of data) {
@@ -74,7 +74,9 @@ export function simpleHash(fn, data) {
   if (fn === 'AP hash') {
     let h = 0xaaaaaaaa;
     data.forEach((b, i) => {
-      h = (i & 1) ? (h ^ ((h << 7) ^ b ^ (h >>> 3))) : (h ^ (~((h << 11) ^ b ^ (h >>> 5))));
+      h = (i & 1) === 0
+        ? (h ^ ((h << 7) ^ Math.imul(b, h >>> 3)))
+        : (h ^ ~(((h << 11) + (b ^ (h >>> 5))) | 0));
       h = h >>> 0;
     });
     return h >>> 0;

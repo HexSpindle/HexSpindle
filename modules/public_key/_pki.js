@@ -1,5 +1,5 @@
 import { parseSeq, parseOneDer, derUint, decodeOid, derSequence, derInteger, derOid, derNull, derBitString, derOctetString } from './_asn1.js';
-import { findPem } from './_pem.js';
+import { findPem, findAllPem } from './_pem.js';
 import { bigIntToBytes } from './_bignum.js';
 import { concatBytes } from '../../core/util.js';
 import { OID_NAMES, EC_CURVE_OID_TO_WEBCRYPTO, WEBCRYPTO_CURVE_TO_OID } from './_oids.js';
@@ -89,12 +89,36 @@ export async function decryptPkcs8(der, password) {
   }
 }
 
+export function traditionalToPkcs8(label, der) {
+  const top = parseOneDer(der);
+  if (label === 'RSA PRIVATE KEY') {
+    return derSequence([derInteger(0), derSequence([derOid(OID.rsaEncryption), derNull()]), derOctetString(der)]);
+  }
+  if (label === 'EC PRIVATE KEY') {
+
+    const params = top.children.find((c) => c.class === 2 && c.tag === 0);
+    if (!params) throw new Error('EC private key has no curve parameters');
+    const inner = derSequence(top.children.filter((c) => !(c.class === 2 && c.tag === 0)).map((c) => c.raw));
+    return derSequence([derInteger(0), derSequence([derOid(OID.ecPublicKey), params.children[0].raw]), derOctetString(inner)]);
+  }
+  if (label === 'DSA PRIVATE KEY') {
+    const [, p, q, g, , x] = top.children.map(derUint);
+    return buildDsaPkcs8Der(p, q, g, x);
+  }
+  throw new Error(`Unsupported private key type: ${label}`);
+}
+
 export async function loadKeyInfo(pem, password) {
-  const block = findPem(pem);
+  const block = findAllPem(pem).find(b => /PRIVATE KEY/.test(b.label)) || findPem(pem);
   if (!block) throw new Error('No PEM key found');
   let { label, der } = block;
   if (/PRIVATE KEY/.test(label) && /ENCRYPTED/.test(label)) {
     der = await decryptPkcs8(der, password);
+    label = 'PRIVATE KEY';
+  }
+  if (/^(RSA|EC|DSA) PRIVATE KEY$/.test(label)) {
+    if (/Proc-Type:\s*4,\s*ENCRYPTED/.test(pem)) throw new Error(`Legacy OpenSSL-encrypted "${label}" PEM is not supported - convert it to PKCS#8 first (openssl pkcs8 -topk8)`);
+    der = traditionalToPkcs8(label, der);
     label = 'PRIVATE KEY';
   }
   if (/PRIVATE KEY/.test(label)) {
@@ -164,7 +188,6 @@ export function buildDsaPkcs8Der(p, q, g, x) {
   return derSequence([derInteger(0), algo, derOctetString(xDer)]);
 }
 
-
 export function derSignatureToRaw(der, fieldLen) {
   const [rNode, sNode] = parseOneDer(der).children;
   return concatBytes([bigIntToBytes(derUint(rNode), fieldLen), bigIntToBytes(derUint(sNode), fieldLen)]);
@@ -223,4 +246,42 @@ export async function verifyX509Signature(spkiDer, sigAlgoOid, signedData, signa
     return dsaVerifyRaw(p, q, g, y, info.hash, signedData, derUint(rNode), derUint(sNode));
   }
   return false;
+}
+
+const CURVE448_PRIV_LEN = { Ed448: 57, X448: 56 };
+let noble448;
+export function loadCurve448() {
+  if (!noble448) noble448 = import('./_noble_curve448.mjs');
+  return noble448;
+}
+export const isCurve448 = (kind) => kind === 'Ed448' || kind === 'X448';
+
+export function curve448RawPrivate(kind, der) {
+  const raw = parseOneDer(splitPkcs8(der).keyOctets).value;
+  if (!raw || raw.length !== CURVE448_PRIV_LEN[kind]) throw new Error(`Invalid ${kind} private key length`);
+  return raw;
+}
+export function curve448RawPublic(kind, der) {
+  const raw = splitSpki(der).keyBits;
+  if (raw.length !== CURVE448_PRIV_LEN[kind]) throw new Error(`Invalid ${kind} public key length`);
+  return raw;
+}
+export function buildCurve448SpkiDer(kind, pub) {
+  return derSequence([derSequence([derOid(OID[kind.toLowerCase()])]), derBitString(pub)]);
+}
+export function buildCurve448Pkcs8Der(kind, priv) {
+  return derSequence([derInteger(0), derSequence([derOid(OID[kind.toLowerCase()])]), derOctetString(derOctetString(priv))]);
+}
+export async function curve448Lib(kind) {
+  const m = await loadCurve448();
+  return kind === 'Ed448' ? m.ed448 : m.x448;
+}
+export async function curve448SpkiFromPkcs8(kind, der) {
+  const lib = await curve448Lib(kind);
+  return buildCurve448SpkiDer(kind, lib.getPublicKey(curve448RawPrivate(kind, der)));
+}
+export async function generateCurve448(kind) {
+  const lib = await curve448Lib(kind);
+  const priv = lib.utils.randomSecretKey();
+  return { spki: buildCurve448SpkiDer(kind, lib.getPublicKey(priv)), pkcs8: buildCurve448Pkcs8Der(kind, priv) };
 }

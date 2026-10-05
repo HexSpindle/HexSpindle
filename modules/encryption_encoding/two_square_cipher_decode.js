@@ -13,13 +13,8 @@ module('Two-square Cipher Decode', 'Decodes a Two-square cipher.',
       const idxA = sq1.indexOf(a), idxB = sq2.indexOf(b);
       const ra = Math.floor(idxA / 5), ca = idxA % 5;
       const rb = Math.floor(idxB / 5), cb = idxB % 5;
-      if (ra === rb) {
-        out.push(sq1[ra * 5 + cb]);
-        out.push(sq2[rb * 5 + ca]);
-      } else {
-        out.push(sq1[ra * 5 + ca]);
-        out.push(sq2[rb * 5 + cb]);
-      }
+      out.push(sq1[ra * 5 + cb]);
+      out.push(sq2[rb * 5 + ca]);
     }
     return out.join('');
   }, { text: true });

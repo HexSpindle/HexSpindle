@@ -27,14 +27,14 @@ function bytesToInt(u8) {
   return Number(v);
 }
 
-async function deriveKey(secret, salt) {
-  const data = concatBytes([encodeUtf8(salt), encodeUtf8('signer'), encodeUtf8(secret)]);
-  return new Uint8Array(await crypto.subtle.digest('SHA-1', data));
-}
-
 async function hmacSha1(key, msg) {
   const hk = await crypto.subtle.importKey('raw', key, { name: 'HMAC', hash: 'SHA-1' }, false, ['sign']);
   return new Uint8Array(await crypto.subtle.sign('HMAC', hk, msg));
+}
+
+async function deriveKey(secret, salt) {
+  if (!secret) throw new Error('Secret key required');
+  return hmacSha1(encodeUtf8(secret), encodeUtf8(salt));
 }
 
 async function zlibDeflate(bytes) {
@@ -87,6 +87,10 @@ export async function sign(obj, secret, salt = 'cookie-session') {
 }
 
 export async function verify(token, secret, maxAge, salt = 'cookie-session') {
+  return (await verifyFull(token, secret, maxAge, salt)).payload;
+}
+
+export async function verifyFull(token, secret, maxAge, salt = 'cookie-session') {
   const parts = token.split('.');
   if (parts.length < 3) throw new Error('Invalid signature: malformed token');
   const sigB64 = parts[parts.length - 1];
@@ -104,5 +108,5 @@ export async function verify(token, secret, maxAge, salt = 'cookie-session') {
     const age = Math.floor(Date.now() / 1000) - ts;
     if (age > maxAge) throw new Error(`Signature expired: age ${age} > ${maxAge} seconds`);
   }
-  return loadPayload(payload);
+  return { payload: await loadPayload(payload), timestamp: ts };
 }

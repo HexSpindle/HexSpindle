@@ -2,15 +2,6 @@ import { module } from './_cat.js';
 import { A } from '../../core/registry.js';
 import { delim } from '../../core/util.js';
 
-function pyStr(n) {
-  if (n === null) return 'None';
-  if (n === true) return 'True';
-  if (n === false) return 'False';
-  return String(n);
-}
-
-function isPlainObject(n) { return n !== null && typeof n === 'object' && !Array.isArray(n); }
-
 function tokenize(path) {
   const re = /\.\.|\[\s*'?([^\]']+?)'?\s*\]|\.?([^.[\]]+)/g;
   const toks = []; let m;
@@ -21,34 +12,27 @@ function tokenize(path) {
   return toks;
 }
 
-function walk(nodes, tok) {
-  const out = [];
-  for (const n of nodes) {
-    if (tok === '*') {
-      if (isPlainObject(n)) out.push(...Object.values(n));
-      else if (Array.isArray(n)) out.push(...n);
-    } else if (tok === '..') {
-      const stack = [n];
-      while (stack.length) {
-        const x = stack.pop();
-        out.push(x);
-        if (isPlainObject(x)) stack.push(...Object.values(x));
-        else if (Array.isArray(x)) stack.push(...x);
-      }
-    } else if (isPlainObject(n) && Object.prototype.hasOwnProperty.call(n, tok)) {
-      out.push(n[tok]);
-    } else if (Array.isArray(n) && /^-?\d+$/.test(tok)) {
-      const idx = parseInt(tok, 10);
-      if (-n.length <= idx && idx < n.length) out.push(n[((idx % n.length) + n.length) % n.length]);
-    }
+function evaluate(toks, i, node, out) {
+  if (i === toks.length) { out.push(node); return; }
+  const tok = toks[i];
+  const isContainer = node !== null && typeof node === 'object';
+  if (tok === '..') {
+    evaluate(toks, i + 1, node, out);
+    if (isContainer) for (const k of Object.keys(node)) evaluate(toks, i, node[k], out);
+  } else if (tok === '*') {
+    if (isContainer) for (const k of Object.keys(node)) evaluate(toks, i + 1, node[k], out);
+  } else if (isContainer && Object.prototype.hasOwnProperty.call(node, tok)) {
+    evaluate(toks, i + 1, node[tok], out);
   }
-  return out;
 }
 
-module('JPath expression', "Queries JSON with a simple JSONPath-style expression ($.a.b[0], $.items[*].name). Supported syntax: dot/bracket property access, numeric array indices (including negative), the [*] wildcard, and .. recursive descent - no filter expressions ([?(...)]), slices ([1:3]), or script expressions.",
-  [A.string('Path', '$'), A.string('Result delimiter', '\\n')],
+module('JPath expression', "Queries JSON with a simple JSONPath-style expression ($.a.b[0], $.items[*].name); each result is output as JSON. Supported syntax: dot/bracket property access, numeric array indices, the [*] wildcard, and .. recursive descent - no filter expressions ([?(...)]), slices ([1:3]), or script expressions.",
+  [A.string('Path', ''), A.string('Result delimiter', '\\n')],
   (t, path, d) => {
-    let nodes = [JSON.parse(t)];
-    for (const tok of tokenize(path.replace(/^\$+/, ''))) nodes = walk(nodes, tok);
-    return nodes.map(n => isPlainObject(n) || Array.isArray(n) ? JSON.stringify(n) : pyStr(n)).join(delim(d));
+    let json;
+    try { json = JSON.parse(t); } catch (e) { throw new Error(`Invalid input JSON: ${e.message}`); }
+    if (!path) return '';
+    const nodes = [];
+    evaluate(tokenize(path.replace(/^\$+/, '')), 0, json, nodes);
+    return nodes.map(n => JSON.stringify(n)).join(delim(d));
   }, { text: true });
