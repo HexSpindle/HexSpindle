@@ -2,9 +2,12 @@
 /* HexSpindle web UI - vanilla JS, no build step. Everything runs client-side: the recipe engine,
  * every operation, and Magic all execute in this browser tab - nothing is sent to any server. The
  * only network calls this file ever makes are the optional, explicit, user-initiated ones: Suggest
- * (direct to api.anthropic.com, only if you add your own key) and the GitHub Pages hosting itself. */
+ * (direct to the selected AI provider, only with a user-supplied key) and the GitHub Pages hosting itself. */
 import { MODULES, describe, CATEGORY_LABELS } from './core/registry.js';
 import { bake as engineBake } from './core/engine.js';
+import { normaliseRecipe, parseRecipeText, exportRecipeText } from './core/recipe-interop.js';
+import { AI_PROVIDERS, loadAISetting, saveAISetting, deleteAISetting, migrateLegacyAnthropicKey,
+  maskAIKey, verifyAIConnection, requestAISuggestion, readableAIError } from './core/ai-suggest.js';
 import { search as magicSearch } from './core/magic.js';
 import { loadGeoIpBundle, summarizeGeoIpBundle, dropGeoIpBundle } from './modules/networking/_geoip_store.js';
 import './modules/index.js';
@@ -1086,164 +1089,307 @@ function openModal(title, body, footer) {
 }
 function closeModal() { $('#overlay').hidden = true; $('#paletteOverlay').hidden = true; }
 
-// "Chef format": Op_Name('arg', true, 3, {'option':'Hex','string':'00'}) ...  (also tolerates /* ... */ disabled ops)
-function parseChef(text) {
-  const norm = x => x.toLowerCase().replace(/[^a-z0-9]/g, ''), byNorm = {};
-  Object.keys(S.mods).forEach(n => { byNorm[norm(n)] = n; });
-  let i = 0; const t = text;
-  const ws = () => { while (i < t.length && /\s/.test(t[i])) i++; };
-  function value() {
-    ws(); const c = t[i];
-    if (c === "'" || c === '"') {
-      let out = ''; i++;
-      while (i < t.length && t[i] !== c) { if (t.charCodeAt(i) === 92 && i + 1 < t.length) { const n = t[++i]; out += n === 'n' ? '\n' : n === 't' ? '\t' : n === 'r' ? '\r' : n; } else out += t[i]; i++; }
-      i++; return out;
-    }
-    if (c === '{') { const o = {}; i++; ws(); while (t[i] !== '}') { const k = value(); ws(); i++; o[k] = value(); ws(); if (t[i] === ',') i++; ws(); } i++; return o; }
-    if (c === '[') { const a = []; i++; ws(); while (t[i] !== ']') { a.push(value()); ws(); if (t[i] === ',') i++; ws(); } i++; return a; }
-    const m = /^[A-Za-z0-9_.+-]+/.exec(t.slice(i)); if (!m) throw new Error(`Unexpected character at ${i}: ${t[i]}`);
-    i += m[0].length; if (m[0] === 'true') return true; if (m[0] === 'false') return false; if (m[0] === 'null') return null; return isNaN(m[0]) ? m[0] : Number(m[0]);
-  }
-  const ops = [];
-  while (i < t.length) {
-    ws(); let disabled = false;
-    if (t.startsWith('/*', i)) { disabled = true; i += 2; ws(); }
-    const m = /^([^\s(*]+)\s*\(/.exec(t.slice(i)); if (!m) { if (i >= t.length) break; i++; continue; }
-    i += m[0].length; const args = []; ws();
-    while (t[i] !== ')') { args.push(value()); ws(); if (t[i] === ',') i++; ws(); if (i >= t.length) throw new Error('Unterminated argument list'); }
-    i++; if (disabled) { ws(); if (t.startsWith('*/', i)) i += 2; }
-    const name = byNorm[norm(m[1])]; if (!name) { toast(`Unknown operation skipped: ${m[1].replace(/_/g, ' ')}`, true); continue; }
-    ops.push([name, args, disabled ? 1 : 0]);
-  }
-  if (!ops.length) throw new Error('No operations found');
-  return ops;
-}
+// Import/load are explicit actions. Selecting a saved recipe only previews it.
 function loadText(text) {
-  const v = text.trim(); if (!v) return toast('Nothing to load - paste a recipe first', true);
-  let r;
-  try { r = JSON.parse(v); } catch {
-    try {
-      const m = /[#&]r=([A-Za-z0-9_-]+)/.exec(v);
-      if (m) { r = JSON.parse(urlu8(m[1])); const im = /[#&]i=([A-Za-z0-9_-]+)/.exec(v); if (im) cur().bytes = b64dec(im[1].replace(/-/g, '+').replace(/_/g, '/')); renderInput(); } else r = parseChef(v);
-    } catch (e) { return toast('Could not read the recipe (JSON, Chef format or share link): ' + e.message, true); }
-  }
-  loadRecipe(r); closeModal(); toast('Recipe loaded');
+  let parsed;
+  try { parsed = parseRecipeText(text, S.mods); }
+  catch (e) { toast('Cannot import recipe: ' + e.message, true); return false; }
+  // Validate everything before changing the workspace. No silently skipped steps.
+  loadRecipe(parsed.recipe, true);
+  if (parsed.inputBytes !== null) setInputBytes(parsed.inputBytes, null, 'utf8');
+  closeModal(); toast(`Imported ${parsed.recipe.length} step(s) from ${parsed.format}`);
+  return true;
 }
 
-// Saved recipes live only in this browser's localStorage - nothing is sent anywhere.
-const sha256hex = async bytes => [...new Uint8Array(await crypto.subtle.digest('SHA-256', bytes))].map(b => b.toString(16).padStart(2, '0')).join('');
-function loadSavedRecipes() { return LS.get('savedRecipes', {}); }
-function saveSavedRecipes(d) { LS.set('savedRecipes', d); }
-async function profilesPanel(onPick) {
+// Saved recipes persist across browser tabs in localStorage; active workspace is
+// separate, per-tab sessionStorage. Empty input is a VALID stored input.
+const sha256hex = async bytes => [...new Uint8Array(await crypto.subtle.digest('SHA-256', bytes))]
+  .map(b => b.toString(16).padStart(2, '0')).join('');
+const hasStored = (o, key) => Object.prototype.hasOwnProperty.call(o, key);
+function loadSavedRecipes() {
+  const raw = LS.get('savedRecipes', {});
+  const result = Object.create(null);
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return result;
+  for (const [name, profile] of Object.entries(raw)) {
+    if (profile && typeof profile === 'object' && Array.isArray(profile.recipe) &&
+        !['__proto__', 'constructor', 'prototype'].includes(name)) result[name] = profile;
+  }
+  return result;
+}
+function saveSavedRecipes(data) {
+  // Unlike LS.set, saving a named recipe must NOT silently ignore storage failures.
+  const json = JSON.stringify(data);
+  localStorage.setItem('df.savedRecipes', json);
+  if (localStorage.getItem('df.savedRecipes') !== json)
+    throw new Error('Browser did not confirm the saved recipe');
+}
+function profilesPanel(onPick) {
   let list = loadSavedRecipes();
   const name = el('input', { type: 'text', placeholder: 'Recipe name…', maxlength: '100', style: 'flex:1' });
   const withIn = el('input', { type: 'checkbox' });
   const pin = el('input', { type: 'checkbox' });
   const sel = el('select', { style: 'flex:1;min-width:0' });
-  const verifyMsg = el('span', { class: 'desc' });
-  const fill = () => { sel.replaceChildren(...(Object.keys(list).length ? Object.keys(list).sort((a, b) => a.localeCompare(b)).map(n => el('option', { value: n }, n + (list[n].input ? '  (+input)' : '') + (list[n].expectedHash ? '  📌' : ''))) : [el('option', { value: '' }, 'No saved recipes yet')])); verifyMsg.replaceChildren(); };
-  fill();
-  const pick = () => { name.value = sel.value; verifyMsg.replaceChildren(); if (list[sel.value]) onPick?.(list[sel.value], sel.value); };
-  sel.onchange = pick;
-  const save = async () => {
-    const n = name.value.trim(); if (!n) return toast('Enter a name for the recipe first', true);
-    if (list[n] && !confirm(`A recipe named "${n}" already exists. Replace it?`)) return;
-    if (pin.checked && !withIn.checked) return toast('Pinning needs "with input" checked too, so Verify has something to re-bake', true);
-    try {
-      const p = { recipe: serialRecipe(), saved: Math.floor(Date.now() / 1000) };
-      if (withIn.checked) p.input = b64enc(cur().bytes);
-      if (pin.checked) { if (!S.out) return toast('Bake the recipe at least once before pinning its output', true); p.expectedHash = await sha256hex(S.out); }
-      list[n] = p; saveSavedRecipes(list); fill(); sel.value = n; toast(pin.checked ? `Saved "${n}" and pinned its current output` : `Saved "${n}"`);
-    } catch (e) { toast('Save failed: ' + e.message, true); }
+  const verifyMsg = el('div', { class: 'recipe-io-info', role: 'status' });
+  const hasInput = p => hasStored(p, 'input') && typeof p.input === 'string';
+  const clearResult = () => { verifyMsg.className = 'recipe-io-info'; verifyMsg.replaceChildren(); };
+  const profileInfo = p => {
+    clearResult();
+    if (!p) return;
+    const parts = [];
+    if (hasInput(p)) parts.push(`Saved input: ${Math.max(0, Math.floor(p.input.length * 3 / 4) - (p.input.endsWith('==') ? 2 : p.input.endsWith('=') ? 1 : 0)).toLocaleString()} bytes (Base64)`);
+    if (p.expectedHash) {
+      parts.push(`Pinned output: ${Number.isInteger(p.outputBytes) ? p.outputBytes.toLocaleString() + ' bytes' : 'size unknown (older pin)'}`);
+      parts.push(`SHA-256: ${p.expectedHash}`);
+    }
+    verifyMsg.textContent = parts.join(' · ');
   };
+  function fill(value = '') {
+    const options = [el('option', { value: '' }, 'Current recipe (unsaved)')];
+    for (const n of Object.keys(list).sort((a, b) => a.localeCompare(b))) {
+      const p = list[n];
+      options.push(el('option', { value: n }, n + (hasInput(p) ? '  (+input)' : '') + (p.expectedHash ? '  📌' : '')));
+    }
+    sel.replaceChildren(...options);
+    sel.value = hasStored(list, value) ? value : '';
+  }
+  fill();
+  const pick = () => {
+    const p = list[sel.value] || null;
+    name.value = sel.value;
+    withIn.checked = !!p && hasInput(p);
+    pin.checked = !!p?.expectedHash;
+    withIn.disabled = pin.checked;
+    profileInfo(p);
+    onPick?.(p, sel.value);
+  };
+  sel.onchange = pick;
+  pin.onchange = () => {
+    if (pin.checked) withIn.checked = true;
+    withIn.disabled = pin.checked;
+  };
+  async function save() {
+    const n = name.value.trim();
+    if (!n) return toast('Enter a name for the current recipe', true);
+    if (['__proto__', 'constructor', 'prototype'].includes(n)) return toast('That recipe name is reserved', true);
+    const old = list[n];
+    if (old && !confirm(`Replace "${n}" with the CURRENT working recipe?\n\nThis will replace the recipe, saved input and pinned baseline. Continue?`)) return;
+    const recipe = serialRecipe(), input = cur().bytes.slice();
+    const willPin = pin.checked, willIncludeInput = withIn.checked || willPin;
+    if (willPin && recipe.some(o => !o.disabled && (S.mods[o.module]?.net || S.mods[o.module]?.nondeterministic))) {
+      if (!confirm('This recipe uses network or nondeterministic operations. Pinning runs it now and future verification may differ. Continue?')) return;
+    }
+    const p = { recipe, saved: Math.floor(Date.now() / 1000) };
+    if (willIncludeInput) p.input = b64enc(input);
+    const button = saveBtn; button.disabled = true;
+    try {
+      if (willPin) {
+        // Re-bake the exact captured recipe+input; never pin potentially stale,
+        // errored, preview-only, or partial output currently displayed in the UI.
+        const bakingRecipe = recipe.map(o => ({ ...o, breakpoint: false }));
+        const j = await engineBake(input, bakingRecipe);
+        if (j.error) throw new Error('Reference bake failed: ' + j.error.message);
+        if (j.pausedAt != null) throw new Error('Reference bake stopped before completing');
+        if (!(j.output instanceof Uint8Array)) throw new Error('Reference bake did not return bytes');
+        p.expectedHash = await sha256hex(j.output);
+        p.outputBytes = j.output.length;
+        p.pinnedAt = Date.now();
+      }
+      // Commit in-memory state only after storage has accepted it.
+      const updated = Object.assign(Object.create(null), list, { [n]: p });
+      saveSavedRecipes(updated);
+      list = updated;
+      fill(n); pick();
+      toast(willPin ? `Saved "${n}" with a verified output pin` : `Saved "${n}"`);
+    } catch (e) { toast('Save failed: ' + e.message, true); }
+    finally { button.disabled = false; }
+  }
   const load = () => {
-    const p = list[sel.value]; if (!p) return toast('Pick a saved recipe first', true);
-    loadRecipe(p.recipe, true); if (p.input) setInputBytes(b64dec(p.input), sel.value);
+    const p = list[sel.value]; if (!p) return toast('Select a saved recipe first', true);
+    let recipe;
+    try { recipe = normaliseRecipe(p.recipe, S.mods).recipe; }
+    catch (e) { return toast('Cannot load saved recipe: ' + e.message, true); }
+    let input = null;
+    try { if (hasInput(p)) input = b64dec(p.input); }
+    catch (e) { return toast('Saved input is invalid: ' + e.message, true); }
+    loadRecipe(recipe, true);
+    if (input !== null) setInputBytes(input, sel.value, 'utf8');
     closeModal(); toast(`Loaded "${sel.value}"`);
   };
   const del = () => {
-    const n = sel.value; if (!list[n]) return; if (!confirm(`Delete the saved recipe "${n}"?`)) return;
-    delete list[n]; saveSavedRecipes(list); fill(); name.value = ''; toast(`Deleted "${n}"`);
+    const n = sel.value;
+    if (!hasStored(list, n)) return toast('Select a saved recipe first', true);
+    if (!confirm(`Delete saved recipe "${n}"? This does not change the working recipe.`)) return;
+    const updated = Object.assign(Object.create(null), list);
+    delete updated[n];
+    try { saveSavedRecipes(updated); }
+    catch (e) { return toast('Delete failed: ' + e.message, true); }
+    list = updated; fill(); name.value = ''; withIn.checked = pin.checked = false;
+    withIn.disabled = false; profileInfo(null); onPick?.(null, '');
+    toast(`Deleted "${n}"`);
   };
   const verify = async () => {
-    const n = sel.value; const p = list[n]; if (!p) return toast('Pick a saved recipe first', true);
-    if (!p.input) return toast('This saved recipe has no stored input (re-save it with "with input" checked)', true);
-    if (!p.expectedHash) return toast('This saved recipe has no pinned expected output yet', true);
-    verifyMsg.replaceChildren('Verifying…');
+    const n = sel.value, p = list[n];
+    if (!p) return toast('Select a saved recipe first', true);
+    if (!hasInput(p)) return toast('No saved input. Save with "With input" or "Pin output".', true);
+    if (!p.expectedHash) return toast('This recipe has no pinned output. Save it with Pin output enabled.', true);
+    verifyBtn.disabled = true;
+    verifyMsg.className = 'recipe-io-info';
+    verifyMsg.textContent = 'Verifying saved recipe and input…';
     const t0 = performance.now();
     try {
-      const j = await engineBake(b64dec(p.input), p.recipe);
+      const recipe = normaliseRecipe(p.recipe, S.mods).recipe.map(o => ({ ...o, breakpoint: false }));
+      const j = await engineBake(b64dec(p.input), recipe);
       if (j.error) throw new Error(j.error.message);
+      if (j.pausedAt != null || !(j.output instanceof Uint8Array)) throw new Error('Bake did not finish');
       const hash = await sha256hex(j.output);
-      const ok = hash === p.expectedHash, ms = Math.round(performance.now() - t0);
-      verifyMsg.replaceChildren(el('b', { style: `color:var(--${ok ? 'ok' : 'err'})` }, ok ? '✓ matches the pinned output' : '✗ output has changed since it was pinned'), ` (${ms} ms)`);
-    } catch (e) { verifyMsg.replaceChildren(el('b', { style: 'color:var(--err)' }, 'Could not verify: ' + e.message)); }
+      const ok = hash === p.expectedHash && (p.outputBytes == null || p.outputBytes === j.output.length);
+      const ms = Math.round(performance.now() - t0);
+      verifyMsg.className = 'recipe-io-info ' + (ok ? 'ok' : 'err');
+      verifyMsg.textContent = `${ok ? '✓ MATCH' : '✗ MISMATCH'} · ${j.output.length.toLocaleString()} bytes · ${ms} ms\nExpected SHA-256: ${p.expectedHash}\nActual SHA-256:   ${hash}`;
+    } catch (e) { verifyMsg.className = 'recipe-io-info err'; verifyMsg.textContent = 'Verification failed: ' + e.message; }
+    finally { verifyBtn.disabled = false; }
   };
-  name.addEventListener('keydown', e => { if (e.key === 'Enter') save(); });
+  name.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); save(); } });
+  const saveBtn = el('button', { class: 'btn', onclick: save }, 'Save current');
+  const verifyBtn = el('button', { class: 'btn', onclick: verify }, 'Verify pin');
   return el('div', { class: 'card' }, el('h4', {}, 'Saved recipes'),
     el('div', { class: 'row', style: 'display:flex;gap:8px;align-items:center;flex-wrap:wrap' }, name,
-      el('label', { class: 'switch', title: 'Also store the current input text' }, withIn, el('i'), el('span', {}, 'with input')),
-      el('label', { class: 'switch', title: 'Pin the current baked output as "expected" - Verify later re-bakes the stored input and flags if the result ever changes (a bug, or a module update) - regression testing for a recipe' }, pin, el('i'), el('span', {}, '📌 pin output')),
-      el('button', { class: 'btn', onclick: save }, 'Save')),
-    el('div', { class: 'row', style: 'display:flex;gap:8px;align-items:center' }, sel, el('button', { class: 'btn primary', style: 'letter-spacing:.06em;padding:7px 16px', onclick: load }, 'Load selected'), el('button', { class: 'btn', onclick: verify }, 'Verify'), el('button', { class: 'btn', onclick: del }, 'Delete')),
+      el('label', { class: 'switch', title: 'Include current input bytes when saving' }, withIn, el('i'), el('span', {}, 'With input')),
+      el('label', { class: 'switch', title: 'Bake the CURRENT recipe with its current input; save the exact output SHA-256 for future regression verification' }, pin, el('i'), el('span', {}, 'Pin output')),
+      saveBtn),
+    el('div', { class: 'row', style: 'display:flex;gap:8px;align-items:center;flex-wrap:wrap' }, sel,
+      el('button', { class: 'btn primary', onclick: load }, 'Load selected'), verifyBtn,
+      el('button', { class: 'btn', onclick: del }, 'Delete')),
     verifyMsg,
-    el('div', { class: 'desc' }, 'Choose one to preview exactly what was saved in the box below, then press Load selected. 📌 marks a recipe with a pinned expected output - press Verify to re-run it against its saved input and confirm the output hasn\'t changed. Saved only in this browser (localStorage) - export to a .json file below to move a recipe to another browser or device.'));
+    el('div', { class: 'desc' }, 'Select a saved recipe to PREVIEW it below without changing the working recipe. Save current always saves the active workspace. Pin output saves a SHA-256 baseline and input; Verify pin re-bakes those saved bytes. Named recipes are stored in this browser profile (localStorage).'));
 }
-function exportAsScript() {
-  const recipeJson = JSON.stringify(serialRecipe(), null, 2);
-  const sh = `#!/usr/bin/env bash
-# Replays this HexSpindle recipe from the command line - no browser or server needed.
-# Needs a HexSpindle checkout: either drop this file (and recipe.json) directly inside one,
-# or set HEXSPINDLE_HOME to point at one.
-#
-# Usage:
-#   ./run_recipe.sh -i input.bin -o output.bin
-#   cat input.bin | ./run_recipe.sh > output.bin
-set -euo pipefail
-HERE="$(cd "$(dirname "\${BASH_SOURCE[0]}")" && pwd)"
-HOME_DIR="\${HEXSPINDLE_HOME:-$HERE}"
-PY=""
-for cand in python3 python; do
-  # a plain \`command -v\` isn't enough on Windows, where "python3" can exist in PATH as a broken
-  # Microsoft Store alias stub even with no real interpreter installed - confirm it actually runs
-  if command -v "$cand" >/dev/null 2>&1 && "$cand" -c "" >/dev/null 2>&1; then PY="$cand"; break; fi
-done
-if [ -z "$PY" ]; then echo "No working Python interpreter found (tried python3, python)." >&2; exit 1; fi
-exec "$PY" "$HOME_DIR/run.py" bake -r "$HERE/recipe.json" "$@"
-`;
-  const bat = `@echo off
-rem Replays this HexSpindle recipe from the command line - no browser or server needed.
-rem Needs a HexSpindle checkout: either drop this file (and recipe.json) directly inside one,
-rem or set HEXSPINDLE_HOME to point at one.
-rem
-rem Usage:
-rem   run_recipe.bat -i input.bin -o output.bin
-setlocal
-set HERE=%~dp0
-if "%HEXSPINDLE_HOME%"=="" set HEXSPINDLE_HOME=%HERE%
-python "%HEXSPINDLE_HOME%\\run.py" bake -r "%HERE%recipe.json" %*
-`;
-  download('recipe.json', recipeJson, 'application/json');
-  setTimeout(() => download('run_recipe.sh', sh, 'text/x-sh'), 150);
-  setTimeout(() => download('run_recipe.bat', bat, 'text/plain'), 300);
-  toast('Downloaded recipe.json + run_recipe.sh / run_recipe.bat');
-}
+
 function recipeIO() {
-  let tab = 'json'; const body = el('div'); const area = el('textarea', { spellcheck: 'false' });
-  const chef = () => serialRecipe().map(o => `${o.module.replace(/[^A-Za-z0-9]+/g, '_')}(${o.args.map(a => JSON.stringify(a)).join(', ')})${o.disabled ? ' /* disabled */' : ''}`).join('\n');
-  const draw = () => {
-    area.value = tab === 'json' ? JSON.stringify(serialRecipe(), null, 2) : tab === 'chef' ? chef() : shareLink(); area.readOnly = false;
-    tabs.replaceChildren(...[['json', 'JSON'], ['chef', 'Chef-style'], ['link', 'Share link']].map(([k, l]) => el('button', { class: 'btn' + (tab === k ? ' on' : ''), onclick: () => { tab = k; draw(); } }, l)));
+  let mode = 'json';
+  // This is separate from S.recipe: previewing saved recipes MUST NOT load them.
+  let source = { kind: 'current', profile: null };
+  const body = el('div');
+  const area = el('textarea', { spellcheck: 'false', 'aria-label': 'Recipe preview or imported recipe' });
+  const tabs = el('div', { class: 'modal-tabs' });
+  const message = el('div', { class: 'recipe-io-info', role: 'status' });
+  const formats = [
+    ['json', 'HexSpindle JSON'], ['cyber-json', 'CyberChef JSON'],
+    ['cyber-chef', 'CyberChef Chef'], ['hex-link', 'HexSpindle link'],
+    ['cyber-link', 'CyberChef link'],
+  ];
+  let importFileBtn, exportBtn;
+  const getSource = () => {
+    if (source.kind === 'parsed') return {
+      recipe: source.parsed.recipe, inputBytes: source.parsed.inputBytes, label: 'Imported text',
+    };
+    if (source.kind === 'draft') {
+      const parsed = parseRecipeText(area.value, S.mods);
+      return { recipe: parsed.recipe, inputBytes: parsed.inputBytes, label: 'Imported text' };
+    }
+    if (source.kind === 'saved') {
+      const p = source.profile;
+      const valid = normaliseRecipe(p.recipe, S.mods);
+      return { recipe: valid.recipe, inputBytes: hasStored(p, 'input') && typeof p.input === 'string' ? b64dec(p.input) : null,
+        label: source.name };
+    }
+    return { recipe: serialRecipe(), inputBytes: cur().bytes, label: 'Current recipe' };
   };
-  const tabs = el('div', { class: 'modal-tabs' }); const load = el('button', { class: 'btn primary', onclick: () => { loadText(area.value); } }, 'Load recipe');
-  profilesPanel((p, n) => { tab = 'json'; draw(); area.value = JSON.stringify(p.recipe, null, 2); }).then(p => body.prepend(p));
-  body.append(tabs, area, el('div', { class: 'desc' }, 'Paste a recipe in any tab and press Load recipe. Accepted: a share link, HexSpindle JSON, {"op": …, "args": […]} JSON and Chef format (Op_Name("arg", true) …). Unknown operations are skipped.')); draw();
+  function errorMessage(e) {
+    message.className = 'recipe-io-info err';
+    message.textContent = `Cannot convert: ${e.message}. Choose HexSpindle JSON for HexSpindle-only operations.`;
+    if (exportBtn) exportBtn.disabled = true;
+  }
+  function renderTabs() {
+    tabs.replaceChildren(...formats.map(([value, label]) => el('button', {
+      class: 'btn' + (mode === value ? ' on' : ''), onclick: () => {
+        if (source.kind === 'draft') {
+          // Do not discard manually pasted/edited text on a format switch.
+          try { const parsed = parseRecipeText(area.value, S.mods); source = { kind: 'parsed', parsed }; }
+          catch (e) { errorMessage(e); return; }
+        }
+        mode = value; renderTabs(); paint();
+      },
+    }, label)));
+  }
+  const paint = () => {
+    try {
+      const item = getSource();
+      area.value = exportRecipeText(item.recipe, mode, {
+        inputBytes: item.inputBytes, toBase64: b64enc,
+        baseUrl: location.origin + location.pathname,
+      });
+      if (exportBtn) exportBtn.disabled = false;
+      message.className = 'recipe-io-info';
+      message.textContent = `${item.label} · ${item.recipe.length} step(s) · Preview only. Copy/Export use the displayed source.`;
+    } catch (e) { area.value = ''; errorMessage(e); }
+  };
+  // Use one common preview painter for both manual source selection and tabs.
+  function redraw() { renderTabs(); paint(); }
+  const clearSelectedPreview = () => {
+    const selected = profile.querySelector('select');
+    if (selected) selected.value = '';
+    const name = profile.querySelector('input[type=text]');
+    if (name) name.value = '';
+  };
+  area.addEventListener('input', () => {
+    source = { kind: 'draft' };
+    clearSelectedPreview();
+    message.className = 'recipe-io-info';
+    message.textContent = 'Edited recipe text. Use Load recipe to apply, or switch formats to convert it.';
+    if (exportBtn) exportBtn.disabled = false;
+  });
+  const profile = profilesPanel((p, n) => {
+    source = p ? { kind: 'saved', profile: p, name: n } : { kind: 'current' };
+    redraw();
+  });
+  const load = el('button', { class: 'btn primary', onclick: () => loadText(area.value) }, 'Load recipe');
+  importFileBtn = el('button', { class: 'btn', onclick: () => {
+    const picker = el('input', { type: 'file', accept: '.json,.txt,.recipe,.chef,.url,application/json,text/plain', onchange: async e => {
+      const file = e.target.files[0]; if (!file) return;
+      try {
+        area.value = await file.text();
+        source = { kind: 'draft' };
+        clearSelectedPreview();
+        message.className = 'recipe-io-info';
+        message.textContent = `Imported ${file.name} for PREVIEW. Press Load recipe to activate it.`;
+        if (exportBtn) exportBtn.disabled = false;
+        area.focus();
+      } catch (err) { toast('Import Recipe failed: ' + err.message, true); }
+    }}); picker.click();
+  } }, 'Import Recipe');
+  exportBtn = el('button', { class: 'btn', onclick: () => {
+    try {
+      const item = getSource();
+      const content = exportRecipeText(item.recipe, mode, {
+        inputBytes: item.inputBytes, toBase64: b64enc,
+        baseUrl: location.origin + location.pathname,
+      });
+      const filename = mode === 'json' ? 'hexspindle-recipe.json' : mode === 'cyber-json' ?
+        'cyberchef-recipe.json' : mode === 'cyber-chef' ? 'cyberchef-recipe.txt' : 'recipe-link.txt';
+      download(filename, content, mode.endsWith('json') ? 'application/json' : 'text/plain');
+      toast(`Exported ${item.label}`);
+    } catch (e) { errorMessage(e); toast(e.message, true); }
+  } }, 'Export Recipe');
+  body.append(profile, tabs, area,
+    message,
+    el('div', { class: 'desc' }, 'Formats: HexSpindle JSON, verified CyberChef JSON/Chef, and share links. Unsupported CyberChef operations or argument combinations are REJECTED, not silently dropped. Importing a file only previews it until Load recipe is pressed.'));
+  redraw();
   openModal('Save / Load recipe', body, [
-    el('button', { class: 'btn', onclick: () => { const i = el('input', { type: 'file', accept: '.json,application/json', onchange: async e => { area.value = await e.target.files[0].text(); tab = 'json'; } }); i.click(); } }, 'Open file…'),
-    el('button', { class: 'btn', onclick: () => download('recipe.json', JSON.stringify(serialRecipe(), null, 2), 'application/json') }, 'Download .json'),
-    el('button', { class: 'btn', title: 'Downloads recipe.json plus run_recipe.sh / run_recipe.bat - run either one to replay this exact recipe from the command line, no browser or server needed', onclick: () => exportAsScript() }, 'Export as script'),
-    el('button', { class: 'btn', onclick: () => navigator.clipboard.writeText(area.value).then(() => toast('Copied')) }, 'Copy'),
-    el('button', { class: 'btn', onclick: async () => { try { tab = 'json'; draw(); area.value = await navigator.clipboard.readText(); area.focus(); } catch { area.focus(); area.select(); toast('Clipboard blocked by the browser - press Ctrl+V now', true); } } }, 'Paste'), load]);
+    importFileBtn, exportBtn,
+    el('button', { class: 'btn', onclick: async () => {
+      try { await navigator.clipboard.writeText(area.value); toast('Recipe text copied'); }
+      catch (e) { errorMessage(e); toast('Copy failed: ' + e.message, true); }
+    } }, 'Copy'),
+    el('button', { class: 'btn', onclick: async () => {
+      try {
+        area.value = await navigator.clipboard.readText(); source = { kind: 'draft' };
+        clearSelectedPreview();
+        message.className = 'recipe-io-info'; message.textContent = 'Pasted recipe text. Press Load recipe to activate it.';
+        exportBtn.disabled = false; area.focus();
+      } catch { area.focus(); area.select(); toast('Clipboard blocked — press Ctrl+V instead', true); }
+    } }, 'Paste'),
+    load,
+  ]);
   area.focus(); area.select();
 }
 const EXAMPLES = [
@@ -1311,79 +1457,208 @@ async function magic() {
   } catch (e) { openModal('Magic', el('div', { class: 'empty' }, 'Magic failed: ' + e.message)); }
 }
 
-// ---- Suggest: opt-in NL -> recipe. There is no server here at all (this is a static page), so this
-// always needs your own Anthropic API key, stored only in this browser's localStorage, used to call
-// the Claude API DIRECTLY from the browser - nothing passes through any server of ours.
-const getApiKey = () => LS.get('anthropicKey', '');
-const setApiKey = k => k ? LS.set('anthropicKey', k) : LS.remove('anthropicKey');
-function apiKeyModal(onSaved) {
-  const input = el('input', { type: 'password', placeholder: 'sk-ant-...', value: getApiKey(), style: 'width:100%', autocomplete: 'off' });
-  openModal('Your Anthropic API key', el('div', { class: 'card' },
-    el('div', { class: 'desc' }, 'Stored only in this browser (localStorage) - never sent to or seen by this server. Once set, Suggest calls the Claude API directly from your browser with it. Get a key at ', el('a', { href: 'https://console.anthropic.com/', target: '_blank' }, 'console.anthropic.com'), '.'),
-    input),
-    [el('button', { class: 'btn', onclick: () => { setApiKey(''); input.value = ''; toast('API key cleared'); onSaved?.(); } }, 'Clear'),
-     el('button', { class: 'btn primary', onclick: () => { setApiKey(input.value.trim()); toast('API key saved in this browser'); onSaved?.(); } }, 'Save')]);
-  input.focus();
-}
-function suggestPrompt(desc, sample) {
-  const catalogue = Object.values(S.mods).filter(m => !m.flow).sort((a, b) => a.name.localeCompare(b.name)).map(m => `- ${m.name}: ${m.desc}`).join('\n');
-  return `You are suggesting a recipe for HexSpindle, a data transformation tool: an ordered chain of operation names from the catalogue below that accomplishes what the user describes.
-
-Available operations (name: description):
+// ---- Suggest: an opt-in, local-first interface to either AI provider.
+// Keys are held in per-origin IndexedDB (not a secure key vault). No keys are
+// embedded in source code or sent to HexSpindle. Only provider requests receive
+// them; optionally selected input samples are sent to the chosen provider.
+function suggestPrompt(description, sample) {
+  const catalogue = Object.values(S.mods).filter(m => !m.flow)
+    .sort((a, b) => a.name.localeCompare(b.name))
+    .map(m => `- ${m.name}: ${(m.desc || '').slice(0, 110)}`).join('\n');
+  return `You recommend an ORDERED chain of operation names for HexSpindle, a data transformation tool.
+Use ONLY exact names from this catalogue. Do not invent argument values, external services or operations.
+Available operations (name: short description):
 ${catalogue}
+User's goal: ${description}` +
+    (sample ? `\nSample from the current input, provided voluntarily for context (do not reproduce it): ${JSON.stringify(sample)}` : '') +
+    '\nReturn ONLY a JSON array of exact operation names, e.g. ["From Base64", "Gunzip"]. If no operations fit, return [].';
+}
 
-User's goal: ${desc}` + (sample ? `\n\nSample of their actual input data (context only, do not echo it back): ${JSON.stringify(sample)}` : '') +
-    '\n\nReply with ONLY a JSON array of operation names from the list above, in the order they should run, e.g. ["From Base64", "Gunzip"]. Use exact names from the list. If nothing in the catalogue fits, reply with [].';
-}
-async function suggestDirect(key, desc, sample) {
-  const r = await fetch('https://api.anthropic.com/v1/messages', { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-api-key': key, 'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true' },
-    body: JSON.stringify({ model: 'claude-sonnet-5-5', max_tokens: 1024, messages: [{ role: 'user', content: suggestPrompt(desc, sample) }] }) });
-  const j = await r.json();
-  if (!r.ok) throw new Error(j.error?.message || r.statusText);
-  const text = (j.content || []).filter(b => b.type === 'text').map(b => b.text).join('');
-  const m = text.match(/\[[\s\S]*\]/);
-  let names = []; try { names = m ? JSON.parse(m[0]) : []; } catch { /* model didn't return clean JSON */ }
-  return names.filter(n => typeof n === 'string' && S.mods[n]);
-}
 async function suggestRecipe() {
-  const desc = el('textarea', { placeholder: 'Describe what you want to do, e.g. "this is base64, then gzipped, then hex encoded" or "extract all the IP addresses"', spellcheck: 'false', style: 'width:100%;min-height:90px' });
-  const withSample = el('input', { type: 'checkbox', checked: true });
-  const keyStatus = el('span', {});
-  const paintKeyStatus = () => { const k = getApiKey(); keyStatus.replaceChildren(k ? `Using your own API key (${k.slice(0, 10)}…) ` : '', el('a', { href: '#', onclick: e => { e.preventDefault(); apiKeyModal(paintKeyStatus); } }, k ? 'change / clear' : 'add your own key')); };
-  paintKeyStatus();
-  let go;
-  const submitted = new Promise(res => { go = res; });
-  openModal('Suggest a recipe', el('div', { class: 'card' },
-    el('div', { class: 'desc' }, 'Suggests which operations to chain together from your description. It only sees your description and, if checked, the first 500 bytes of your current input.'),
-    desc,
-    el('label', { class: 'switch', style: 'margin-top:8px', title: 'Send the first 500 bytes of your current input as context' }, withSample, el('i'), el('span', {}, 'include a sample of my current input')),
-    el('div', { class: 'desc', style: 'margin-top:10px' }, keyStatus)),
-    [el('button', { class: 'btn primary', onclick: () => go() }, 'Suggest')]);
-  desc.focus();
-  await submitted;
-  const text = desc.value.trim();
-  if (!text) return toast('Describe what you want first', true);
-  const key = getApiKey();
-  if (!key) {
-    openModal('Suggest a recipe', el('div', { class: 'empty' },
-      'Suggest needs your own Anthropic API key - this is a static page with no server of its own to hold one for everyone.',
-      el('div', { style: 'margin-top:10px' }, el('a', { href: '#', onclick: ev => { ev.preventDefault(); apiKeyModal(() => suggestRecipe()); } }, 'Add your Anthropic API key'))));
-    return;
-  }
-  openModal('Suggest a recipe', el('div', { class: 'empty' }, 'Asking…'));
-  const sample = withSample.checked && cur().bytes.length ? decodeText(cur().bytes.subarray(0, 500), 'utf8') : '';
-  try {
-    const names = await suggestDirect(key, text, sample);
-    if (!names.length) {
-      openModal('Suggest a recipe', el('div', { class: 'empty' }, "Couldn't find a fitting chain of operations for that description - try rephrasing, or search for operations manually with Ctrl+K."));
-      return;
+  const savedProvider = LS.get('aiProvider', 'anthropic');
+  const selectedProvider = Object.hasOwn(AI_PROVIDERS, savedProvider) ? savedProvider : 'anthropic';
+  const provider = el('select', { class: 'ai-provider-choice', 'aria-label': 'Suggestion provider' },
+    Object.entries(AI_PROVIDERS).map(([id, p]) => el('option', { value: id, selected: id === selectedProvider }, p.label)));
+  const description = el('textarea', { id: 'aiSuggestionText', spellcheck: 'false',
+    placeholder: 'Describe your goal, e.g. “Base64 decode, decompress, and extract URLs”.' });
+  const includeSample = el('input', { type: 'checkbox', checked: false });
+  const feedback = el('div', { class: 'ai-suggest-feedback', role: 'status', 'aria-live': 'polite' },
+    'Choose a provider, save a personal API key, and describe the result you want.');
+  const suggestions = el('div', { class: 'ai-suggest-results' });
+  const providerCards = el('div', { class: 'ai-provider-cards' });
+  const rows = {};
+  const keys = {};
+  const verified = {};
+  const models = {};
+  let generating = false;
+
+  const message = (value, kind = '') => {
+    feedback.className = 'ai-suggest-feedback' + (kind ? ' ' + kind : '');
+    feedback.textContent = value;
+  };
+  const status = (id, value, kind = '') => {
+    const row = rows[id]; if (!row) return;
+    row.status.className = 'ai-connection-status' + (kind ? ' ' + kind : '');
+    row.status.textContent = value;
+  };
+  const setModel = id => {
+    const value = rows[id].model.value.trim();
+    models[id] = value || AI_PROVIDERS[id].model;
+    verified[id] = false;
+    status(id, keys[id] ? `${maskAIKey(keys[id])} · Model changed — Save & Test` : 'No API key saved', 'muted');
+  };
+
+  async function check(id) {
+    if (!keys[id]) { verified[id] = false; status(id, 'No API key saved', 'muted'); return false; }
+    const key = keys[id]; const model = models[id];
+    verified[id] = false;
+    status(id, `${maskAIKey(key)} · Checking connection…`, 'checking');
+    try {
+      await verifyAIConnection(id, key, model);
+      // Don't stamp an old async response as valid after a key/model change.
+      if (keys[id] !== key || models[id] !== model) return false;
+      verified[id] = true;
+      status(id, `✓ Connected · ${maskAIKey(key)} · ${model}`, 'ok');
+      return true;
+    } catch (e) {
+      if (keys[id] !== key || models[id] !== model) return false;
+      verified[id] = false;
+      status(id, `⚠ ${maskAIKey(key)} · ${readableAIError(id, e)}`, 'bad');
+      return false;
     }
-    openModal('Suggested recipe', el('div', { class: 'card' },
-      el('div', { class: 'chain' }, names.flatMap((n, i) => [i ? el('i', {}, '→') : null, el('span', {}, n)])),
-      el('div', {}, el('button', { class: 'btn primary', onclick: () => { names.forEach(n => S.mods[n] && S.recipe.push(newOp(n))); S.stepTo = null; commit(); closeModal(); } }, 'Add to recipe'))));
-  } catch (e) {
-    openModal('Suggest a recipe', el('div', { class: 'empty' }, 'Request failed: ' + e.message));
   }
+
+  async function storeAndTest(id) {
+    const row = rows[id];
+    row.save.disabled = true;
+    try {
+      const entered = row.key.value.trim();
+      const key = entered || keys[id];
+      if (!key) { status(id, 'Enter an API key first', 'bad'); return; }
+      const newRecord = await saveAISetting(id, key, row.model.value.trim());
+      keys[id] = newRecord.key;
+      models[id] = newRecord.model;
+      verified[id] = false;
+      row.key.value = '';
+      row.key.placeholder = maskAIKey(keys[id]) + ' (saved; paste a new key to replace)';
+      const good = await check(id);
+      message(good ? `${AI_PROVIDERS[id].label} is connected and ready.` :
+        `${AI_PROVIDERS[id].label} key is saved locally, but the connection or model is not verified.`, good ? 'ok' : 'bad');
+    } catch (e) { status(id, 'Save failed: ' + e.message, 'bad'); }
+    finally { row.save.disabled = false; }
+  }
+
+  async function forgetKey(id) {
+    try {
+      await deleteAISetting(id);
+      // In case migration of a legacy Anthropic key was previously blocked.
+      if (id === 'anthropic') LS.remove('anthropicKey');
+      keys[id] = ''; verified[id] = false;
+      rows[id].key.value = '';
+      rows[id].key.placeholder = AI_PROVIDERS[id].placeholder;
+      status(id, 'Key cleared from this browser', 'muted');
+      message(`${AI_PROVIDERS[id].label} key cleared.`);
+    } catch (e) { status(id, `Could not clear key: ${e.message}`, 'bad'); }
+  }
+
+  for (const [id, p] of Object.entries(AI_PROVIDERS)) {
+    const key = el('input', { type: 'password', autocomplete: 'new-password',
+      spellcheck: 'false', placeholder: p.placeholder, class: 'ai-key-input',
+      'aria-label': `${p.label} API key` });
+    const model = el('input', { type: 'text', value: p.model, spellcheck: 'false',
+      autocomplete: 'off', class: 'ai-model-input', 'aria-label': `${p.label} model ID` });
+    const connect = el('div', { class: 'ai-connection-status muted', role: 'status' }, 'Loading saved key…');
+    const save = el('button', { class: 'btn', type: 'button', onclick: () => storeAndTest(id) }, 'Save & Test');
+    const clear = el('button', { class: 'btn ghost', type: 'button', onclick: () => forgetKey(id) }, 'Clear');
+    const card = el('section', { class: 'ai-provider-card', 'data-provider': id },
+      el('div', { class: 'ai-provider-heading' }, el('b', {}, p.label),
+        el('a', { href: p.help, target: '_blank', rel: 'noopener noreferrer' }, 'Get API key ↗')),
+      el('div', { class: 'ai-provider-form' },
+        el('label', {}, 'API key', key), el('label', {}, 'Model ID', model)),
+      el('div', { class: 'ai-provider-actions' }, save, clear), connect);
+    providerCards.append(card);
+    rows[id] = { card, key, model, status: connect, save };
+    keys[id] = ''; models[id] = p.model; verified[id] = false;
+    key.addEventListener('input', () => {
+      verified[id] = false;
+      status(id, 'Unsaved key entered · Save & Test to connect', 'muted');
+    });
+    model.addEventListener('input', () => setModel(id));
+  }
+
+  function updateActive() {
+    const id = provider.value;
+    LS.set('aiProvider', id); // Saves only a provider ID; never a key.
+    Object.entries(rows).forEach(([rowId, row]) => row.card.classList.toggle('active', rowId === id));
+    suggestions.replaceChildren();
+    message(`Using ${AI_PROVIDERS[id].label}. ${verified[id] ? 'Connection is ready.' : 'Save & Test the key to verify access.'}`);
+  }
+  provider.addEventListener('change', updateActive);
+  const run = el('button', { class: 'btn primary', type: 'button', onclick: generate }, 'Suggest Recipe');
+
+  async function generate() {
+    if (generating) return;
+    const id = provider.value; const goal = description.value.trim();
+    if (!goal) { message('Describe what you want the recipe to do.', 'bad'); description.focus(); return; }
+    if (rows[id].key.value.trim()) { message('You entered a new key. Click Save & Test first.', 'bad'); return; }
+    if (!keys[id]) { message(`Enter a ${AI_PROVIDERS[id].label} API key and click Save & Test.`, 'bad'); return; }
+    generating = true; run.disabled = true;
+    suggestions.replaceChildren();
+    message(`Checking ${AI_PROVIDERS[id].label} and requesting a recipe…`);
+    try {
+      if (!verified[id] && !await check(id)) { message('The connection is not verified. Check the provider status above.', 'bad'); return; }
+      const sample = includeSample.checked && cur().bytes.length
+        ? decodeText(cur().bytes.subarray(0, 500), 'utf8') : '';
+      const validNames = Object.values(S.mods).filter(m => !m.flow).map(m => m.name);
+      const result = await requestAISuggestion(id, keys[id], models[id], suggestPrompt(goal, sample), validNames);
+      if (!result.names.length) {
+        message(result.unknown.length ? 'The provider suggested only unknown operations. Please try again.' :
+          'No matching operations were suggested. Try a more specific description.', 'bad');
+        if (result.unknown.length) suggestions.append(el('div', { class: 'desc' },
+          'Unrecognized: ' + result.unknown.join(', ')));
+        return;
+      }
+      message(`Suggested ${result.names.length} operation(s) using ${AI_PROVIDERS[id].label}.`, 'ok');
+      suggestions.append(
+        el('div', { class: 'chain ai-suggest-chain' }, result.names.flatMap((n, i) =>
+          [i ? el('i', {}, '→') : null, el('span', {}, n)])),
+        result.unknown.length ? el('div', { class: 'ai-suggest-feedback bad' },
+          'Ignored unknown operations: ' + result.unknown.join(', ')) : null,
+        el('button', { class: 'btn primary', onclick: () => {
+          for (const name of result.names) if (S.mods[name]) S.recipe.push(newOp(name));
+          S.stepTo = null; S.inspect = null; commit(); closeModal();
+        } }, 'Add to recipe'));
+    } catch (e) { message(`Suggestion failed: ${readableAIError(id, e)}`, 'bad'); }
+    finally { generating = false; run.disabled = false; }
+  }
+
+  const box = el('div', { class: 'ai-suggest' },
+    el('div', { class: 'desc' }, 'AI suggestions are experimental. Only your goal and the optionally enabled first 500 input bytes are sent to your selected provider.'),
+    el('label', { class: 'ai-main-label' }, 'Provider', provider),
+    providerCards,
+    el('div', { class: 'ai-suggest-privacy' }, 'Keys remain in this browser’s IndexedDB, not an account or secure vault. Browser extensions and scripts on this origin can access them. Provider requests may be blocked by browser CORS rules. For production, use a backend proxy.'),
+    el('label', { class: 'ai-main-label' }, 'What do you want to do?', description),
+    el('label', { class: 'switch ai-sample-toggle', title: 'Explicitly share up to 500 bytes with the selected provider' },
+      includeSample, el('i'), el('span', {}, 'Include first 500 bytes of my current input (optional)')),
+    feedback, suggestions);
+  openModal('Suggest a recipe · Anthropic / OpenAI', box, [run]);
+  updateActive();
+  description.focus();
+
+  // Do not clear current UI state while loading. Errors stay visible per provider.
+  try {
+    await migrateLegacyAnthropicKey();
+  } catch (e) { status('anthropic', 'Old key could not migrate to IndexedDB: ' + e.message, 'bad'); }
+  await Promise.all(Object.keys(AI_PROVIDERS).map(async id => {
+    try {
+      const record = await loadAISetting(id);
+      if (!record) { status(id, 'No API key saved', 'muted'); return; }
+      keys[id] = record.key; models[id] = record.model || AI_PROVIDERS[id].model;
+      rows[id].model.value = models[id];
+      rows[id].key.placeholder = maskAIKey(record.key) + ' (saved; paste a new key to replace)';
+      await check(id);
+    } catch (e) { status(id, 'Could not read IndexedDB: ' + e.message, 'bad'); }
+  }));
 }
 async function bakeRaw(bytes, recipe) {
   const j = await engineBake(bytes, recipe);
@@ -1545,7 +1820,7 @@ async function init() {
   $('#btnCopy').onclick = async () => { try { await navigator.clipboard.writeText(decodeText(S.out, $('#outView').value === 'latin1' ? 'latin1' : 'utf8')); toast('Output copied'); } catch { $('#output').select(); document.execCommand('copy'); toast('Output copied'); } };
   $('#btnSave').onclick = () => { const img = sniffImage(S.out); download(img ? 'output.' + img.split('/')[1].replace('svg+xml', 'svg').replace('x-icon', 'ico') : 'output.bin', S.out); };
   $('#btnSwap').onclick = () => { setInputBytes(S.out.slice(), null, cur().enc === 'hex' ? 'utf8' : cur().enc); };
-  $('#btnMagic').onclick = magic; $('#btnCompare').onclick = compareOutputs; $('#btnPalette').onclick = palette; $('#btnExamples').onclick = examples; $('#btnSuggest').onclick = suggestRecipe; $('#btnRecipeIO').onclick = recipeIO; $('#btnHelp').onclick = help;
+  $('#btnMagic').onclick = magic; $('#btnCompare').onclick = compareOutputs; $('#btnPalette').onclick = palette; $('#btnExamples').onclick = examples; $('#btnSuggest').onclick = suggestRecipe; $('#btnSuggest').title = 'Suggest a recipe with Anthropic or OpenAI using your own API key'; $('#btnRecipeIO').onclick = recipeIO; $('#btnHelp').onclick = help;
   $('#btnBatch').onclick = batchOpen; $('#batchInput').onchange = e => { runBatch(e.target.files); e.target.value = ''; };
   $('#btnExpandAll').onclick = expandAllCats; $('#btnCollapseAll').onclick = collapseAllCats;
   $('#output').addEventListener('scroll', syncOutputHighlights);
