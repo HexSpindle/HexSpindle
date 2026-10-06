@@ -240,3 +240,17 @@ table.fb-table .act button { opacity: 0; } table.fb-table tr:hover .act button {
 .fb-preview.maxed { flex: 1 1 0 !important; } .fb-list.mined { flex: 0 0 0 !important; min-height: 0; overflow: hidden; }
 .fb-preview .fb-ph { display: flex; align-items: center; gap: 8px; padding: 6px 12px; border-bottom: 1px solid var(--line); font: 12px var(--mono); color: var(--muted); flex: none; }
 .fb-preview textarea, .fb-preview .imgview { flex: 1; min-height: 0; }
+
+/* Output match/control-character painting above the readonly textarea. */
+.findbar[hidden], .out-highlights[hidden] { display: none !important; }
+.out-highlights {
+  position: absolute; inset: 0; z-index: 1; pointer-events: none;
+  padding: 12px 14px; box-sizing: border-box; overflow: hidden;
+  white-space: pre; tab-size: 4; font: 13px/1.5 var(--mono);
+  color: transparent;
+}
+.out-highlights.wrap { white-space: pre-wrap; overflow-wrap: anywhere; word-break: break-word; }
+.out-highlights .ctrl { color: var(--err); background: rgba(255, 70, 70, .08); border-radius: 2px; }
+.out-highlights mark.hit { background: rgba(var(--accent-rgb), .32); color: transparent; border-radius: 2px; }
+.out-highlights mark.hit.cur { background: var(--accent); color: #02121a; }
+.out-highlights mark.hit.cur .ctrl { color: #02121a; }
