@@ -44,6 +44,7 @@ export const A = {
   regex: (name, value = '', hint = '') => ({ name, type: 'regex', value, hint }),
   number: (name, value = 0, min = null, max = null, step = 1) => ({ name, type: 'number', value, min, max, step }),
   boolean: (name, value = false) => ({ name, type: 'boolean', value }),
+  files: (name, accept = '', multiple = true, hint = '') => ({ name, type: 'files', value: '', accept, multiple, hint }),
   select: (name, options, value = null) => {
   options = options.map(o =>
     typeof o === 'string'

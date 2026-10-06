@@ -443,6 +443,7 @@ import './networking/fang_ip_addresses.js';
 import './networking/fang_url.js';
 import './networking/format_mac_addresses.js';
 import './networking/group_ip_addresses.js';
+import './networking/ip_geolocation.js';
 import './networking/hassh_client_fingerprint.js';
 import './networking/hassh_server_fingerprint.js';
 import './networking/http_request.js';

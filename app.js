@@ -6,6 +6,7 @@
 import { MODULES, describe, CATEGORY_LABELS } from './core/registry.js';
 import { bake as engineBake } from './core/engine.js';
 import { search as magicSearch } from './core/magic.js';
+import { loadGeoIpBundle, summarizeGeoIpBundle, dropGeoIpBundle } from './modules/networking/_geoip_store.js';
 import './modules/index.js';
 
 // ---------------------------------------------------------------- helpers
@@ -279,6 +280,36 @@ function argField(op, spec, i) {
   const v = op.args[i];
   const tip = spec.hint || '';
   switch (spec.type) {
+    case 'files': {
+      const status = el('div', { class: 'file-arg-status' });
+      const pick = el('input', { type: 'file', accept: spec.accept || '', multiple: spec.multiple !== false, hidden: true });
+      const btn = el('button', { type: 'button', class: 'btn', onclick: () => pick.click() }, icon('open'), 'Choose files');
+      const paint = () => {
+        const sum = summarizeGeoIpBundle(op.args[i]);
+        status.replaceChildren();
+        if (!sum) { status.append(el('span', { class: 'muted' }, v ? 'Files are not in this browser session — select them again.' : 'No files selected.')); return; }
+        status.append(el('b', {}, sum.count + ' database' + (sum.count === 1 ? '' : 's') + ' · ' + fmtBytes(sum.bytes)));
+        for (const d of sum.databases) status.append(el('div', { class: 'file-db', title: d.databaseType }, el('span', {}, d.name), el('small', {}, d.provider + ' · ' + d.role + ' · ' + fmtBytes(d.size)));
+        if (sum.databases.some(d => d.provider === 'DB-IP')) status.append(el('a', { class: 'dbip-credit', href: 'https://db-ip.com', target: '_blank', rel: 'noopener noreferrer' }, 'IP Geolocation by DB-IP'));
+      };
+      pick.addEventListener('change', async e => {
+        const files = [...e.target.files]; if (!files.length) return;
+        btn.disabled = true; btn.replaceChildren(el('span', { class: 'spin' }), 'Loading…');
+        try {
+          const entries = [];
+          for (const f of files) entries.push({ name: f.name, bytes: new Uint8Array(await f.arrayBuffer()) });
+          const id = loadGeoIpBundle(entries);
+          const previous = op.args[i];
+          set(id);
+          if (previous) dropGeoIpBundle(previous);
+          paint();
+          toast('Loaded ' + files.length + ' MMDB database' + (files.length === 1 ? '' : 's'));
+        } catch (err) { toast('Could not load MMDB: ' + err.message, true); }
+        finally { btn.disabled = false; btn.replaceChildren(icon('open'), 'Choose files'); pick.value = ''; }
+      });
+      const box = el('div', { class: 'arg file-arg', title: tip }, el('label', {}, spec.name), el('div', { class: 'row' }, btn, pick), status);
+      paint(); return box;
+    }
     case 'boolean':
       return el('div', { class: 'arg bool' }, el('label', {}, spec.name), el('label', { class: 'switch' }, el('input', { type: 'checkbox', checked: !!v, onchange: e => set(e.target.checked) }), el('i')));
     case 'select':

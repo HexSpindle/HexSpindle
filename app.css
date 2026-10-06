@@ -131,6 +131,15 @@ iframe.render { background: #0a1020; color-scheme: dark; }
 .step-b { padding: 2px 12px 10px; display: grid; gap: 8px; } .step.collapsed .step-b { display: none; }
 .arg { display: grid; gap: 4px; } .arg > label { font-size: 11px; color: var(--muted); letter-spacing: .04em; } .arg .row { display: flex; gap: 6px; } .arg .row > input, .arg .row > textarea { flex: 1; } .arg input, .arg select, .arg textarea { width: 100%; font-size: 12.5px; } .arg textarea { min-height: 60px; font-family: var(--mono); resize: vertical; }
 .arg .row select { width: auto; max-width: 46%; flex: none; }
+.file-arg .row { align-items: center; }
+.file-arg-status { display: grid; gap: 4px; padding: 7px 9px; border: 1px solid var(--line); border-radius: 8px; background: rgba(127,147,182,.05); font: 11px/1.4 var(--mono); color: var(--muted); }
+.file-arg-status > b { color: var(--text); font-weight: 650; }
+.file-arg-status .file-db { display: flex; gap: 8px; align-items: baseline; min-width: 0; }
+.file-arg-status .file-db > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); }
+.file-arg-status .file-db > small { margin-left: auto; white-space: nowrap; color: var(--dim); }
+.file-arg-status .muted { color: var(--dim); }
+.file-arg-status .dbip-credit { color: var(--accent); text-decoration: none; width: fit-content; }
+.file-arg-status .dbip-credit:hover { text-decoration: underline; }
 .arg.bool { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 .switch { display: inline-flex; align-items: center; gap: 8px; cursor: pointer; color: var(--muted); user-select: none; } .switch input { display: none; } .switch i { width: 30px; height: 17px; border-radius: 99px; background: rgba(127, 147, 182, .25); position: relative; transition: .2s; flex: none; }
 .switch i::after { content: ""; position: absolute; top: 2px; left: 2px; width: 13px; height: 13px; border-radius: 50%; background: var(--muted); transition: .2s; } .switch input:checked + i { background: rgba(var(--accent-rgb), .35); } .switch input:checked + i::after { left: 15px; background: var(--accent); box-shadow: 0 0 8px var(--accent); }
