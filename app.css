@@ -295,3 +295,22 @@ table.fb-table .act button { opacity: 0; } table.fb-table tr:hover .act button {
 .ai-suggest-results { display: grid; gap: 10px; justify-items: start; min-width: 0; }
 .ai-suggest-chain { flex-wrap: wrap; }
 @media (max-width: 700px) { .ai-provider-cards { grid-template-columns: minmax(0, 1fr); } }
+
+/* Configured AI recipe previews: readable values without exposing secret fields. */
+.ai-suggest-summary { display: grid; gap: 5px; width: 100%; }
+.ai-suggest-summary p { margin: 0; color: var(--muted); }
+.ai-suggest-step { display: grid; gap: 7px; padding: 12px; width: 100%; min-width: 0;
+  border: 1px solid var(--line); border-radius: 10px; background: var(--panel-solid); }
+.ai-suggest-step-head { display: flex; align-items: center; gap: 9px; }
+.ai-suggest-step-num { display: inline-grid; place-items: center; min-width: 23px; height: 23px;
+  font: 700 11px var(--mono); border-radius: 7px; background: rgba(var(--accent-rgb), .14); color: var(--accent); }
+.ai-suggest-step p { margin: 0; color: var(--muted); font-size: 12px; }
+.ai-suggest-args { display: grid; gap: 4px; max-width: 100%; }
+.ai-suggest-arg { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between;
+  gap: 6px; font-size: 12px; min-width: 0; }
+.ai-suggest-arg-name { color: var(--muted); }
+.ai-suggest-arg code { max-width: 100%; overflow-wrap: anywhere; padding: 2px 5px;
+  color: var(--text); background: rgba(var(--accent-rgb), .07); border-radius: 4px; }
+.ai-suggest-warnings { display: grid; gap: 6px; width: 100%; color: var(--muted);
+  font-size: 12px; border: 1px solid var(--line); border-radius: 8px; padding: 9px 12px; }
+.ai-suggest-warnings ul { margin: 0; padding-left: 19px; }

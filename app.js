@@ -7,7 +7,9 @@ import { MODULES, describe, CATEGORY_LABELS } from './core/registry.js';
 import { bake as engineBake } from './core/engine.js';
 import { normaliseRecipe, parseRecipeText, exportRecipeText } from './core/recipe-interop.js';
 import { AI_PROVIDERS, loadAISetting, saveAISetting, deleteAISetting, migrateLegacyAnthropicKey,
-  maskAIKey, verifyAIConnection, requestAISuggestion, readableAIError } from './core/ai-suggest.js';
+  maskAIKey, verifyAIConnection, requestAIText, readableAIError } from './core/ai-suggest.js';
+import { buildCandidateCatalogue, buildPlanningPrompt, buildConfigurationPrompt,
+  validateAIPlan, validateAIRecipe } from './core/ai-recipe-builder.js';
 import { search as magicSearch } from './core/magic.js';
 import { loadGeoIpBundle, summarizeGeoIpBundle, dropGeoIpBundle } from './modules/networking/_geoip_store.js';
 import './modules/index.js';
@@ -1461,17 +1463,41 @@ async function magic() {
 // Keys are held in per-origin IndexedDB (not a secure key vault). No keys are
 // embedded in source code or sent to HexSpindle. Only provider requests receive
 // them; optionally selected input samples are sent to the chosen provider.
-function suggestPrompt(description, sample) {
-  const catalogue = Object.values(S.mods).filter(m => !m.flow)
-    .sort((a, b) => a.name.localeCompare(b.name))
-    .map(m => `- ${m.name}: ${(m.desc || '').slice(0, 110)}`).join('\n');
-  return `You recommend an ORDERED chain of operation names for HexSpindle, a data transformation tool.
-Use ONLY exact names from this catalogue. Do not invent argument values, external services or operations.
-Available operations (name: short description):
-${catalogue}
-User's goal: ${description}` +
-    (sample ? `\nSample from the current input, provided voluntarily for context (do not reproduce it): ${JSON.stringify(sample)}` : '') +
-    '\nReturn ONLY a JSON array of exact operation names, e.g. ["From Base64", "Gunzip"]. If no operations fit, return [].';
+function renderAIRecipeSuggestion(result, destination, sourceRecipe) {
+  destination.replaceChildren();
+  const header = el('div', { class: 'ai-suggest-summary' },
+    el('b', {}, `Proposed recipe · ${result.steps.length} step${result.steps.length === 1 ? '' : 's'}`),
+    result.summary ? el('p', {}, result.summary) : null,
+    el('div', { class: 'desc' }, 'AI suggestions have not been executed. Review the arguments before applying.'));
+  destination.append(header);
+  for (const [i, step] of result.steps.entries()) {
+    const spec = S.mods[step.name];
+    const args = (spec?.args || []).map((arg, j) => {
+      const value = step.args[j];
+      const secret = /(?:secret|private key|password|passphrase|\bkey\b|\biv\b)/i.test(arg.name);
+      const label = typeof value === 'boolean' ? (value ? 'true' : 'false')
+        : value && typeof value === 'object' && !Array.isArray(value)
+          ? `${value.option}: ${secret && value.string ? '••••' : (value.string || '(empty)')}`
+          : secret && value ? '••••' : String(value ?? '(empty)');
+      return el('div', { class: 'ai-suggest-arg', title: arg.hint || '' },
+        el('span', { class: 'ai-suggest-arg-name' }, arg.name),
+        el('code', { title: secret ? 'Sensitive parameter (hidden)' : label },
+          label.length > 100 ? label.slice(0, 97) + '…' : label));
+    });
+    destination.append(el('section', { class: 'ai-suggest-step' },
+      el('div', { class: 'ai-suggest-step-head' },
+        el('span', { class: 'ai-suggest-step-num' }, String(i + 1)), el('b', {}, step.name)),
+      el('p', {}, step.why || 'Suggested operation'),
+      args.length ? el('div', { class: 'ai-suggest-args' }, args) : el('span', { class: 'desc' }, 'No arguments')));
+  }
+  if (result.warnings.length) destination.append(el('div', { class: 'ai-suggest-warnings' },
+    el('b', {}, 'Check before applying'),
+    el('ul', {}, result.warnings.map(w => el('li', {}, w)))));
+  destination.append(el('button', { class: 'btn primary', type: 'button', onclick: () => {
+    if (JSON.stringify(serialRecipe()) !== sourceRecipe && !confirm('The active recipe has changed since this suggestion was generated. Append these steps anyway?')) return;
+    for (const step of result.steps) S.recipe.push(newOp(step.name, step.args));
+    S.stepTo = null; S.inspect = null; commit(); closeModal();
+  } }, `Add ${result.steps.length} configured step${result.steps.length === 1 ? '' : 's'} to recipe`));
 }
 
 async function suggestRecipe() {
@@ -1482,6 +1508,8 @@ async function suggestRecipe() {
   const description = el('textarea', { id: 'aiSuggestionText', spellcheck: 'false',
     placeholder: 'Describe your goal, e.g. “Base64 decode, decompress, and extract URLs”.' });
   const includeSample = el('input', { type: 'checkbox', checked: false });
+  const includeOutput = el('input', { type: 'checkbox', checked: false });
+  const includeRecipe = el('input', { type: 'checkbox', checked: true });
   const feedback = el('div', { class: 'ai-suggest-feedback', role: 'status', 'aria-live': 'polite' },
     'Choose a provider, save a personal API key, and describe the result you want.');
   const suggestions = el('div', { class: 'ai-suggest-results' });
@@ -1604,44 +1632,54 @@ async function suggestRecipe() {
     if (!keys[id]) { message(`Enter a ${AI_PROVIDERS[id].label} API key and click Save & Test.`, 'bad'); return; }
     generating = true; run.disabled = true;
     suggestions.replaceChildren();
-    message(`Checking ${AI_PROVIDERS[id].label} and requesting a recipe…`);
     try {
-      if (!verified[id] && !await check(id)) { message('The connection is not verified. Check the provider status above.', 'bad'); return; }
-      const sample = includeSample.checked && cur().bytes.length
-        ? decodeText(cur().bytes.subarray(0, 500), 'utf8') : '';
-      const validNames = Object.values(S.mods).filter(m => !m.flow).map(m => m.name);
-      const result = await requestAISuggestion(id, keys[id], models[id], suggestPrompt(goal, sample), validNames);
-      if (!result.names.length) {
-        message(result.unknown.length ? 'The provider suggested only unknown operations. Please try again.' :
-          'No matching operations were suggested. Try a more specific description.', 'bad');
-        if (result.unknown.length) suggestions.append(el('div', { class: 'desc' },
-          'Unrecognized: ' + result.unknown.join(', ')));
+      if (!verified[id] && !await check(id)) {
+        message('The connection is not verified. Check the provider status above.', 'bad'); return;
+      }
+      const before = JSON.stringify(serialRecipe());
+      // Never transmit existing argument values: they may contain passwords or encryption keys.
+      const existing = includeRecipe.checked
+        ? serialRecipe().map(op => ({ module: op.module, disabled: op.disabled })) : [];
+      const samples = [];
+      if (includeSample.checked && cur().bytes.length)
+        samples.push('Input: ' + decodeText(cur().bytes.subarray(0, 500), 'utf8'));
+      if (includeOutput.checked && S.res && S.out.length)
+        samples.push('Output: ' + decodeText(S.out.subarray(0, 500), 'utf8'));
+      const sample = samples.join('\n');
+      // Phase one: dynamically selected shortlist with operation names and descriptions.
+      const catalogue = buildCandidateCatalogue(S.mods, goal, existing);
+      message(`Stage 1/2 · ${AI_PROVIDERS[id].label} is selecting operations…`);
+      const proposedNames = validateAIPlan(await requestAIText(id, keys[id], models[id],
+        buildPlanningPrompt(goal, catalogue, existing, sample), 1200), catalogue);
+      if (!proposedNames.length) {
+        message('No suitable operations were identified. Try describing the encoding, format or task more precisely.', 'bad');
         return;
       }
-      message(`Suggested ${result.names.length} operation(s) using ${AI_PROVIDERS[id].label}.`, 'ok');
-      suggestions.append(
-        el('div', { class: 'chain ai-suggest-chain' }, result.names.flatMap((n, i) =>
-          [i ? el('i', {}, '→') : null, el('span', {}, n)])),
-        result.unknown.length ? el('div', { class: 'ai-suggest-feedback bad' },
-          'Ignored unknown operations: ' + result.unknown.join(', ')) : null,
-        el('button', { class: 'btn primary', onclick: () => {
-          for (const name of result.names) if (S.mods[name]) S.recipe.push(newOp(name));
-          S.stepTo = null; S.inspect = null; commit(); closeModal();
-        } }, 'Add to recipe'));
+      // Phase two: provide full argument specifications ONLY for selected operations.
+      message(`Stage 2/2 · Configuring ${proposedNames.length} operation(s) and validating parameters…`);
+      const response = await requestAIText(id, keys[id], models[id],
+        buildConfigurationPrompt(goal, proposedNames, S.mods, existing, sample), 4800);
+      const result = validateAIRecipe(response, proposedNames, S.mods);
+      message(`Configured ${result.steps.length} operation(s) using ${AI_PROVIDERS[id].label}. Review before applying.`, 'ok');
+      renderAIRecipeSuggestion(result, suggestions, before);
     } catch (e) { message(`Suggestion failed: ${readableAIError(id, e)}`, 'bad'); }
     finally { generating = false; run.disabled = false; }
   }
 
   const box = el('div', { class: 'ai-suggest' },
-    el('div', { class: 'desc' }, 'AI suggestions are experimental. Only your goal and the optionally enabled first 500 input bytes are sent to your selected provider.'),
+    el('div', { class: 'desc' }, 'AI suggestions are experimental. The provider receives your goal and a shortlist of HexSpindle operations, followed by exact argument specifications for chosen steps. Two API requests are used per suggestion. Results are validated locally before applying.'),
     el('label', { class: 'ai-main-label' }, 'Provider', provider),
     providerCards,
     el('div', { class: 'ai-suggest-privacy' }, 'Keys remain in this browser’s IndexedDB, not an account or secure vault. Browser extensions and scripts on this origin can access them. Provider requests may be blocked by browser CORS rules. For production, use a backend proxy.'),
     el('label', { class: 'ai-main-label' }, 'What do you want to do?', description),
-    el('label', { class: 'switch ai-sample-toggle', title: 'Explicitly share up to 500 bytes with the selected provider' },
+    el('label', { class: 'switch ai-sample-toggle', title: 'Share current recipe names and disabled status, but never argument values or keys' },
+      includeRecipe, el('i'), el('span', {}, 'Include current recipe steps (names only; no keys or arguments)')),
+    el('label', { class: 'switch ai-sample-toggle', title: 'Explicitly share up to 500 bytes of input with the selected provider' },
       includeSample, el('i'), el('span', {}, 'Include first 500 bytes of my current input (optional)')),
+    el('label', { class: 'switch ai-sample-toggle', title: 'Explicitly share up to 500 bytes of output with the selected provider' },
+      includeOutput, el('i'), el('span', {}, 'Include first 500 bytes of my current output (optional)')),
     feedback, suggestions);
-  openModal('Suggest a recipe · Anthropic / OpenAI', box, [run]);
+  openModal('Suggest a recipe · Anthropic (Claude) / OpenAI (ChatGPT)', box, [run]);
   updateActive();
   description.focus();
 
@@ -1820,7 +1858,7 @@ async function init() {
   $('#btnCopy').onclick = async () => { try { await navigator.clipboard.writeText(decodeText(S.out, $('#outView').value === 'latin1' ? 'latin1' : 'utf8')); toast('Output copied'); } catch { $('#output').select(); document.execCommand('copy'); toast('Output copied'); } };
   $('#btnSave').onclick = () => { const img = sniffImage(S.out); download(img ? 'output.' + img.split('/')[1].replace('svg+xml', 'svg').replace('x-icon', 'ico') : 'output.bin', S.out); };
   $('#btnSwap').onclick = () => { setInputBytes(S.out.slice(), null, cur().enc === 'hex' ? 'utf8' : cur().enc); };
-  $('#btnMagic').onclick = magic; $('#btnCompare').onclick = compareOutputs; $('#btnPalette').onclick = palette; $('#btnExamples').onclick = examples; $('#btnSuggest').onclick = suggestRecipe; $('#btnSuggest').title = 'Suggest a recipe with Anthropic or OpenAI using your own API key'; $('#btnRecipeIO').onclick = recipeIO; $('#btnHelp').onclick = help;
+  $('#btnMagic').onclick = magic; $('#btnCompare').onclick = compareOutputs; $('#btnPalette').onclick = palette; $('#btnExamples').onclick = examples; $('#btnSuggest').onclick = suggestRecipe; $('#btnSuggest').title = 'Suggest a configured recipe using Anthropic (Claude) or OpenAI (ChatGPT) and your own API key'; $('#btnRecipeIO').onclick = recipeIO; $('#btnHelp').onclick = help;
   $('#btnBatch').onclick = batchOpen; $('#batchInput').onchange = e => { runBatch(e.target.files); e.target.value = ''; };
   $('#btnExpandAll').onclick = expandAllCats; $('#btnCollapseAll').onclick = collapseAllCats;
   $('#output').addEventListener('scroll', syncOutputHighlights);

@@ -14,8 +14,8 @@ export const AI_PROVIDERS = Object.freeze({
     suggestUrl: 'https://api.anthropic.com/v1/messages',
   },
   openai: {
-    label: 'OpenAI',
-    model: 'gpt-6-luna',
+    label: 'OpenAI (ChatGPT)',
+    model: 'gpt-5.6-luna',
     help: 'https://platform.openai.com/api-keys',
     placeholder: 'sk-…',
     listUrl: 'https://api.openai.com/v1/models',
@@ -158,6 +158,25 @@ export function parseAISuggestion(raw, names) {
   const allowed = new Set(names);
   const unknown = arr.filter(x => !allowed.has(x));
   return { names: arr.filter(x => allowed.has(x)), unknown };
+}
+
+/** Text-only provider call for two-stage, registry-aware recipe creation. */
+export async function requestAIText(provider, key, model, prompt, maxTokens = 1800) {
+  assertProvider(provider);
+  const budget = Math.max(400, Math.min(6000, Math.floor(Number(maxTokens) || 1800)));
+  const body = provider === 'anthropic'
+    ? { model, max_tokens: budget, messages: [{ role: 'user', content: prompt }] }
+    : { model, max_output_tokens: budget, store: false,
+      input: [{ role: 'user', content: prompt }] };
+  const response = await request(provider, key, AI_PROVIDERS[provider].suggestUrl, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+  });
+  const content = provider === 'anthropic'
+    ? (response.content || []).filter(x => x.type === 'text').map(x => x.text).join('')
+    : (response.output || []).flatMap(x => x.content || []).filter(x => x.type === 'output_text')
+      .map(x => x.text).join('') || response.output_text || '';
+  if (!content.trim()) throw new Error('Provider returned no text (possibly a model or token-limit issue)');
+  return content;
 }
 
 /** Never puts the user's key in the prompt or on the page; only in Authorization headers. */
