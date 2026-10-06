@@ -289,7 +289,7 @@ function argField(op, spec, i) {
         status.replaceChildren();
         if (!sum) { status.append(el('span', { class: 'muted' }, v ? 'Files are not in this browser session — select them again.' : 'No files selected.')); return; }
         status.append(el('b', {}, sum.count + ' database' + (sum.count === 1 ? '' : 's') + ' · ' + fmtBytes(sum.bytes)));
-        for (const d of sum.databases) status.append(el('div', { class: 'file-db', title: d.databaseType }, el('span', {}, d.name), el('small', {}, d.provider + ' · ' + d.role + ' · ' + fmtBytes(d.size)));
+        for (const d of sum.databases) status.append(el('div', { class: 'file-db', title: d.databaseType }, el('span', {}, d.name), el('small', {}, d.provider + ' · ' + d.role + ' · ' + fmtBytes(d.size))));
         if (sum.databases.some(d => d.provider === 'DB-IP')) status.append(el('a', { class: 'dbip-credit', href: 'https://db-ip.com', target: '_blank', rel: 'noopener noreferrer' }, 'IP Geolocation by DB-IP'));
       };
       pick.addEventListener('change', async e => {
