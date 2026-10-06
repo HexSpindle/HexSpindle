@@ -1679,7 +1679,7 @@ async function suggestRecipe() {
     el('label', { class: 'switch ai-sample-toggle', title: 'Explicitly share up to 500 bytes of output with the selected provider' },
       includeOutput, el('i'), el('span', {}, 'Include first 500 bytes of my current output (optional)')),
     feedback, suggestions);
-  openModal('Suggest a recipe · Anthropic (Claude) / OpenAI (ChatGPT)', box, [run]);
+  openModal('Suggest a recipe', box, [run]);
   updateActive();
   description.focus();
 
