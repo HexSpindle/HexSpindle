@@ -1,27 +1,29 @@
 import { module } from './_cat.js';
-import { A } from '../../core/registry.js';
+import { A, Html } from '../../core/registry.js';
+import { heatmapSvg } from './_svg_charts.js';
 import { canvasToPng } from './_img.js';
 import { RECORD_DELIMITERS, FIELD_DELIMITERS, getScatterValues, lerpColor, drawAxes } from './_charts.js';
 
 module('Heatmap chart',
   'Bins (x, y) data into a grid of rectangular cells and colours each cell by how many points fall ' +
   'inside it, from Min colour (empty) to Max colour (most populated). Input is one record per line, ' +
-  'fields separated by the chosen delimiter. Rendered directly onto a canvas and rasterised to PNG ' +
-  "colours are interpolated in linear RGB rather than D3's " +
-  'Lab colour space, so gradients will look slightly different even for identical data.',
+  'fields separated by the chosen delimiter.' +
+  " Output: 'SVG' (default) returns SVG markup built with d3, and the page renders it as HTML. 'PNG image' instead draws HexSpindle's own canvas version, which interpolates colours in linear RGB rather than d3's Lab space, so its gradients look slightly different.",
   [
     A.select('Record delimiter', Object.keys(RECORD_DELIMITERS)),
     A.select('Field delimiter', Object.keys(FIELD_DELIMITERS)),
     A.number('Number of vertical bins', 25, 1),
     A.number('Number of horizontal bins', 25, 1),
-    A.boolean('Use first row as column headers', true),
+    A.boolean('Use column headers as labels', true),
     A.string('X label', ''),
     A.string('Y label', ''),
     A.boolean('Draw bin edges', false),
     A.string('Min colour value', 'white'),
     A.string('Max colour value', 'black'),
+    A.select('Output', ['SVG', 'PNG image']),
   ],
-  (input, recordDelimName, fieldDelimName, vBins, hBins, headersIncluded, xLabelArg, yLabelArg, drawEdges, minColour, maxColour) => {
+  async (input, recordDelimName, fieldDelimName, vBins, hBins, headersIncluded, xLabelArg, yLabelArg, drawEdges, minColour, maxColour, output) => {
+    if (output !== 'PNG image') return new Html(await heatmapSvg(input, [recordDelimName, fieldDelimName, vBins, hBins, headersIncluded, xLabelArg, yLabelArg, drawEdges, minColour, maxColour]));
     if (vBins <= 0) throw new Error('Number of vertical bins must be greater than 0');
     if (hBins <= 0) throw new Error('Number of horizontal bins must be greater than 0');
     vBins = Math.round(vBins); hBins = Math.round(hBins);

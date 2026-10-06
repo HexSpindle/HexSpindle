@@ -63,10 +63,11 @@ export async function formatVerification(signatures, verificationKeys, data) {
     throw new Error(`Signature verification failed (key ID ${sig0.keyID.toHex().toUpperCase()}): ${verifyErr.message}`);
   }
 
-  let who = '';
+  let name = '', comment = '', email = '';
   try {
     const primaryUser = await signer.getPrimaryUser();
-    who = primaryUser.user.userID ? primaryUser.user.userID.userID : '';
+    const uid = primaryUser.user.userID;
+    if (uid) ({ name, comment, email } = { name: uid.name || '', comment: uid.comment || '', email: uid.email || '' });
   } catch { /* no user ID available */ }
 
   let signedOn = '';
@@ -75,14 +76,21 @@ export async function formatVerification(signatures, verificationKeys, data) {
     if (sigPackets.length) signedOn = sigPackets[0].created.toUTCString();
   } catch { /* signature packet unavailable */ }
 
-  const lines = [];
-  lines.push(`Signed by ${who || 'unknown'}`);
-  lines.push(`PGP key ID: ${sig0.keyID.toHex().toUpperCase()}`);
-  lines.push(`PGP fingerprint: ${signer.getFingerprint().toUpperCase()}`);
-  if (signedOn) lines.push(`Signed on ${signedOn}`);
-  lines.push('----------------------------------');
-  lines.push('');
-  lines.push(typeof data === 'string' ? data : '');
+  let text = 'Signed by ';
+  if (email || name || comment) {
+    if (name) text += `${name} `;
+    if (comment) text += `(${comment}) `;
+    if (email) text += `<${email}>`;
+    text += '\n';
+  }
+  text += [
+    // kbpgp's "short key id" is the last four bytes of the fingerprint; its fingerprint is lower case.
+    `PGP key ID: ${signer.getFingerprint().slice(-8).toUpperCase()}`,
+    `PGP fingerprint: ${signer.getFingerprint().toLowerCase()}`,
+    `Signed on ${signedOn}`,
+    '----------------------------------\n',
+  ].join('\n');
+  text += typeof data === 'string' ? data : '';
 
-  return lines.join('\n').trim();
+  return text.trim();
 }

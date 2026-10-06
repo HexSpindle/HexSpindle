@@ -87,6 +87,7 @@ function sniffImage(u) {
   const head = new TextDecoder().decode(u.subarray(0, 200)).trimStart(); if (/^(<\?xml[^>]*>\s*)?<svg[\s>]/i.test(head)) return 'image/svg+xml';
   return null;
 }
+function sniffPdf(u) { return u.length > 4 && u[0] === 0x25 && u[1] === 0x50 && u[2] === 0x44 && u[3] === 0x46 ? 'application/pdf' : null; }
 function toast(msg, err) { const t = el('div', { class: 'toast' + (err ? ' err' : '') }, msg); $('#toasts').append(t); setTimeout(() => t.remove(), err ? 5000 : 2200); }
 function download(name, data, type = 'application/octet-stream') { const a = el('a', { href: URL.createObjectURL(new Blob([data], { type })), download: name }); document.body.append(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 4000); }
 
@@ -110,7 +111,7 @@ const SUBCATS = {
     ['Binary Serialization Formats', ['CBOR Decode', 'CBOR Encode', 'From MessagePack', 'To MessagePack', 'Protobuf Encode', 'Parse TLV', 'To TLV']],
   ],
   hashing: [
-    ['Common Hash Functions', ['MD2', 'MD4', 'MD5', 'SHA0', 'SHA1', 'SHA2', 'SHA3', 'RIPEMD', 'Keccak', 'Shake', 'cSHAKE / KMAC / TupleHash / K12', 'BLAKE2b', 'BLAKE2s', 'BLAKE3', 'SM3', 'Streebog (GOST R 34.11-2012)', 'Simple Hash Functions', 'Generate all hashes']],
+    ['Common Hash Functions', ['MD2', 'MD4', 'MD5', 'SHA0', 'SHA1', 'SHA2', 'SHA3', 'RIPEMD', 'Keccak', 'Shake', 'cSHAKE / KMAC / TupleHash / K12', 'BLAKE2b', 'BLAKE2s', 'BLAKE3', 'SM3', 'Streebog (GOST R 34.11-2012)', 'GOST Hash', 'Simple Hash Functions', 'Generate all hashes']],
     ['Password Hashing & KDFs', ['Argon2', 'Argon2 compare', 'Bcrypt', 'Bcrypt compare', 'Bcrypt parse', 'scrypt']],
     ['MACs & Keyed Hashes', ['HMAC', 'CMAC', 'Poly1305', 'SipHash']],
     ['Checksums & CRCs', ['Adler-32 Checksum', 'BSD / SYSV Checksum', 'CRC (custom parameters)', 'CRC-8 Checksum', 'CRC-16 Checksum', 'CRC-24 Checksum', 'CRC-32 Checksum', 'CRC-64 Checksum', 'Fletcher-8 Checksum', 'Fletcher-16 Checksum', 'Fletcher-32 Checksum', 'Fletcher-64 Checksum', 'TCP/IP Checksum', 'Generate all checksums']],
@@ -612,6 +613,7 @@ function renderOutput() {
   else if (res?.pausedAt != null) showBanner('info', `Paused at breakpoint before step ${res.pausedAt + 1}. Press Step to continue.`);
   else showBanner('', null);
   const img = sniffImage(u);
+  const pdf = sniffPdf(u);
   const archiveKind = sniffArchive(u);
   const extractStep = (!res?.error && !archiveKind) ? lastActiveExtractStep() : null;
   const listing = extractStep && extractStep.op.args[extractStep.argIdx] === '' ? parseExtractListing(u) : null;
@@ -619,13 +621,13 @@ function renderOutput() {
   // successful render/listing - a stale file browser or render next to the error banner reads as "it
   // worked". This overrides even a manually-picked view, since showing it would otherwise hide the error.
   if (res?.error) view = 'text';
-  else if (view === 'auto') view = res?.html ? 'render' : img ? 'render' : (archiveKind || listing) ? 'files' : 'text';
+  else if (view === 'auto') view = res?.html ? 'render' : (img || pdf) ? 'render' : (archiveKind || listing) ? 'files' : 'text';
   // a manually-picked "Files" view only makes sense when the output actually looks like an archive, or is
   // an Unzip/7-Zip-Extract-style text listing we can turn into a clickable one. When a step (e.g. Unzip
   // with the right password) legitimately succeeds and produces plain file content instead, drop back to
   // a normal view rather than stopping at a dead-end message the user has to click through every time.
   else if (view === 'files' && !archiveKind && !listing) {
-    view = res?.html ? 'render' : img ? 'render' : 'text';
+    view = res?.html ? 'render' : (img || pdf) ? 'render' : 'text';
     if ($('#outView').value !== 'auto') $('#outView').value = 'auto';
   }
   if (S.blobUrl) { URL.revokeObjectURL(S.blobUrl); S.blobUrl = null; }
@@ -636,13 +638,14 @@ function renderOutput() {
     if (archiveKind) renderFileBrowser(body, u, archiveKind); else renderExtractListing(body, listing, extractStep);
     $('#outStats').textContent = `${u.length.toLocaleString()} bytes`; return;
   }
-  const showText = !(view === 'render' && (res?.html || img));
+  const showText = !(view === 'render' && (res?.html || img || pdf));
   if (!showText) {
     ta.hidden = true;
     if (res?.html) {
       const doc = `<!doctype html><meta charset="utf-8"><style>body{margin:14px;font:13px/1.5 ui-monospace,Consolas,monospace;color:${document.documentElement.dataset.theme === 'light' ? '#12203a' : '#d9e6ff'};background:transparent}table{border-collapse:collapse}td,th{border:1px solid #4a6a9a;padding:4px 10px}img,svg{max-width:100%}</style>` + new TextDecoder().decode(u);
       body.append(el('iframe', { class: 'render', sandbox: '', srcdoc: doc, title: 'Rendered output' }));
-    } else { S.blobUrl = URL.createObjectURL(new Blob([u], { type: img })); body.append(el('div', { class: 'imgview' }, el('img', { src: S.blobUrl, alt: 'output image' }))); }
+    } else if (img) { S.blobUrl = URL.createObjectURL(new Blob([u], { type: img })); body.append(el('div', { class: 'imgview' }, el('img', { src: S.blobUrl, alt: 'output image' }))); }
+    else { S.blobUrl = URL.createObjectURL(new Blob([u], { type: pdf })); body.append(el('iframe', { class: 'render', src: S.blobUrl, title: 'PDF preview' })); }
   } else {
     const lim = view === 'hex' ? Math.floor(S.viewLimit / 4) : S.viewLimit, big = u.length > lim, src = big ? u.subarray(0, lim) : u;
     let t; if (view === 'hex') t = hexdump(u, lim); else if (view === 'base64') t = b64enc(src); else t = decodeText(src, view === 'latin1' ? 'latin1' : 'utf8');
@@ -655,7 +658,7 @@ function renderOutput() {
     }
   }
   const lines = u.length ? countNl(u) + 1 : 0;
-  $('#outStats').textContent = `${u.length.toLocaleString()} bytes · ${lines.toLocaleString()} lines` + (img ? ` · ${img.split('/')[1]}` : '');
+  $('#outStats').textContent = `${u.length.toLocaleString()} bytes · ${lines.toLocaleString()} lines` + (img ? ` · ${img.split('/')[1]}` : pdf ? ' · pdf' : '');
   applyWrap();
 }
 
@@ -1178,7 +1181,9 @@ async function compareOutputs() {
     const [outA, outB] = await Promise.all([bakeRaw(S.inputs[ia].bytes, recipe), bakeRaw(S.inputs[ib].bytes, recipe)]);
     const textA = new TextDecoder().decode(outA), textB = new TextDecoder().decode(outB);
     if (textA === textB) { openModal(`Compare: ${nameA} vs ${nameB}`, el('div', { class: 'empty' }, 'Identical output - no differences.')); return; }
-    const diffBytes = await bakeRaw(new TextEncoder().encode(textA + '\n\n' + textB), [{ module: 'Diff', args: ['\\n\\n', 'Line', true, true, false, false] }]);
+    // Diff needs exactly two samples, so join them with a separator that cannot occur in real output.
+    const SEP = '\uE000HexSpindle compare\uE000';
+    const diffBytes = await bakeRaw(new TextEncoder().encode(textA + SEP + textB), [{ module: 'Diff', args: [SEP, 'Line', true, true, false, false] }]);
     const dark = document.documentElement.dataset.theme !== 'light';
     const doc = `<!doctype html><meta charset="utf-8"><style>body{margin:14px;font:13px/1.5 ui-monospace,Consolas,monospace;color:${dark ? '#d9e6ff' : '#12203a'};background:${dark ? '#0a1020' : '#fff'}}</style>` + new TextDecoder().decode(diffBytes);
     openModal(`Compare: ${nameA} vs ${nameB}`, el('iframe', { class: 'render', style: 'width:100%;height:50vh;border:0', sandbox: '', srcdoc: doc, title: 'Diff' }));

@@ -9,4 +9,4 @@ export function tcpIpChecksum(u8) {
 }
 
 module('TCP/IP Checksum', '16-bit ones-complement Internet checksum (RFC 1071).', [],
-  (data) => tcpIpChecksum(data).toString(16).padStart(4, '0'));
+  (data) => tcpIpChecksum(data).toString(16).padStart(2, '0'));

@@ -1,5 +1,6 @@
 import { module } from './_cat.js';
 import { A } from '../../core/registry.js';
+import { runHash } from './_hash_util.js';
 
 function rotl(x, n) { return ((x << n) | (x >>> (32 - n))) >>> 0; }
 
@@ -79,6 +80,9 @@ function ripemd160(u8) {
   return out;
 }
 
-module('RIPEMD', 'RIPEMD-160 message digest.', [A.select('Size', ['160'])],
-  (data) => [...ripemd160(data)].map(b => b.toString(16).padStart(2, '0')).join(''));
+module('RIPEMD', 'RIPEMD (RACE Integrity Primitives Evaluation Message Digest) family: RIPEMD-128, -160, -256 and -320. RIPEMD-160 is native; the other sizes use crypto-api.',
+  [A.select('Size', ['320', '256', '160', '128'])],
+  async (data, size) => size === '160'
+    ? [...ripemd160(data)].map(b => b.toString(16).padStart(2, '0')).join('')
+    : runHash('ripemd' + size, data));
 export { ripemd160 };

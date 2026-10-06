@@ -70,6 +70,8 @@ class Parser {
     this.fail("Expected ';'");
   }
 
+  ident() { const t = this.tok(); this.advance(); return this.node('Identifier', t.start, { name: t.text }); }
+
   node(type, start, fields) {
     const n = { type, ...fields };
     if (this.opts.loc) {
@@ -109,9 +111,9 @@ class Parser {
       if (kw === 'switch') return this.parseSwitch();
       if (kw === 'class') return this.parseClass(true);
       if (!KEYWORD_STATEMENTS.has(kw) && this.is(':', 1)) {
-        this.advance(); this.advance();
+        const label = this.ident(); this.advance();
         const body = this.parseStatement();
-        return this.node('LabeledStatement', start, { label: { type: 'Identifier', name: kw }, body });
+        return this.node('LabeledStatement', start, { label, body });
       }
     }
     return this.parseExpressionStatement();
@@ -142,7 +144,7 @@ class Parser {
     do {
       const idStart = this.tok().start;
       if (!this.isKind('id')) this.fail('Expected a binding identifier (destructuring patterns are not supported)');
-      const id = { type: 'Identifier', name: this.advance().text };
+      const id = this.ident();
       let init = null;
       if (this.eat('=')) init = this.parseAssignExpr();
       declarations.push(this.node('VariableDeclarator', idStart, { id, init }));
@@ -216,10 +218,10 @@ class Parser {
       const pStart = this.tok().start;
       if (this.eat('...')) {
         if (!this.isKind('id')) this.fail('Expected an identifier after rest parameter ...');
-        params.push(this.node('RestElement', pStart, { argument: { type: 'Identifier', name: this.advance().text } }));
+        params.push(this.node('RestElement', pStart, { argument: this.ident() }));
       } else {
         if (!this.isKind('id')) this.fail('Expected a parameter identifier (destructuring parameters are not supported)');
-        const id = { type: 'Identifier', name: this.advance().text };
+        const id = this.ident();
         if (this.eat('=')) {
           const right = this.parseAssignExpr();
           params.push(this.node('AssignmentPattern', pStart, { left: id, right }));
@@ -238,7 +240,7 @@ class Parser {
     this.advance(); // 'function'
     if (this.is('*')) this.fail('Generator functions (function*) are not supported');
     let id = null;
-    if (this.isKind('id') && !this.is('(')) { id = { type: 'Identifier', name: this.advance().text }; }
+    if (this.isKind('id') && !this.is('(')) { id = this.ident(); }
     if (isDeclaration && !id) this.fail('Function declarations require a name');
     const params = this.parseParamList();
     const body = this.parseBlock();
@@ -258,7 +260,7 @@ class Parser {
     const start = this.tok().start;
     this.advance();
     let label = null;
-    if (this.isKind('id') && !this.is(';') && !this.is('}')) label = { type: 'Identifier', name: this.advance().text };
+    if (this.isKind('id') && !this.is(';') && !this.is('}')) label = this.ident();
     this.eatSemi();
     return this.node(kw === 'break' ? 'BreakStatement' : 'ContinueStatement', start, { label });
   }
@@ -282,7 +284,7 @@ class Parser {
       let param = null;
       if (this.eat('(')) {
         if (!this.isKind('id')) this.fail('Expected a catch binding identifier (destructuring is not supported)');
-        param = { type: 'Identifier', name: this.advance().text };
+        param = this.ident();
         this.expect(')');
       }
       const cbody = this.parseBlock();
@@ -318,7 +320,7 @@ class Parser {
     const start = this.tok().start;
     this.advance(); // 'class'
     let id = null;
-    if (this.isKind('id') && !this.is('extends') && !this.is('{')) id = { type: 'Identifier', name: this.advance().text };
+    if (this.isKind('id') && !this.is('extends') && !this.is('{')) id = this.ident();
     let superClass = null;
     if (this.isKind('id') && this.is('extends')) { this.advance(); superClass = this.parseLeftHandSide(); }
     this.expect('{');
@@ -340,7 +342,7 @@ class Parser {
     let computed = false, key;
     if (this.eat('[')) { computed = true; key = this.parseAssignExpr(); this.expect(']'); }
     else if (this.isKind('str')) { key = { type: 'Literal', value: this.advance().text.slice(1, -1) }; }
-    else if (this.isKind('id') || this.isKind('num')) { key = { type: 'Identifier', name: this.advance().text }; }
+    else if (this.isKind('id') || this.isKind('num')) { key = this.ident(); }
     else this.fail('Expected a method name (class fields are not supported, only methods)');
     if (!this.is('(')) this.fail('Expected \'(\' - class fields are not supported, only methods/getters/setters');
     const params = this.parseParamList();
@@ -395,9 +397,9 @@ class Parser {
     }
     const start = this.tok().start;
     if (this.isKind('id') && this.is('=>', 1) && this.text() !== 'async') {
-      const name = this.advance().text;
+      const param = this.ident();
       this.expect('=>');
-      return this.finishArrow(start, [{ type: 'Identifier', name }], false);
+      return this.finishArrow(start, [param], false);
     }
     if (this.is('(')) {
       const save = this.i;
@@ -414,9 +416,9 @@ class Parser {
   _tryArrowAfterAsync() {
     const start = this.toks[this.i - 1].start;
     if (this.isKind('id') && this.is('=>', 1)) {
-      const name = this.advance().text;
+      const param = this.ident();
       this.expect('=>');
-      return this.finishArrow(start, [{ type: 'Identifier', name }], true);
+      return this.finishArrow(start, [param], true);
     }
     if (this.is('(')) {
       const save = this.i;
@@ -515,7 +517,7 @@ class Parser {
     for (;;) {
       if (this.eat('.')) {
         if (!this.isKind('id')) this.fail('Expected a property name after .');
-        const property = { type: 'Identifier', name: this.advance().text };
+        const property = this.ident();
         expr = { type: 'MemberExpression', object: expr, property, computed: false, optional: false };
       } else if (this.eat('[')) {
         const property = this.parseExpression();
@@ -537,12 +539,12 @@ class Parser {
     for (;;) {
       if (this.eat('.')) {
         if (!this.isKind('id')) this.fail('Expected a property name after .');
-        const property = { type: 'Identifier', name: this.advance().text };
+        const property = this.ident();
         expr = this.node('MemberExpression', start, { object: expr, property, computed: false, optional: false });
       } else if (this.eat('?.')) {
         if (this.is('(')) { expr = this.node('CallExpression', start, { callee: expr, arguments: this.parseArgs(), optional: true }); }
         else if (this.eat('[')) { const property = this.parseExpression(); this.expect(']'); expr = this.node('MemberExpression', start, { object: expr, property, computed: true, optional: true }); }
-        else { if (!this.isKind('id')) this.fail('Expected a property name after ?.'); const property = { type: 'Identifier', name: this.advance().text }; expr = this.node('MemberExpression', start, { object: expr, property, computed: false, optional: true }); }
+        else { if (!this.isKind('id')) this.fail('Expected a property name after ?.'); const property = this.ident(); expr = this.node('MemberExpression', start, { object: expr, property, computed: false, optional: true }); }
       } else if (this.eat('[')) {
         const property = this.parseExpression();
         this.expect(']');
@@ -550,7 +552,8 @@ class Parser {
       } else if (this.is('(')) {
         expr = this.node('CallExpression', start, { callee: expr, arguments: this.parseArgs(), optional: false });
       } else if (this.isKind('str') && /^`/.test(this.text())) {
-        const quasi = { type: 'TemplateLiteral', raw: this.advance().text };
+        const qStart = this.tok().start;
+        const quasi = this.node('TemplateLiteral', qStart, parseTemplate(this.advance().text, this.opts));
         expr = this.node('TaggedTemplateExpression', start, { tag: expr, quasi });
       } else break;
     }
@@ -575,7 +578,7 @@ class Parser {
     if (t.kind === 'num') { this.advance(); return this.node('Literal', start, { value: parseNumericLiteral(t.text), raw: t.text }); }
     if (t.kind === 'str') {
       this.advance();
-      if (t.text[0] === '`') return this.node('TemplateLiteral', start, { raw: t.text });
+      if (t.text[0] === '`') return this.node('TemplateLiteral', start, parseTemplate(t.text, this.opts));
       return this.node('Literal', start, { value: parseStringLiteral(t.text), raw: t.text });
     }
     if (t.kind === 're') { this.advance(); const li = t.text.lastIndexOf('/'); return this.node('Literal', start, { raw: t.text, regex: { pattern: t.text.slice(1, li), flags: t.text.slice(li + 1) } }); }
@@ -627,7 +630,7 @@ class Parser {
       if (this.eat('[')) { computed = true; key = this.parseAssignExpr(); this.expect(']'); }
       else if (this.isKind('str')) { key = this.node('Literal', this.tok().start, { value: parseStringLiteral(this.text()), raw: this.text() }); this.advance(); }
       else if (this.isKind('num')) { key = this.node('Literal', this.tok().start, { value: parseNumericLiteral(this.text()), raw: this.text() }); this.advance(); }
-      else if (this.isKind('id')) { key = { type: 'Identifier', name: this.advance().text }; }
+      else if (this.isKind('id')) { key = this.ident(); }
       else this.fail('Expected a property key');
 
       if (this.is('(')) {
@@ -694,6 +697,123 @@ function buildPrecedenceChain(ParserProto) {
 }
 buildPrecedenceChain(Parser.prototype);
 
+const ESPRIMA_KEYS = {
+  Program: ['body', 'sourceType', 'comments'],
+  VariableDeclaration: ['declarations', 'kind'],
+  VariableDeclarator: ['id', 'init'],
+  Identifier: ['name'],
+  Literal: ['value', 'raw', 'regex'],
+  FunctionDeclaration: ['id', 'params', 'body', 'generator', 'expression', 'async'],
+  AssignmentPattern: ['left', 'right'],
+  RestElement: ['argument'],
+  BlockStatement: ['body'],
+  ReturnStatement: ['argument'],
+  ConditionalExpression: ['test', 'consequent', 'alternate'],
+  ExpressionStatement: ['expression'],
+  AwaitExpression: ['argument'],
+  CallExpression: ['callee', 'arguments'],
+  YieldExpression: ['argument', 'delegate'],
+  ClassDeclaration: ['id', 'superClass', 'body'],
+  ClassBody: ['body'],
+  MethodDefinition: ['key', 'computed', 'value', 'kind', 'static'],
+  FunctionExpression: ['id', 'params', 'body', 'generator', 'expression', 'async'],
+  Super: [],
+  MetaProperty: ['meta', 'property'],
+  ObjectExpression: ['properties'],
+  Property: ['key', 'computed', 'value', 'kind', 'method', 'shorthand'],
+  ArrayExpression: ['elements'],
+  SpreadElement: ['argument'],
+  ObjectPattern: ['properties'],
+  ArrayPattern: ['elements'],
+  AssignmentExpression: ['operator', 'left', 'right'],
+  ArrowFunctionExpression: ['id', 'params', 'body', 'generator', 'expression', 'async'],
+  BinaryExpression: ['operator', 'left', 'right'],
+  IfStatement: ['test', 'consequent', 'alternate'],
+  ForStatement: ['init', 'test', 'update', 'body'],
+  BreakStatement: ['label'],
+  ForInStatement: ['left', 'right', 'body', 'each'],
+  ContinueStatement: ['label'],
+  ForOfStatement: ['left', 'right', 'body'],
+  WhileStatement: ['test', 'body'],
+  DoWhileStatement: ['body', 'test'],
+  LabeledStatement: ['label', 'body'],
+  SwitchStatement: ['discriminant', 'cases'],
+  SwitchCase: ['test', 'consequent'],
+  TryStatement: ['block', 'handler', 'finalizer'],
+  ThrowStatement: ['argument'],
+  CatchClause: ['param', 'body'],
+  DebuggerStatement: [],
+  EmptyStatement: [],
+  MemberExpression: ['computed', 'object', 'property'],
+  NewExpression: ['callee', 'arguments'],
+  TemplateLiteral: ['quasis', 'expressions'],
+  TemplateElement: ['value', 'tail'],
+  TaggedTemplateExpression: ['tag', 'quasi'],
+  LogicalExpression: ['operator', 'left', 'right'],
+  UnaryExpression: ['operator', 'argument', 'prefix'],
+  UpdateExpression: ['operator', 'argument', 'prefix'],
+  SequenceExpression: ['expressions'],
+  ThisExpression: [],
+  ClassExpression: ['id', 'superClass', 'body'],
+  WithStatement: ['object', 'body'],
+};
+
+function cookTemplate(raw) {
+  return raw.replace(/\\(u\{[0-9a-fA-F]+\}|u[0-9a-fA-F]{4}|x[0-9a-fA-F]{2}|\r\n|[\s\S])/g, (m, c) => {
+    if (c[0] === 'u') return String.fromCodePoint(parseInt(c.replace(/[u{}]/g, ''), 16));
+    if (c[0] === 'x') return String.fromCharCode(parseInt(c.slice(1), 16));
+    return ({ n: '\n', t: '\t', r: '\r', b: '\b', f: '\f', v: '\v', '0': '\0', '\n': '', '\r\n': '' })[c] ?? c;
+  });
+}
+
+// `a${b}c` -> TemplateLiteral { quasis: [TemplateElement...], expressions: [...] } like Esprima.
+function parseTemplate(text, opts) {
+  const body = text.slice(1, -1);
+  const quasis = [], expressions = [];
+  let i = 0, start = 0;
+  while (i < body.length) {
+    if (body[i] === '\\') { i += 2; continue; }
+    if (body[i] === '$' && body[i + 1] === '{') {
+      const raw = body.slice(start, i);
+      quasis.push({ type: 'TemplateElement', value: { raw, cooked: cookTemplate(raw) }, tail: false });
+      let depth = 1, j = i + 2;
+      while (j < body.length && depth) {
+        const c = body[j];
+        if (c === '{') depth++; else if (c === '}') depth--;
+        else if (c === '`' || c === '"' || c === "'") { j++; while (j < body.length && body[j] !== c) j += body[j] === '\\' ? 2 : 1; }
+        if (depth) j++;
+      }
+      const sub = new Parser(body.slice(i + 2, j), { ...opts, loc: false });
+      expressions.push(sub.parseExpression());
+      i = start = j + 1;
+      continue;
+    }
+    i++;
+  }
+  const raw = body.slice(start);
+  quasis.push({ type: 'TemplateElement', value: { raw, cooked: cookTemplate(raw) }, tail: true });
+  return { quasis, expressions };
+}
+
+function esprimaShape(n) {
+  if (Array.isArray(n)) return n.map(esprimaShape);
+  if (!n || typeof n !== 'object') return n;
+  const order = ESPRIMA_KEYS[n.type];
+  if (!order) { const o = {}; for (const k of Object.keys(n)) o[k] = esprimaShape(n[k]); return o; }
+  const src = { ...n };
+  if (/Function/.test(n.type)) {
+    src.generator = src.generator ?? false;
+    src.expression = n.type === 'ArrowFunctionExpression' ? !!(n.body && n.body.type !== 'BlockStatement') : false;
+    src.async = src.async ?? false;
+  }
+  if (n.type === 'ForInStatement') src.each = false;
+  if (n.type === 'Literal' && n.regex) src.value = {};
+  const o = { type: n.type };
+  for (const k of order) if (k in src) o[k] = esprimaShape(src[k]);
+  if ('loc' in n) o.loc = n.loc;
+  return o;
+}
+
 function parseNumericLiteral(text) {
   const n = Number(text.replace(/_/g, '').replace(/n$/, ''));
   return Number.isNaN(n) ? text : n;
@@ -706,11 +826,11 @@ function parseStringLiteral(text) {
 
 function parse(src, opts) {
   const p = new Parser(src, opts);
-  return p.parseProgram();
+  return esprimaShape(p.parseProgram());
 }
 
 module('JavaScript Parser',
-  'Parses JavaScript into an ESTree-shaped Abstract Syntax Tree (JSON), using a hand-written parser over a practical subset of the language rather than a vendored full parser. See the comment at the top of javascript_parser.js for exactly what is and is not supported (no destructuring, generators, import/export, JSX, decorators, or template-literal interpolation parsing; no ASI beyond simple block/EOF boundaries). Throws a descriptive error with line/column on anything outside that subset.',
+  'Parses JavaScript into an ESTree Abstract Syntax Tree (JSON, laid out like Esprima), using a hand-written parser over a practical subset of the language rather than a vendored full parser. See the comment at the top of javascript_parser.js for exactly what is and is not supported (no destructuring, generators, import/export, JSX or decorators; no ASI beyond simple block/EOF boundaries). Throws a descriptive error with line/column on anything outside that subset.',
   [A.boolean('Include location info', false), A.boolean('Include comments array', false)],
   (t, loc, comments) => {
     const ast = parse(t, { loc, comments });

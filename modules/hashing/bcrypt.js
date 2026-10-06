@@ -235,9 +235,8 @@ function bcryptCrypt(keyBytes, saltBytes16, cost) {
 }
 
 function bcryptHash(passwordBytes, saltBytes16, cost) {
-  if (passwordBytes.length > 72) throw new Error('password cannot be longer than 72 bytes, truncate manually if necessary');
-  const keyBytes = new Uint8Array(passwordBytes.length + 1); // C-string NUL terminator
-  keyBytes.set(passwordBytes);
+  const keyBytes = new Uint8Array(Math.min(passwordBytes.length + 1, 72));
+  keyBytes.set(passwordBytes.subarray(0, keyBytes.length));
   const ciphertext = bcryptCrypt(keyBytes, saltBytes16, cost);
   const costStr = String(cost).padStart(2, '0');
   return `$2b$${costStr}$${bcryptEncode(saltBytes16)}${bcryptEncode(ciphertext.subarray(0, 23))}`;

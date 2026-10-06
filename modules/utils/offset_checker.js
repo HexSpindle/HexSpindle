@@ -1,8 +1,8 @@
 import { module } from './_cat.js';
 import { A, Html } from '../../core/registry.js';
 
-const HTML_CHARS = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#x27;', '`': '&#x60;' };
-const escapeHtml = s => s.replace(/[&<>"'`]/g, c => HTML_CHARS[c]);
+const HTML_CHARS = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#x27;', '`': '&#x60;', '\u0000': '\ue000' };
+const escapeHtml = s => s.replace(/[&<>"'`\u0000]/g, c => HTML_CHARS[c]);
 
 module('Offset checker', 'Compares multiple inputs (separated by the sample delimiter) and highlights the characters that are identical, at the same position, across every sample.',
   [A.string('Sample delimiter', '\\n\\n')],

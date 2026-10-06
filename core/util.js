@@ -49,6 +49,21 @@ export function encodeUtf8(s) { return te.encode(s); }
 export function decodeUtf8(u8) { return td.decode(u8); }
 export function decodeLatin1(u8) { return tdLatin1.decode(u8); }
 
+export function bytesToChars(u8) {
+  let s = '';
+  for (let i = 0; i < u8.length; i += 20000) s += String.fromCharCode(...u8.subarray(i, i + 20000));
+  return s;
+}
+
+export function decodeUtf8OrChars(u8) {
+  if (!u8.length) return '';
+  try { return new TextDecoder('utf-8', { fatal: true }).decode(u8); } catch { return bytesToChars(u8); }
+}
+
+export function escapeWhitespace(s) {
+  return s.replace(/[\x09-\x10]/g, (c) => String.fromCharCode(0xe000 + c.charCodeAt(0)));
+}
+
 export function base64Decode(s) {
   s = s.replace(/\s+/g, '');
   s += '='.repeat((4 - (s.length % 4)) % 4);

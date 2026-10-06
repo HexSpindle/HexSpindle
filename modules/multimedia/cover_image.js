@@ -1,14 +1,14 @@
 import { module } from './_cat.js';
 import { A } from '../../core/registry.js';
-import { loadImage, canvasToPng } from './_img.js';
+import { loadBitmap, bitmapToPng } from './_img.js';
+import { cover, RESIZE_MODES } from './_jimp.js';
 
-module('Cover Image', 'Scales and crops an image so it completely covers a box.', [A.number('Width', 200, 1), A.number('Height', 200, 1)],
-  async (data, w, h) => {
-    const { canvas: src, width, height } = await loadImage(data);
-    const scale = Math.max(w / width, h / height);
-    const sw = w / scale, sh = h / scale; // source rectangle (centred) that maps onto the full box
-    const sx = (width - sw) / 2, sy = (height - sh) / 2;
-    const out = new OffscreenCanvas(w, h);
-    out.getContext('2d').drawImage(src, sx, sy, sw, sh, 0, 0, w, h);
-    return canvasToPng(out);
-  });
+module('Cover Image',
+  'Scales an image so it completely covers a box of the given size, then crops the overflow off ' +
+  'according to the alignment.',
+  [A.number('Width', 100, 1), A.number('Height', 100, 1),
+   A.select('Horizontal align', ['Left', 'Center', 'Right'], 'Center'),
+   A.select('Vertical align', ['Top', 'Middle', 'Bottom'], 'Middle'),
+   A.select('Resizing algorithm', Object.keys(RESIZE_MODES), 'Bilinear')],
+  async (data, w, h, hAlign, vAlign, alg) =>
+    bitmapToPng(cover(await loadBitmap(data), w, h, hAlign, vAlign, alg)));

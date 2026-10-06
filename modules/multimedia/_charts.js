@@ -48,17 +48,17 @@ export function getScatterValuesWithColour(input, recordDelim, fieldDelim, heade
 export function getSeriesValues(input, recordDelim, fieldDelim) {
   const { values } = getValues(input, recordDelim, fieldDelim, false, 3);
   const xValues = [];
-  const seriesMap = new Map();
+  const seriesData = Object.create(null);
   for (const row of values) {
     const [name, xVal, yStr] = row;
     const y = parseFloat(yStr);
     if (Number.isNaN(y)) throw new Error('Values must be numbers in base 10.');
     if (!xValues.includes(xVal)) xValues.push(xVal);
-    if (!seriesMap.has(name)) seriesMap.set(name, Object.create(null));
-    seriesMap.get(name)[xVal] = y;
+    if (!seriesData[name]) seriesData[name] = Object.create(null);
+    seriesData[name][xVal] = y;
   }
-  if (!seriesMap.size) throw new Error('No data rows found.');
-  const series = [...seriesMap.entries()].map(([name, data]) => ({ name, data }));
+  const series = Object.keys(seriesData).map(name => ({ name, data: seriesData[name] }));
+  if (!series.length) throw new Error('No data rows found.');
   return { xValues, series };
 }
 

@@ -1,27 +1,36 @@
 import { module } from './_cat.js';
 import { A } from '../../core/registry.js';
-import { canvasToPng } from './_img.js';
-import { buildQrMatrix, qrMatrixToSvg } from './_qr.js';
+import { encodePng } from './_png.js';
 
-const EC_LEVELS = { Low: 'L', Medium: 'M', Quartile: 'Q', High: 'H' };
+const BYTES_PER_PIXEL = { Greyscale: 1, RG: 2, RGB: 3, RGBA: 4, Bits: 1 / 8 };
 
-module('Generate QR Code', 'Encodes the input text as a QR code (PNG or SVG).',
-  [A.select('Image format', ['PNG', 'SVG']), A.number('Module size (px)', 5, 1, 50), A.number('Margin (modules)', 4, 0, 20),
-   A.select('Error correction', ['Low', 'Medium', 'Quartile', 'High'], 'Medium')],
-  async (t, fmt, moduleSize, margin, ec) => {
-    const { matrix, size } = buildQrMatrix(t, EC_LEVELS[ec]);
-    if (fmt === 'SVG') return qrMatrixToSvg(matrix, size, moduleSize, margin);
-    const dim = (size + margin * 2) * moduleSize;
-    const data = new Uint8ClampedArray(dim * dim * 4).fill(255);
-    for (let i = 0; i < size; i++) for (let j = 0; j < size; j++) {
-      if (!matrix[i][j]) continue;
-      const x0 = (j + margin) * moduleSize, y0 = (i + margin) * moduleSize;
-      for (let y = 0; y < moduleSize; y++) for (let x = 0; x < moduleSize; x++) {
-        const idx = ((y0 + y) * dim + (x0 + x)) * 4;
-        data[idx] = 0; data[idx + 1] = 0; data[idx + 2] = 0; data[idx + 3] = 255;
+module('Generate Image', 'Turns the input bytes into an image: each byte (or bit) becomes a pixel.',
+  [A.select('Mode', ['Greyscale', 'RG', 'RGB', 'RGBA', 'Bits']), A.number('Pixel scale factor', 8, 1, 64), A.number('Pixels per row (0 = auto)', 64, 0)],
+  async (data, mode, scale, perRow) => {
+    const bpp = BYTES_PER_PIXEL[mode];
+    if (!bpp) throw new Error(`Unsupported Mode: (${mode})`);
+    if (data.length % bpp !== 0) throw new Error(`Number of bytes is not a divisor of ${bpp}`);
+    const n = data.length / bpp;
+    if (n === 0) throw new Error('Not enough data');
+    scale = Math.max(1, Math.floor(scale));
+    const w = Math.floor(perRow) || Math.max(1, Math.ceil(Math.sqrt(n)));
+    const h = Math.ceil(n / w);
+    const px = new Uint8Array(w * h * 4); // transparent black, like a new Jimp image
+    for (let p = 0; p < n; p++) {
+      const o = p * 4;
+      let r = 0, g = 0, b = 0, a = 255;
+      if (mode === 'Bits') { r = g = b = (data[p >> 3] >> (7 - (p & 7))) & 1 ? 0 : 255; }
+      else {
+        const i = p * bpp;
+        if (mode === 'Greyscale') r = g = b = data[i];
+        else if (mode === 'RG') { r = data[i]; g = data[i + 1]; }
+        else { r = data[i]; g = data[i + 1]; b = data[i + 2]; if (mode === 'RGBA') a = data[i + 3]; }
       }
+      px[o] = r; px[o + 1] = g; px[o + 2] = b; px[o + 3] = a;
     }
-    const canvas = new OffscreenCanvas(dim, dim);
-    canvas.getContext('2d').putImageData(new ImageData(data, dim, dim), 0, 0);
-    return canvasToPng(canvas);
-  }, { text: true });
+    if (scale === 1) return encodePng(px, w, h);
+    const W = w * scale, H = h * scale, big = new Uint8Array(W * H * 4);
+    const big32 = new Uint32Array(big.buffer), px32 = new Uint32Array(px.buffer);
+    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) big32[y * W + x] = px32[Math.floor(y / scale) * w + Math.floor(x / scale)];
+    return encodePng(big, W, H);
+  });

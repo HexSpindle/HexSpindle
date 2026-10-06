@@ -1,113 +1,188 @@
 import { module } from './_cat.js';
-import { decodeLatin1, bytesToHex } from '../../core/util.js';
+import { decodeLatin1 } from '../../core/util.js';
+import { EXIF_TAGS, GPS_TAGS } from './_exif_tags.js';
 
-const TAGS = {
-  0x010f: 'Make', 0x0110: 'Model', 0x0112: 'Orientation', 0x011a: 'XResolution', 0x011b: 'YResolution', 0x0131: 'Software', 0x0132: 'DateTime', 0x013b: 'Artist',
-  0x8298: 'Copyright', 0x829a: 'ExposureTime', 0x829d: 'FNumber', 0x8827: 'ISOSpeedRatings', 0x9003: 'DateTimeOriginal', 0x9004: 'DateTimeDigitized', 0x920a: 'FocalLength',
-  0xa002: 'PixelXDimension', 0xa003: 'PixelYDimension', 0xa433: 'LensMake', 0xa434: 'LensModel', 0x010e: 'ImageDescription', 0x9286: 'UserComment', 0xa430: 'CameraOwnerName',
-};
-const GPS = { 1: 'GPSLatitudeRef', 2: 'GPSLatitude', 3: 'GPSLongitudeRef', 4: 'GPSLongitude', 5: 'GPSAltitudeRef', 6: 'GPSAltitude' };
-const SIZES = { 1: 1, 2: 1, 3: 2, 4: 4, 5: 8, 7: 1, 9: 4, 10: 8 };
 
-function stripTrailingNulls(u8) {
-  let end = u8.length;
-  while (end > 0 && u8[end - 1] === 0) end--;
-  return u8.subarray(0, end);
+const BYTES_PER_COMPONENT = { 1: 1, 2: 1, 6: 1, 7: 1, 3: 2, 8: 2, 4: 4, 9: 4, 11: 4, 5: 8, 10: 8, 12: 8 };
+
+function reader(data, start, end, little) {
+  const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
+  return {
+    off: start,
+    end,
+    little,
+    u8() { return data[this.off++]; },
+    i8() { const v = view.getInt8(this.off); this.off += 1; return v; },
+    u16() { const v = view.getUint16(this.off, this.little); this.off += 2; return v; },
+    u32() { const v = view.getUint32(this.off, this.little); this.off += 4; return v; },
+    i32() { const v = view.getInt32(this.off, this.little); this.off += 4; return v; },
+    f32() { const v = view.getFloat32(this.off, this.little); this.off += 4; return v; },
+    f64() { const v = view.getFloat64(this.off, this.little); this.off += 8; return v; },
+    str(n) { const s = decodeLatin1(data.subarray(this.off, this.off + n)); this.off += n; return s; },
+    skip(n) { this.off += n; },
+    remaining() { return this.end - this.off; },
+  };
 }
 
-function readInts(raw, cnt, width, little, signed) {
-  const dv = new DataView(raw.buffer, raw.byteOffset, raw.byteLength);
-  const out = [];
-  for (let k = 0; k < cnt; k++) {
-    if (width === 2) out.push(signed ? dv.getInt16(k * 2, little) : dv.getUint16(k * 2, little));
-    else out.push(signed ? dv.getInt32(k * 4, little) : dv.getUint32(k * 4, little));
+function readValue(format, s) {
+  switch (format) {
+    case 1: return s.u8();
+    case 3: return s.u16();
+    case 4: return s.u32();
+    case 5: return [s.u32(), s.u32()];
+    case 6: return s.i8();
+    case 8: return s.u16();
+    case 9: return s.u32();
+    case 10: return [s.i32(), s.i32()];
+    case 11: return s.f32();
+    case 12: return s.f64();
+    default: throw new Error(`Invalid format while decoding: ${format}`);
   }
-  return out;
 }
 
-function pyBytesRepr(u8) {
-  let hasSingle = false, hasDouble = false;
-  for (const b of u8) { if (b === 0x27) hasSingle = true; else if (b === 0x22) hasDouble = true; }
-  const q = (hasSingle && !hasDouble) ? '"' : "'";
-  const qc = q.charCodeAt(0);
-  let s = 'b' + q;
-  for (const b of u8) {
-    if (b === qc) s += '\\' + q;
-    else if (b === 0x5c) s += '\\\\';
-    else if (b === 0x09) s += '\\t';
-    else if (b === 0x0a) s += '\\n';
-    else if (b === 0x0d) s += '\\r';
-    else if (b >= 0x20 && b < 0x7f) s += String.fromCharCode(b);
-    else s += '\\x' + b.toString(16).padStart(2, '0');
+function simplifyValue(values, format) {
+  if (Array.isArray(values)) {
+    values = values.map(v => (format === 10 || format === 5 ? v[0] / v[1] : v));
+    if (values.length === 1) values = values[0];
   }
-  return s + q;
+  return values;
 }
 
-function formatVal(v) {
-  if (v instanceof Uint8Array) return pyBytesRepr(v);
-  if (Array.isArray(v)) {
-    if (!v.length) return '()';
-    return `(${v.map(x => typeof x === 'string' ? `'${x}'` : String(x)).join(', ')})`;
+// "YYYY:MM:DD hh:mm:ss" (and the non-standard ISO form with a timezone) -> unix timestamp, seconds.
+function parseExifDate(str) {
+  const parts = (dateParts, timeParts) => {
+    const d = dateParts.map(n => parseInt(n, 10)), t = timeParts.map(n => parseInt(n, 10));
+    return Date.UTC(d[0], d[1] - 1, d[2], t[0], t[1], t[2], 0) / 1000;
+  };
+  if (str.length === 25 && str.charAt(10) === 'T') {
+    const tz = str.substr(19, 6).split(':').map(n => parseInt(n, 10));
+    const ts = parts(str.substr(0, 10).split('-'), str.substr(11, 8).split(':')) - (tz[0] * 3600 + tz[1] * 60);
+    return Number.isNaN(ts) ? undefined : ts;
   }
-  return String(v);
+  if (str.length === 19 && str.charAt(4) === ':') {
+    const bits = str.split(' ');
+    const ts = parts(bits[0].split(':'), bits[1].split(':'));
+    return Number.isNaN(ts) ? undefined : ts;
+  }
+  return undefined;
 }
 
-function parseTiff(t) {
-  const little = t[0] === 0x49 && t[1] === 0x49; // "II"
-  const dv = new DataView(t.buffer, t.byteOffset, t.byteLength);
-  const out = {};
+function readTag(data, s, tiffStart) {
+  const tagType = s.u16();
+  const format = s.u16();
+  const bytesPerComponent = BYTES_PER_COMPONENT[format] ?? 0;
+  const components = s.u32();
+  const valueBytes = bytesPerComponent * components;
+  let vs = s;
+  if (valueBytes > 4) vs = reader(data, tiffStart + s.u32(), s.end, s.little);
+  let values;
+  if (format === 2) {
+    values = vs.str(components);
+    const lastNull = values.indexOf('\0');
+    if (lastNull !== -1) values = values.substr(0, lastNull);
+  } else if (format === 7) {
+    values = data.subarray(vs.off, vs.off + components);
+    vs.skip(components);
+  } else if (format !== 0) {
+    values = [];
+    for (let c = 0; c < components; c++) values.push(readValue(format, vs));
+  }
+  if (valueBytes < 4) s.skip(4 - valueBytes);
+  return [tagType, values, format];
+}
 
-  function ifd(off, names, prefix) {
-    const n = dv.getUint16(off, little);
+const GPSIFD = 3;
+
+function parseExifSection(data, sectionStart, sectionEnd, emit) {
+  const head = decodeLatin1(data.subarray(sectionStart, sectionStart + 6));
+  if (head !== 'Exif\0\0') return false; // APP1 sections with another header (e.g. XMP) are ignored
+  const tiffStart = sectionStart + 6;
+  const be = data[tiffStart] === 0x4d && data[tiffStart + 1] === 0x4d;
+  const le = data[tiffStart] === 0x49 && data[tiffStart + 1] === 0x49;
+  if (!be && !le) throw new Error('Invalid TIFF header');
+  const little = le;
+  const s = reader(data, tiffStart + 2, sectionEnd, little);
+  if (s.u16() !== 0x002a) throw new Error('Invalid TIFF data');
+  const readIFD = (offset, section, handler) => {
+    const ifd = reader(data, tiffStart + offset, sectionEnd, little);
+    const n = ifd.u16();
     for (let i = 0; i < n; i++) {
-      const entryOff = off + 2 + i * 12;
-      const tag = dv.getUint16(entryOff, little);
-      const typ = dv.getUint16(entryOff + 2, little);
-      const cnt = dv.getUint32(entryOff + 4, little);
-      const valOff = entryOff + 8;
-      const size = (SIZES[typ] ?? 1) * cnt;
-      let raw;
-      if (size <= 4) raw = t.subarray(valOff, valOff + size);
-      else { const ptr = dv.getUint32(valOff, little); raw = t.subarray(ptr, ptr + size); }
-      if (tag === 0x8769 && !prefix) { ifd(dv.getUint32(valOff, little), TAGS, 'Exif.'); continue; }
-      if (tag === 0x8825 && !prefix) { ifd(dv.getUint32(valOff, little), GPS, 'GPS.'); continue; }
-      let v;
-      if (typ === 2) v = decodeLatin1(stripTrailingNulls(raw));
-      else if (typ === 3) v = readInts(raw, cnt, 2, little, false);
-      else if (typ === 4) v = readInts(raw, cnt, 4, little, false);
-      else if (typ === 5 || typ === 10) {
-        const nums = readInts(raw, cnt * 2, 4, little, typ === 10);
-        const parts = [];
-        for (let j = 0; j < nums.length; j += 2) parts.push(nums[j + 1] !== 1 ? `${nums[j]}/${nums[j + 1]}` : String(nums[j]));
-        v = parts;
-      } else {
-        v = raw.length > 16 ? bytesToHex(raw) : raw;
-      }
-      if (Array.isArray(v) && v.length === 1) v = v[0];
-      const name = names[tag] ?? `Tag 0x${tag.toString(16).padStart(4, '0')}`;
-      out[prefix + name] = v;
+      const [tagType, value, format] = readTag(data, ifd, tiffStart);
+      handler(section, tagType, value, format);
     }
+    return ifd;
+  };
+  let subIfdOffset, gpsOffset, interopOffset;
+  const ifd0 = readIFD(s.u32(), 1, (section, tagType, value, format) => {
+    if (tagType === 0x8825) gpsOffset = value[0];
+    else if (tagType === 0x8769) subIfdOffset = value[0];
+    else emit(section, tagType, value, format);
+  });
+  const ifd1Offset = ifd0.u32();
+  if (ifd1Offset !== 0) readIFD(ifd1Offset, 2, emit);
+  if (gpsOffset) readIFD(gpsOffset, GPSIFD, emit);
+  if (subIfdOffset) {
+    readIFD(subIfdOffset, 5, (section, tagType, value, format) => {
+      if (tagType === 0xa005) interopOffset = value[0];
+      else emit(section, tagType, value, format);
+    });
   }
-  ifd(dv.getUint32(4, little), TAGS, '');
-  return out;
+  if (interopOffset) readIFD(interopOffset, 5, emit);
+  return true;
 }
 
-module('Extract EXIF', 'Reads EXIF metadata (camera, timestamps, GPS) from a JPEG file.', [],
+module('Extract EXIF',
+  'Reads EXIF metadata (camera, timestamps, GPS, ...) from a JPEG file. Rational values are reduced ' +
+  'to plain numbers, GPS latitude/longitude become signed decimal degrees, and the EXIF date ' +
+  'strings become UTC unix timestamps in seconds. Binary (format 7) tags are skipped.',
+  [],
   (data) => {
-    if (!(data[0] === 0xff && data[1] === 0xd8)) throw new Error('Not a JPEG file');
-    const dv = new DataView(data.buffer, data.byteOffset, data.byteLength);
-    let i = 2;
-    while (i + 4 < data.length) {
-      if (data[i] !== 0xff) break;
-      const marker = data[i + 1];
-      const ln = dv.getUint16(i + 2, false);
-      if (marker === 0xe1 && data[i + 4] === 0x45 && data[i + 5] === 0x78 && data[i + 6] === 0x69 && data[i + 7] === 0x66 && data[i + 8] === 0 && data[i + 9] === 0) {
-        const tags = parseTiff(data.subarray(i + 10, i + 2 + ln));
-        const lines = Object.entries(tags).map(([k, v]) => `${k}: ${formatVal(v)}`);
-        return lines.join('\n') || 'EXIF block contains no known tags.';
+    const tags = new Map();
+    try {
+      // Walk the JPEG's marker segments, stopping at the start of scan, like exif-parser does.
+      let off = 0;
+      let markerType;
+      while (data.length - off > 0 && markerType !== 0xda) {
+        if (data[off++] !== 0xff) throw new Error('Invalid JPEG section offset');
+        markerType = data[off++];
+        let len;
+        if ((markerType >= 0xd0 && markerType <= 0xd9) || markerType === 0xda) len = 0;
+        else {
+          if (off + 2 > data.length) throw new Error('Invalid JPEG section offset');
+          len = ((data[off] << 8) | data[off + 1]) - 2;
+          off += 2;
+        }
+        if (len < 0 || off + len > data.length) throw new Error('Invalid JPEG section offset');
+        if (markerType === 0xe1) {
+          parseExifSection(data, off, off + len, (section, tagType, value, format) => {
+            if (format === 7) return;
+            if (tagType === 0x0201 || tagType === 0x0202 || tagType === 0x0103) return; // thumbnail pointers
+            const name = (section === GPSIFD ? GPS_TAGS[tagType] : EXIF_TAGS[tagType]) ?? EXIF_TAGS[tagType];
+            if (!tags.has(name)) tags.set(name, simplifyValue(value, format));
+          });
+        }
+        off += len;
       }
-      if (marker === 0xda) break;
-      i += 2 + ln;
+    } catch (err) {
+      throw new Error(`Could not extract EXIF data from image: ${err instanceof Error ? `Error: ${err.message}` : err}`);
     }
-    return 'No EXIF data found.';
+    // GPS co-ordinates -> signed decimal degrees.
+    for (const [name, refName, posVal] of [['GPSLatitude', 'GPSLatitudeRef', 'N'], ['GPSLongitude', 'GPSLongitudeRef', 'E']]) {
+      const v = tags.get(name);
+      if (v) {
+        const sign = tags.get(refName) === posVal ? 1 : -1;
+        tags.set(name, (v[0] + v[1] / 60 + v[2] / 3600) * sign);
+      }
+    }
+    // EXIF date strings -> unix timestamps.
+    for (const name of ['ModifyDate', 'DateTimeOriginal', 'CreateDate', 'ModifyDate']) {
+      const v = tags.get(name);
+      if (v) {
+        const ts = parseExifDate(String(v));
+        if (ts !== undefined) tags.set(name, ts);
+      }
+    }
+    const lines = [...tags].map(([name, value]) => `${name}: ${value}`);
+    lines.unshift(`Found ${lines.length} tags.\n`);
+    return lines.join('\n');
   });

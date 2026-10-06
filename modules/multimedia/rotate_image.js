@@ -1,20 +1,27 @@
 import { module } from './_cat.js';
 import { A } from '../../core/registry.js';
+import { loadBitmap, bitmapToPng } from './_img.js';
+import { matrixRotate, advancedRotate } from './_jimp.js';
 import { loadImage, canvasToPng } from './_img.js';
 
-module('Rotate Image', 'Rotates an image by an angle (degrees, counter-clockwise).', [A.number('Rotation amount (degrees)', 90), A.boolean('Expand canvas', true)],
+module('Rotate Image',
+  'Rotates an image by an angle (degrees, anti-clockwise). Multiples of 90 degrees are a loss-free ' +
+  'pixel permutation. Other angles grow the canvas so nothing is cut off and sample the rotated ' +
+  'source; with "Expand canvas" off the result is cropped back to the original size instead.',
+  [A.number('Rotation amount (degrees)', 90), A.boolean('Expand canvas', true)],
   async (data, deg, expand) => {
-    const { canvas: src, width, height } = await loadImage(data);
-    const rad = (deg * Math.PI) / 180;
-    let outW = width, outH = height;
     if (expand) {
-      outW = Math.ceil(Math.abs(width * Math.cos(rad)) + Math.abs(height * Math.sin(rad)));
-      outH = Math.ceil(Math.abs(width * Math.sin(rad)) + Math.abs(height * Math.cos(rad)));
+      const bm = await loadBitmap(data);
+      const d = deg % 360;
+      if (d === 0) return bitmapToPng(bm);
+      return bitmapToPng(d % 90 === 0 ? matrixRotate(bm, d) : advancedRotate(bm, d));
     }
-    const out = new OffscreenCanvas(outW, outH);
+    // Fixed-size rotation isn't something Jimp can do, so it stays a canvas transform.
+    const { canvas: src, width, height } = await loadImage(data);
+    const out = new OffscreenCanvas(width, height);
     const ctx = out.getContext('2d');
-    ctx.translate(outW / 2, outH / 2);
-    ctx.rotate(-rad); // PIL rotates counter-clockwise for a positive angle
+    ctx.translate(width / 2, height / 2);
+    ctx.rotate((-deg * Math.PI) / 180);
     ctx.drawImage(src, -width / 2, -height / 2);
     return canvasToPng(out);
   });

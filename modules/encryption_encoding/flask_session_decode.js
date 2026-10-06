@@ -7,5 +7,5 @@ module('Flask Session Decode', "Decodes a Flask session cookie's payload without
     const compressed = s.startsWith('.');
     if (compressed) s = s.slice(1);
     const payload = (compressed ? '.' : '') + s.split('.')[0];
-    return JSON.stringify(await loadPayload(payload), null, 2);
+    return JSON.stringify(await loadPayload(payload), null, 4);
   }, { text: true });

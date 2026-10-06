@@ -1,8 +1,8 @@
 import { module } from './_cat.js';
 import { A } from '../../core/registry.js';
-import { parseHex, decodeLatin1, bytesToHex } from '../../core/util.js';
+import { parseHex, decodeLatin1 } from '../../core/util.js';
 import { gostKeyWrapNo, gostKeyWrapCp } from '../encryption_encoding/_gost_sign.js';
-import { ALGORITHMS } from './gost_sign.js';
+import { ALGORITHMS, gostHexEncode } from './gost_sign.js';
 
 const ALGO_INFO = { 'GOST R 34.12 (Magma, 2015)': { algo: 'Magma', blockBytes: 8 }, 'GOST R 34.12 (Kuznyechik, 2015)': { algo: 'Kuznyechik', blockBytes: 16 } };
 
@@ -23,5 +23,5 @@ module('GOST Key Wrap', 'Wraps a 32-byte content-encryption key (CEK) with a 32-
     const expectedUkmLen = keyWrapping === 'CP' ? 8 : blockBytes;
     if (ukm.length !== expectedUkmLen) throw new Error(`User Key Material must be ${expectedUkmLen} bytes for ${keyWrapping} wrapping with ${algorithm}`);
     const wrapped = keyWrapping === 'CP' ? gostKeyWrapCp(algo, kek, data, ukm) : gostKeyWrapNo(algo, kek, data, ukm);
-    return out === 'Hex' ? bytesToHex(wrapped) : wrapped;
+    return out === 'Hex' ? gostHexEncode(wrapped) : wrapped;
   });

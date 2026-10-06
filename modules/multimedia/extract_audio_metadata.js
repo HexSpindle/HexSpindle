@@ -38,5 +38,5 @@ module('Extract Audio Metadata',
     } catch (e) {
       report.errors.push({ stage: 'parse', message: String(e?.message || e) });
     }
-    return JSON.stringify(report, null, 2);
+    return JSON.stringify(report, null, 4);
   });

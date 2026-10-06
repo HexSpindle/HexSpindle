@@ -1,3 +1,7 @@
+import { bitmapFromImageData } from './_jimp.js';
+import { encodePng } from './_encoders.js';
+import { decodePng } from './_png_decode.js';
+
 export async function loadImage(data) {
   const blob = new Blob([data]);
   const bitmap = await createImageBitmap(blob);
@@ -63,4 +67,17 @@ export function gaussianBlur(img, width, height, sigma) {
   for (let k = -radius; k <= radius; k++) { const v = Math.exp(-(k * k) / (2 * sigma * sigma)); kernel[k + radius] = v; sum += v; }
   for (let k = 0; k < kernel.length; k++) kernel[k] /= sum;
   return convolveSeparable(img, width, height, kernel);
+}
+
+export async function loadBitmap(data) {
+  // PNG is decoded directly (see _png_decode.js): a canvas would round-trip the pixels through
+  // premultiplied alpha and change every pixel that isn't fully opaque.
+  const png = await decodePng(data);
+  if (png) return png;
+  const { ctx, width, height } = await loadImage(data);
+  return bitmapFromImageData(ctx.getImageData(0, 0, width, height));
+}
+
+export async function bitmapToPng(bm) {
+  return encodePng(bm);
 }

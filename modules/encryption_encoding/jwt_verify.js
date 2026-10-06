@@ -29,5 +29,5 @@ module('JWT Verify', 'Verifies a JWT signature. HS* use the key as a secret; RS*
       ok = await crypto.subtle.verify({ name: 'ECDSA', hash }, pub, sig, data);
     }
     if (!ok) throw new Error('Invalid signature');
-    return JSON.stringify(JSON.parse(decodeUtf8(base64Decode(p64))), null, 2);
+    return JSON.stringify(JSON.parse(decodeUtf8(base64Decode(p64))), null, 4);
   }, { text: true });

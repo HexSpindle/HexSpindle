@@ -2,44 +2,50 @@ import { module } from './_cat.js';
 import { A } from '../../core/registry.js';
 import { canvasToPng } from './_img.js';
 
-function parseCoordPart(str) {
-  let s = str.trim();
-  let dir = '';
-  if (/^[NSEWnsew]/.test(s)) { dir = s[0].toUpperCase(); s = s.slice(1); }
-  else if (/[NSEWnsew]$/.test(s)) { dir = s[s.length - 1].toUpperCase(); s = s.slice(0, -1); }
-  s = s.replace(/[°'′"″]/g, ' ').trim();
-  const nums = s.split(/\s+/).filter(Boolean).map(Number);
-  if (!nums.length || nums.some(Number.isNaN)) return null;
-  const [deg, min = 0, sec = 0] = nums;
-  let value = Math.abs(deg) + min / 60 + sec / 3600;
-  if (deg < 0 || dir === 'S' || dir === 'W') value = -value;
-  return value;
-}
+const FORMATS = ['Degrees Minutes Seconds', 'Degrees Decimal Minutes', 'Decimal Degrees', 'Geohash',
+  'Military Grid Reference System', 'Ordnance Survey National Grid', 'Universal Transverse Mercator'];
+const DELIMS = ['Auto', 'Direction Preceding', 'Direction Following', '\\n', 'Comma', 'Semi-colon', 'Colon'];
 
-function parseLatLon(input) {
-  let parts = input.split(/[,;\n\t]+/).map(s => s.trim()).filter(Boolean);
-  if (parts.length !== 2) parts = input.trim().split(/\s{2,}/).map(s => s.trim()).filter(Boolean);
-  if (parts.length !== 2) return null;
-  const lat = parseCoordPart(parts[0]), lon = parseCoordPart(parts[1]);
-  if (lat === null || lon === null || Number.isNaN(lat) || Number.isNaN(lon)) return null;
-  return { lat, lon };
+async function toLatLong(input, inFormat, inDelim) {
+  const { convertCoordinates } = await import('./_coords.js');
+  let latLong;
+  try {
+    latLong = convertCoordinates(input, inFormat, inDelim, 'Decimal Degrees', 'Comma', 'None', 5);
+  } catch (error) {
+    throw new Error(String(error));
+  }
+  latLong = latLong.replace(/[,]$/, '');
+  latLong = latLong.replace(/°/g, '');
+  const coords = latLong.split(',').map(v => v.trim());
+  if (coords.length !== 2 || coords.some(v => v === '' || isNaN(Number(v)))) {
+    throw new Error(`Could not show coordinates '${latLong}' on the map. Expected a latitude and longitude pair - check that the input format and delimiter are correct.`);
+  }
+  return latLong;
 }
 
 module('Show on map',
-  "Renders a latitude/longitude coordinate as a marker on a plain, labelled lat/lon grid, output as a " +
-  "standalone PNG. This is a deliberately simplified stand-in for 'Show on map', which " +
-  'embeds an interactive Leaflet map with live OpenStreetMap tiles in the browser - that requires a ' +
-  'network connection and an actual map/tile library, neither of which is practical to reproduce ' +
-  'headlessly or offline here, and OSM tiles cannot be vendored into this project. There is no real ' +
-  'coastline or geography drawn, just an equirectangular degree grid with the point marked on it. ' +
-  'Coordinate parsing is also narrower: only Decimal Degrees (DD) and Degrees ' +
-  "[Decimal] Minutes [Seconds] (DDM/DMS, with N/S/E/W suffixes or signed numbers) are supported - " +
-  "Geohash, MGRS, OSNG and UTM are not implemented; convert those to decimal degrees first (e.g. with another tool).",
-  [A.number('Grid line spacing (degrees)', 30, 5, 90), A.number('Image size (px)', 500, 200, 2000)],
-  (input, gridSpacing, size) => {
+  "Converts a co-ordinate to decimal degrees for display on a map. Supported input formats: Degrees " +
+  'Minutes Seconds (DMS), Degrees Decimal Minutes (DDM), Decimal Degrees (DD), Geohash, Military Grid ' +
+  'Reference System (MGRS), Ordnance Survey National Grid (OSNG) and Universal Transverse Mercator (UTM). ' +
+  "Output 'Co-ordinates' (default) is the 'latitude,longitude' " +
+  "string, which a web page can show on a live OpenStreetMap/Leaflet map. That map needs a " +
+  "network connection and tile service, so HexSpindle does not embed it; 'PNG map' instead draws the point " +
+  'on a plain, labelled equirectangular lat/lon grid (no coastlines or geography), using the two grid/size ' +
+  'arguments.',
+  [
+    A.number('Grid line spacing (degrees)', 30, 5, 90),
+    A.number('Image size (px)', 500, 200, 2000),
+    A.select('Input Format', ['Auto', ...FORMATS]),
+    A.select('Input Delimiter', DELIMS),
+    A.select('Output', ['Co-ordinates', 'PNG map']),
+  ],
+  async (input, gridSpacing, size, inFormat, inDelim, output) => {
+    if (output !== 'PNG map') {
+      return input.replace(/\s+/g, '') !== '' ? toLatLong(input, inFormat, inDelim) : input;
+    }
     if (!input.replace(/\s+/g, '')) throw new Error('No input. Provide a latitude/longitude pair, e.g. "51.5074, -0.1278".');
-    const coord = parseLatLon(input);
-    if (!coord) throw new Error('Could not parse a latitude/longitude pair. Expected e.g. "51.5074, -0.1278" or "51 30 26 N, 0 7 39 W".');
+    const [lat, lon] = (await toLatLong(input, inFormat, inDelim)).split(',').map(Number);
+    const coord = { lat, lon };
     if (coord.lat < -90 || coord.lat > 90) throw new Error('Latitude must be between -90 and 90.');
     if (coord.lon < -180 || coord.lon > 180) throw new Error('Longitude must be between -180 and 180.');
 

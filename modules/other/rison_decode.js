@@ -1,5 +1,5 @@
 import { module } from './_cat.js';
-import { Flt, toPyJson } from './_cat.js';
+import { Flt } from './_cat.js';
 
 function tokString(s, i) {
   if (s[i] === "'") {
@@ -70,8 +70,18 @@ function parse(s, i) {
   return [tok, j];
 }
 
+/** Rison's JS reference decoder produces plain JS values, so the JSON is the ordinary
+ * JSON.stringify() rendering with a 4-space indent - no int/float distinction, and
+ * non-ASCII text left as literal characters. */
+function plain(v) {
+  if (v instanceof Flt) return v.value;
+  if (Array.isArray(v)) return v.map(plain);
+  if (v instanceof Map) return Object.fromEntries([...v.entries()].map(([k, x]) => [k, plain(x)]));
+  return v;
+}
+
 module('Rison Decode', 'Decodes Rison (a compact, URL-safe alternative to JSON) to JSON.', [],
   (t) => {
     const [val] = parse(t.trim(), 0);
-    return toPyJson(val);
+    return JSON.stringify(plain(val), null, 4);
   }, { text: true });

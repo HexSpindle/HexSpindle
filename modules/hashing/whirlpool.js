@@ -1,5 +1,6 @@
 import { module } from './_cat.js';
 import { A } from '../../core/registry.js';
+import { runHash } from './_hash_util.js';
 import { bytesToHex } from '../../core/util.js';
 import { RC, C0, C1, C2, C3, C4, C5, C6, C7 } from './_whirlpool_tables.js';
 
@@ -57,6 +58,8 @@ export function whirlpool(data, rounds = 10) {
   return out;
 }
 
-module('Whirlpool', 'Whirlpool (ISO/IEC 10118-3): a 512-bit cryptographic hash designed by Barreto and Rijmen, built from a dedicated AES-like block cipher. Implements the final (2003) revision; the "Rounds" option can reduce the block cipher below its standard 10 rounds.',
-  [A.number('Rounds', 10, 1, 10)],
-  (data, rounds) => bytesToHex(whirlpool(data, Math.floor(rounds))));
+module('Whirlpool', 'Whirlpool (ISO/IEC 10118-3): a 512-bit cryptographic hash designed by Barreto and Rijmen, built from a dedicated AES-like block cipher. Implements the final (2003) revision, or the earlier Whirlpool-0 / Whirlpool-T; the "Rounds" option can reduce the block cipher below its standard 10 rounds.',
+  [A.number('Rounds', 10, 1, 10), A.select('Variant', ['Whirlpool', 'Whirlpool-T', 'Whirlpool-0'])],
+  async (data, rounds, variant = 'Whirlpool') => variant === 'Whirlpool'
+    ? bytesToHex(whirlpool(data, Math.floor(rounds)))
+    : runHash(variant.toLowerCase(), data, { rounds }));

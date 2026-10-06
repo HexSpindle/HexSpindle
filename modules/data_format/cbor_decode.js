@@ -62,4 +62,4 @@ function dec(b, i = 0) {
 }
 
 module('CBOR Decode', 'Decodes CBOR data to JSON (byte strings shown as hex).', [],
-  (data) => stringifyTyped(dec(data)[0]));
+  (data) => stringifyTyped(dec(data)[0], 4));

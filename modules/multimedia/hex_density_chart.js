@@ -1,25 +1,30 @@
 import { module } from './_cat.js';
-import { A } from '../../core/registry.js';
+import { A, Html } from '../../core/registry.js';
+import { hexDensitySvg } from './_svg_charts.js';
 import { canvasToPng } from './_img.js';
 import { RECORD_DELIMITERS, FIELD_DELIMITERS, getScatterValues, lerpColor, drawAxes, hexbin, hexagonPath } from './_charts.js';
 
 module('Hex Density chart',
   'Groups (x, y) data into hexagonal bins and colours each hexagon by how many points fall inside it ' +
   '- a 2D histogram, useful for showing the distribution of far more points than could be plotted ' +
-  'individually. Input is one record per line, fields separated by the chosen delimiter.',
+  'individually. Input is one record per line, fields separated by the chosen delimiter.' +
+  " Output: 'SVG' (default) returns SVG markup built with d3, and the page renders it as HTML. 'PNG image' instead draws HexSpindle's own canvas version.",
   [
     A.select('Record delimiter', Object.keys(RECORD_DELIMITERS)),
     A.select('Field delimiter', Object.keys(FIELD_DELIMITERS)),
     A.number('Pack radius', 25, 2),
     A.number('Draw radius', 15, 1),
-    A.boolean('Use first row as column headers', true),
+    A.boolean('Use column headers as labels', true),
     A.string('X label', ''),
     A.string('Y label', ''),
     A.boolean('Draw hexagon edges', false),
     A.string('Min colour value', 'white'),
     A.string('Max colour value', 'black'),
+    A.boolean('Draw empty hexagons within data boundaries', false),
+    A.select('Output', ['SVG', 'PNG image']),
   ],
-  (input, recordDelimName, fieldDelimName, packRadius, drawRadius, headersIncluded, xLabelArg, yLabelArg, drawEdges, minColour, maxColour) => {
+  async (input, recordDelimName, fieldDelimName, packRadius, drawRadius, headersIncluded, xLabelArg, yLabelArg, drawEdges, minColour, maxColour, drawEmptyHexagons, output) => {
+    if (output !== 'PNG image') return new Html(await hexDensitySvg(input, [recordDelimName, fieldDelimName, packRadius, drawRadius, headersIncluded, xLabelArg, yLabelArg, drawEdges, minColour, maxColour, drawEmptyHexagons]));
     const recordDelim = RECORD_DELIMITERS[recordDelimName], fieldDelim = FIELD_DELIMITERS[fieldDelimName];
     const { headings, values } = getScatterValues(input, recordDelim, fieldDelim, headersIncluded);
     const xLabel = headings ? headings.x : xLabelArg;

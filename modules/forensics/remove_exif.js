@@ -1,9 +1,11 @@
 import { module } from './_cat.js';
 import { concatBytes } from '../../core/util.js';
 
-module('Remove EXIF', 'Strips EXIF (APP1) metadata segments from a JPEG file.', [],
+module('Remove EXIF', 'Strips EXIF (APP1) metadata segments from a JPEG file. Empty input is passed ' +
+  'through unchanged, and a file with no EXIF segment comes back as it went in.', [],
   (data) => {
-    if (!(data[0] === 0xff && data[1] === 0xd8)) throw new Error('Not a JPEG file');
+    if (data.length === 0) return data;
+    if (!(data[0] === 0xff && data[1] === 0xd8)) throw new Error('Could not remove EXIF data from image: Given data is not jpeg.');
     const dv = new DataView(data.buffer, data.byteOffset, data.byteLength);
     const parts = [data.subarray(0, 2)];
     let i = 2;

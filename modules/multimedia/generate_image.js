@@ -1,42 +1,36 @@
 import { module } from './_cat.js';
 import { A } from '../../core/registry.js';
-import { canvasToPng } from './_img.js';
+import { encodePng } from './_png.js';
+
+const BYTES_PER_PIXEL = { Greyscale: 1, RG: 2, RGB: 3, RGBA: 4, Bits: 1 / 8 };
 
 module('Generate Image', 'Turns the input bytes into an image: each byte (or bit) becomes a pixel.',
-  [A.select('Mode', ['Greyscale', 'RGB', 'RGBA', 'Bits']), A.number('Pixel scale factor', 8, 1, 64), A.number('Pixels per row (0 = auto)', 64, 0)],
+  [A.select('Mode', ['Greyscale', 'RG', 'RGB', 'RGBA', 'Bits']), A.number('Pixel scale factor', 8, 1, 64), A.number('Pixels per row (0 = auto)', 64, 0)],
   async (data, mode, scale, perRow) => {
-    let vals, chans;
-    if (mode === 'Bits') {
-      chans = 1;
-      vals = new Uint8Array(data.length * 8);
-      let k = 0;
-      for (const b of data) for (let i = 7; i >= 0; i--) vals[k++] = (b >> i) & 1 ? 255 : 0;
-    } else {
-      chans = mode === 'Greyscale' ? 1 : mode === 'RGB' ? 3 : 4;
-      vals = data;
-    }
-    const n = Math.floor(vals.length / chans);
+    const bpp = BYTES_PER_PIXEL[mode];
+    if (!bpp) throw new Error(`Unsupported Mode: (${mode})`);
+    if (data.length % bpp !== 0) throw new Error(`Number of bytes is not a divisor of ${bpp}`);
+    const n = data.length / bpp;
     if (n === 0) throw new Error('Not enough data');
-    const w = perRow || Math.max(1, Math.ceil(Math.sqrt(n)));
+    scale = Math.max(1, Math.floor(scale));
+    const w = Math.floor(perRow) || Math.max(1, Math.ceil(Math.sqrt(n)));
     const h = Math.ceil(n / w);
-    const canvas = new OffscreenCanvas(w, h);
-    const ctx = canvas.getContext('2d');
-    const img = ctx.createImageData(w, h);
-    for (let p = 0; p < w * h; p++) {
+    const px = new Uint8Array(w * h * 4); // transparent black, like a new Jimp image
+    for (let p = 0; p < n; p++) {
       const o = p * 4;
-      const base = p * chans;
-      if (p >= n) { img.data[o] = img.data[o + 1] = img.data[o + 2] = 0; img.data[o + 3] = 255; continue; }
-      if (chans === 1) { img.data[o] = img.data[o + 1] = img.data[o + 2] = vals[base]; img.data[o + 3] = 255; }
-      else if (chans === 3) { img.data[o] = vals[base]; img.data[o + 1] = vals[base + 1]; img.data[o + 2] = vals[base + 2]; img.data[o + 3] = 255; }
-      else { img.data[o] = vals[base]; img.data[o + 1] = vals[base + 1]; img.data[o + 2] = vals[base + 2]; img.data[o + 3] = vals[base + 3]; }
+      let r = 0, g = 0, b = 0, a = 255;
+      if (mode === 'Bits') { r = g = b = (data[p >> 3] >> (7 - (p & 7))) & 1 ? 0 : 255; }
+      else {
+        const i = p * bpp;
+        if (mode === 'Greyscale') r = g = b = data[i];
+        else if (mode === 'RG') { r = data[i]; g = data[i + 1]; }
+        else { r = data[i]; g = data[i + 1]; b = data[i + 2]; if (mode === 'RGBA') a = data[i + 3]; }
+      }
+      px[o] = r; px[o + 1] = g; px[o + 2] = b; px[o + 3] = a;
     }
-    ctx.putImageData(img, 0, 0);
-    if (scale > 1) {
-      const scaled = new OffscreenCanvas(w * scale, h * scale);
-      const sctx = scaled.getContext('2d');
-      sctx.imageSmoothingEnabled = false;
-      sctx.drawImage(canvas, 0, 0, w * scale, h * scale);
-      return canvasToPng(scaled);
-    }
-    return canvasToPng(canvas);
+    if (scale === 1) return encodePng(px, w, h);
+    const W = w * scale, H = h * scale, big = new Uint8Array(W * H * 4);
+    const big32 = new Uint32Array(big.buffer), px32 = new Uint32Array(px.buffer);
+    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) big32[y * W + x] = px32[Math.floor(y / scale) * w + Math.floor(x / scale)];
+    return encodePng(big, W, H);
   });

@@ -1,11 +1,9 @@
 import { module } from './_cat.js';
 import { A } from '../../core/registry.js';
-import { loadImage, canvasToPng } from './_img.js';
+import { loadBitmap, bitmapToPng } from './_img.js';
+import { resize } from './_jimp.js';
 
-module('Image Resize', 'Resizes an image (re-encoded as PNG).', [A.number('Width', 200, 1), A.number('Height', 200, 1)],
-  async (data, w, h) => {
-    const { canvas: src } = await loadImage(data);
-    const out = new OffscreenCanvas(w, h);
-    out.getContext('2d').drawImage(src, 0, 0, w, h);
-    return canvasToPng(out);
-  });
+module('Image Resize', 'Resizes an image to an exact pixel size with bilinear resampling (re-encoded as PNG). ' +
+  'See "Resize Image" for percentage sizing, aspect-ratio preservation and other resampling algorithms.',
+  [A.number('Width', 100, 1), A.number('Height', 100, 1)],
+  async (data, w, h) => bitmapToPng(resize(await loadBitmap(data), w, h, 'Bilinear')));

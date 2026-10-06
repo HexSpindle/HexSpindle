@@ -6,102 +6,312 @@ const TRUEWORDS = /^(true|True|TRUE|yes|Yes|YES|on|On|ON)$/;
 const FALSEWORDS = /^(false|False|FALSE|no|No|NO|off|Off|OFF)$/;
 const NULLWORDS = /^(null|Null|NULL|~)$/;
 
-function looksNumeric(s) {
-  if (/^[-+]?(\.inf|\.Inf|\.INF|\.nan|\.NaN|\.NAN)$/.test(s)) return true;
-  if (/^[-+]?[0-9][0-9_]*$/.test(s)) return true;
-  if (/^0x[0-9a-fA-F_]+$/.test(s)) return true;
-  if (/^0b[01_]+$/.test(s)) return true;
-  if (/[.eE]/.test(s) && /^[-+]?(\.[0-9]+|[0-9][0-9_]*(\.[0-9]*)?)([eE][-+]?[0-9]+)?$/.test(s)) return true;
+
+const pad = (n) => ' '.repeat(n);
+
+const INDENT = 2;
+const LINE_WIDTH = 80;
+
+// --- implicit tag resolution (js-yaml DUMP_SCHEMA = YAML 1.1 + Core) ---
+const NULL_VALUES = ['', '~', 'null', 'Null', 'NULL'];
+const BOOL_VALUES = ['true', 'True', 'TRUE', 'y', 'Y', 'yes', 'Yes', 'YES', 'on', 'On', 'ON',
+  'false', 'False', 'FALSE', 'n', 'N', 'no', 'No', 'NO', 'off', 'Off', 'OFF'];
+const Y11_INT = /^(?:[-+]?0b[0-1_]+|[-+]?0[0-7_]+|[-+]?0x[0-9a-fA-F_]+|[-+]?[0-9][0-9_]*(?::[0-5]?[0-9])+|[-+]?(?:0|[1-9][0-9_]*))$/;
+const CORE_INT = /^(?:0o[0-7]+|0x[0-9a-fA-F]+|[-+]?[0-9]+)$/;
+const Y11_FLOAT = /^(?:[-+]?(?:(?:[0-9][0-9_]*)?\.[0-9_]*)(?:[eE][-+][0-9]+)?|[-+]?[0-9][0-9_]*(?::[0-5]?[0-9])+\.[0-9_]*|[-+]?\.(?:inf|Inf|INF)|\.(?:nan|NaN|NAN))$/;
+const CORE_FLOAT = /^(?:[-+]?[0-9]+(?:\.[0-9]*)?(?:[eE][-+]?[0-9]+)?|[-+]?\.[0-9]+(?:[eE][-+]?[0-9]+)?|[-+]?\.(?:inf|Inf|INF)|\.(?:nan|NaN|NAN))$/;
+const Y11_DATE = /^([0-9][0-9][0-9][0-9])-([0-9][0-9])-([0-9][0-9])$/;
+const Y11_TIMESTAMP = /^([0-9][0-9][0-9][0-9])-([0-9][0-9]?)-([0-9][0-9]?)(?:[Tt]|[ \t]+)([0-9][0-9]?):([0-9][0-9]):([0-9][0-9])(?:\.([0-9]*))?(?:[ \t]*(Z|([-+])([0-9][0-9]?)(?::([0-9][0-9]))?))?$/;
+
+// True when a plain scalar would NOT read back as a string (so it has to be quoted).
+function resolvesToNonString(s) {
+  if (NULL_VALUES.indexOf(s) !== -1) return true;
+  if (BOOL_VALUES.indexOf(s) !== -1) return true;
+  if (Y11_INT.test(s) || CORE_INT.test(s)) return true;
+  if (Y11_FLOAT.test(s) || CORE_FLOAT.test(s)) return true;
+  if (Y11_DATE.test(s) || Y11_TIMESTAMP.test(s)) return true;
+  if (s === '<<' || s === '=') return true;
   return false;
 }
 
-function needsQuote(s) {
-  if (s === '') return true;
-  if (/^\s|\s$/.test(s)) return true;
-  if (/: ($|)/.test(s) && s.includes(': ')) return true;
-  if (s.endsWith(':')) return true;
-  if (/ #/.test(s) || s.startsWith('#')) return true;
-  if (/^[-?:,\[\]{}#&*!|>'"%@`]/.test(s)) return true;
-  if (TRUEWORDS.test(s) || FALSEWORDS.test(s) || NULLWORDS.test(s)) return true;
-  if (looksNumeric(s)) return true;
-  if (/^\d{4}-\d{2}-\d{2}([Tt ].*)?$/.test(s)) return true;
-  if (/[\x00-\x08\x0b-\x1f]/.test(s)) return true;
-  return false;
+// --- plain / single-quoted / block scalar validity (js-yaml's YAML grammar regexes) ---
+const SRC_C_PRINTABLE = '[\\x09\\x0A\\x0D\\x20-\\x7E\\x85\\xA0-\\uD7FF\\uE000-\\uFFFD\\u{10000}-\\u{10FFFF}]';
+const SRC_B_CHAR = '[\\n\\r]';
+const SRC_C_BYTE_ORDER_MARK = '\\uFEFF';
+const SRC_S_WHITE = '[ \\t]';
+const SRC_NB_CHAR = `(?:(?!(?:${SRC_B_CHAR}|${SRC_C_BYTE_ORDER_MARK}))${SRC_C_PRINTABLE})`;
+const SRC_NS_CHAR = `(?:(?!${SRC_S_WHITE})${SRC_NB_CHAR})`;
+const SRC_NB_JSON = '[\\x09\\x20-\\uD7FF\\uE000-\\uFFFF\\u{10000}-\\u{10FFFF}]';
+const SRC_C_INDICATOR = '[-?:,\\[\\]{}#&*!|>\'"%@`]';
+const SRC_NS_PLAIN_FIRST = `(?:(?:(?!${SRC_C_INDICATOR})${SRC_NS_CHAR})|[?:-](?=${SRC_NS_CHAR}))`;
+const SRC_NS_PLAIN_CHAR = `(?:(?:(?![:#])${SRC_NS_CHAR})|:(?=${SRC_NS_CHAR}))#*`;
+const SRC_NB_NS_PLAIN_IN_LINE = `(?:${SRC_S_WHITE}*${SRC_NS_PLAIN_CHAR})*`;
+const SRC_NS_PLAIN_ONE_LINE = `${SRC_NS_PLAIN_FIRST}#*${SRC_NB_NS_PLAIN_IN_LINE}`;
+const SRC_S_NS_PLAIN_NEXT_LINE = `\\n+${SRC_NS_PLAIN_CHAR}${SRC_NB_NS_PLAIN_IN_LINE}`;
+const NS_PLAIN_MULTI_LINE = new RegExp(`^(?:${SRC_NS_PLAIN_ONE_LINE}(?:${SRC_S_NS_PLAIN_NEXT_LINE})*)$`, 'u');
+const NS_PLAIN_BLOCK_KEY = new RegExp(`^(?:${SRC_NS_PLAIN_ONE_LINE})$`, 'u');
+const NB_SINGLE_ONE_LINE = new RegExp(`^(?:${SRC_NB_JSON})*$`, 'u');
+const NB_SINGLE_MULTI_LINE = new RegExp(`^(?:${SRC_NB_JSON}|\\n)*$`, 'u');
+const BLOCK_SCALAR_CONTENT = new RegExp(`^(?:${SRC_NB_CHAR}|\\n)*$`, 'u');
+const C_FORBIDDEN_FIRST_LINE = /^(?:---|\.\.\.)(?=$|[ \t\n\r])/;
+const C_FORBIDDEN_CONTENT = /^(?:---|\.\.\.)(?=$|[ \t\n\r])/m;
+
+let openEnded = false;
+
+const STYLE_PLAIN = 'plain', STYLE_SINGLE = 'single', STYLE_DOUBLE = 'double',
+  STYLE_LITERAL = 'literal', STYLE_FOLDED = 'folded';
+
+function canUsePlain(s, L) {
+  if (s !== '') {
+    if (!(L.isKey ? NS_PLAIN_BLOCK_KEY : NS_PLAIN_MULTI_LINE).test(s)) return false;
+    if (L.shiftOfFirstLine === 0 && C_FORBIDDEN_FIRST_LINE.test(s)) return false;
+    if (L.shiftOfContent === 0) {
+      const nl = s.indexOf('\n');
+      if (nl !== -1 && C_FORBIDDEN_CONTENT.test(s.slice(nl + 1))) return false;
+    }
+  }
+  return !resolvesToNonString(s);
+}
+
+function canUseSingleQuoted(s, L) {
+  if (!(L.isKey ? NB_SINGLE_ONE_LINE : NB_SINGLE_MULTI_LINE).test(s)) return false;
+  if (/[ \t]\n|\n[ \t]/.test(s)) return false;
+  if (!L.isKey && L.shiftOfContent === 0) {
+    const nl = s.indexOf('\n');
+    if (nl !== -1 && C_FORBIDDEN_CONTENT.test(s.slice(nl + 1))) return false;
+  }
+  return true;
+}
+
+function canUseBlock(s, L) {
+  if (L.flowOnly || !BLOCK_SCALAR_CONTENT.test(s)) return false;
+  const contentIndent = L.shiftOfContent - L.shiftOfParent;
+  if (contentIndent < 1) return false;
+  if (contentIndent > 9 && /^\n* /.test(s)) return false;
+  if (L.shiftOfContent === 0 && C_FORBIDDEN_CONTENT.test(s)) return false;
+  return true;
+}
+
+const ESCAPES = {
+  '\0': '\\0', '\x07': '\\a', '\b': '\\b', '\t': '\\t', '\n': '\\n', '\v': '\\v',
+  '\f': '\\f', '\r': '\\r', '\x1b': '\\e', '"': '\\"', '\\': '\\\\',
+  '\x85': '\\N', '\xa0': '\\_', '\u2028': '\\L', '\u2029': '\\P',
+};
+const CHARACTERS_TO_ESCAPE = /["\\\x00-\x1F\x7F-\xA0\u2028\u2029\uD800-\uDFFF\uFEFF\uFFFE\uFFFF]/gu;
+function escapeString(s) {
+  return s.replace(CHARACTERS_TO_ESCAPE, (c) => {
+    if (c in ESCAPES) return ESCAPES[c];
+    const code = c.charCodeAt(0);
+    const hex = code.toString(16).toUpperCase();
+    return code <= 255 ? '\\x' + '0'.repeat(2 - hex.length) + hex : '\\u' + '0'.repeat(4 - hex.length) + hex;
+  });
+}
+
+function isMoreIndented(c) { return c === ' ' || c === '\t'; }
+
+function foldLine(line, width) {
+  if (line === '' || isMoreIndented(line[0])) return line;
+  const breakRe = / [^ \t]/g;
+  let match, start = 0, end, curr = 0, next = 0, result = '';
+  while ((match = breakRe.exec(line))) {
+    next = match.index;
+    if (next - start > width) {
+      end = curr > start ? curr : next;
+      result += `\n${line.slice(start, end)}`;
+      start = end + 1;
+    }
+    curr = next;
+  }
+  result += '\n';
+  if (line.length - start > width && curr > start) result += `${line.slice(start, curr)}\n${line.slice(curr + 1)}`;
+  else result += line.slice(start);
+  return result.slice(1);
+}
+
+function foldBlockScalar(s, width) {
+  const lineRe = /(\n+)([^\n]*)/g;
+  let nextLF = s.indexOf('\n');
+  if (nextLF === -1) nextLF = s.length;
+  lineRe.lastIndex = nextLF;
+  let result = foldLine(s.slice(0, nextLF), width);
+  let prevMoreIndented = s[0] === '\n' || isMoreIndented(s[0]);
+  let match;
+  while ((match = lineRe.exec(s))) {
+    const line = match[2];
+    const moreIndented = line !== '' && isMoreIndented(line[0]);
+    result += match[1] + (!prevMoreIndented && !moreIndented && line !== '' ? '\n' : '') + foldLine(line, width);
+    prevMoreIndented = moreIndented;
+  }
+  return result;
+}
+
+function indentString(s, spaces) {
+  const ind = pad(spaces);
+  let position = 0, result = '';
+  while (position < s.length) {
+    let line;
+    const next = s.indexOf('\n', position);
+    if (next === -1) { line = s.slice(position); position = s.length; }
+    else { line = s.slice(position, next + 1); position = next + 1; }
+    if (line.length && line !== '\n') result += ind;
+    result += line;
+  }
+  return result;
+}
+
+function blockHeader(s, shiftOfParent, shiftOfContent) {
+  const indicator = /^\n* /.test(s) ? String(shiftOfContent - shiftOfParent) : '';
+  const clip = s[s.length - 1] === '\n';
+  return `${indicator}${clip && (s[s.length - 2] === '\n' || s === '\n') ? '+' : clip ? '' : '-'}\n`;
+}
+
+function dropEndingNewline(s) { return s[s.length - 1] === '\n' ? s.slice(0, -1) : s; }
+
+function encodeFlowBreaks(s, shiftOfContent) {
+  let nextLF = s.indexOf('\n');
+  if (nextLF === -1) return s;
+  const p = pad(shiftOfContent);
+  let result = s.slice(0, nextLF);
+  const lineRe = /(\n+)([^\n]*)/g;
+  lineRe.lastIndex = nextLF;
+  let match;
+  while ((match = lineRe.exec(s))) result += '\n'.repeat(match[1].length + 1) + p + match[2];
+  return result;
+}
+
+// Scalar representation of a non-string value (js-yaml's int/float represent()).
+function representNumber(v) {
+  if (typeof v === 'bigint') return v.toString();
+  if (Number.isNaN(v)) return '.nan';
+  if (v === Infinity) return '.inf';
+  if (v === -Infinity) return '-.inf';
+  if (Object.is(v, -0)) return '-0.0';
+  const s = v.toString(10);
+  return /^[-+]?[0-9]+e/.test(s) ? s.replace('e', '.e') : s;
+}
+
+function scalarText(v) {
+  if (v === null || v === undefined) return { text: 'null', string: false };
+  if (typeof v === 'boolean') return { text: v ? 'true' : 'false', string: false };
+  if (v instanceof Flt) {
+    // HexSpindle's explicit-float wrapper (from TOML/YAML input): keep it a float.
+    const t = representNumber(v.v);
+    return { text: /[.eE]|inf|nan/.test(t) ? t : t + '.0', string: false };
+  }
+  if (typeof v === 'number' || typeof v === 'bigint') return { text: representNumber(v), string: false };
+  return { text: String(v), string: true };
+}
+
+// Mirrors js-yaml's scalar style rules, in their order.
+function renderScalar(v, level, isKey, flowOnly) {
+  const info = scalarText(v);
+  if (!info.string) { openEnded = false; return info.text; }
+  const s = info.text;
+  const L = {
+    isKey, flowOnly,
+    shiftOfParent: level === 0 ? -1 : INDENT * (level - 1),
+    shiftOfContent: INDENT * Math.max(1, level),
+    shiftOfFirstLine: level === 0 ? 0 : INDENT * level,
+  };
+  const plainOk = canUsePlain(s, L);
+  const singleOk = canUseSingleQuoted(s, L);
+  const blockOk = canUseBlock(s, L);
+
+  let style = STYLE_PLAIN;
+  // doubleQuoteForInvisibles
+  if (style === STYLE_PLAIN && /[\t\x7F-\xA0\u2028\u2029\uFEFF\uFFFE\uFFFF]/.test(s)) style = STYLE_DOUBLE;
+  // doubleQuoteWhitespaceOnly
+  if (style === STYLE_PLAIN && /^\s+$/.test(s)) style = STYLE_DOUBLE;
+  // tryLongOrMultilineAsBlock
+  if (style === STYLE_PLAIN && !isKey) {
+    const multiline = s.indexOf('\n') !== -1;
+    if (!blockOk) {
+      if (multiline) style = STYLE_DOUBLE;
+    } else {
+      const availableWidth = Math.max(Math.min(LINE_WIDTH, 40), LINE_WIDTH - L.shiftOfContent);
+      let position = 0, shouldFold = false;
+      while (position <= s.length) {
+        const nl = s.indexOf('\n', position);
+        const lineEnd = nl === -1 ? s.length : nl;
+        const line = s.slice(position, lineEnd);
+        if (line.length > availableWidth && line[0] !== ' ' && / [^ \t]/.test(line)) shouldFold = true;
+        if (nl === -1) break;
+        position = nl + 1;
+      }
+      if (shouldFold) style = STYLE_FOLDED;
+      else if (multiline) style = STYLE_LITERAL;
+    }
+  }
+  // quoteInvalidPlain
+  if (style === STYLE_PLAIN && !plainOk) style = singleOk ? STYLE_SINGLE : STYLE_DOUBLE;
+  // fallbackToDoubleQuoted
+  if ((style === STYLE_SINGLE && !singleOk) || ((style === STYLE_LITERAL || style === STYLE_FOLDED) && !blockOk)) style = STYLE_DOUBLE;
+
+  openEnded = (style === STYLE_LITERAL || style === STYLE_FOLDED) && (s === '\n' || s.endsWith('\n\n'));
+
+  switch (style) {
+    case STYLE_PLAIN: return encodeFlowBreaks(s, L.shiftOfContent);
+    case STYLE_SINGLE: return "'" + encodeFlowBreaks(s, L.shiftOfContent).replace(/'/g, "''") + "'";
+    case STYLE_LITERAL:
+      return '|' + blockHeader(s, L.shiftOfParent, L.shiftOfContent) + dropEndingNewline(indentString(s, L.shiftOfContent));
+    case STYLE_FOLDED: {
+      const availableWidth = Math.max(Math.min(LINE_WIDTH, 40), LINE_WIDTH - L.shiftOfContent);
+      return '>' + blockHeader(s, L.shiftOfParent, L.shiftOfContent) +
+        dropEndingNewline(indentString(foldBlockScalar(s, availableWidth), L.shiftOfContent));
+    }
+    default: return '"' + escapeString(s) + '"';
+  }
 }
 
 function isCollection(v) { return Array.isArray(v) || (v !== null && typeof v === 'object' && !(v instanceof Flt)); }
 function isEmptyCollection(v) { return Array.isArray(v) ? v.length === 0 : Object.keys(v).length === 0; }
-const pad = (n) => ' '.repeat(n);
 
-function yamlScalar(v) {
-  if (v === null || v === undefined) return 'null';
-  if (typeof v === 'boolean') return v ? 'true' : 'false';
-  if (v instanceof Flt) {
-    if (Number.isNaN(v.v)) return '.nan';
-    if (v.v === Infinity) return '.inf';
-    if (v.v === -Infinity) return '-.inf';
-    let s = String(v.v);
-    if (!/[.eE]/.test(s)) s += '.0';
-    return s;
-  }
-  if (typeof v === 'number') {
-    if (Number.isInteger(v)) return String(v);
-    let s = String(v);
-    if (!/[.eE]/.test(s)) s += '.0';
-    return s;
-  }
-  if (typeof v === 'bigint') return v.toString();
-  const s = String(v);
-  return needsQuote(s) ? "'" + s.replace(/'/g, "''") + "'" : s;
-}
-
-function mergePrefix(lines, prefix, indent) {
-  return [pad(indent) + prefix + lines[0].slice(indent + prefix.length), ...lines.slice(1)];
-}
-
-function dumpBlock(v, indent) { return Array.isArray(v) ? dumpSeq(v, indent) : dumpMap(v, indent); }
-
-function dumpSeq(arr, indent) {
-  if (arr.length === 0) return [pad(indent) + '[]'];
-  const out = [];
+function writeBlockSequence(arr, level, compact) {
+  let result = '';
   for (const item of arr) {
-    if (isCollection(item)) {
-      if (isEmptyCollection(item)) { out.push(pad(indent) + '- ' + (Array.isArray(item) ? '[]' : '{}')); continue; }
-      out.push(...mergePrefix(dumpBlock(item, indent + 2), '- ', indent));
-    } else if (typeof item === 'string' && item.includes('\n')) {
-      out.push(pad(indent) + '- |');
-      for (const l of item.split('\n')) out.push(pad(indent + 2) + l);
-    } else {
-      out.push(pad(indent) + '- ' + yamlScalar(item));
-    }
+    const text = writeNode(item, level + 1, { block: true, compact: true, isblockseq: true });
+    if (!compact || result !== '') result += '\n' + pad(INDENT * level);
+    result += (text === '' || text[0] === '\n') ? '-' : '- ';
+    result += text;
   }
-  return out;
+  return result;
 }
 
-function dumpMap(obj, indent) {
-  const keys = Object.keys(obj);
-  if (keys.length === 0) return [pad(indent) + '{}'];
-  const out = [];
-  for (const k of keys) {
-    const v = obj[k];
-    const keyStr = yamlScalar(String(k));
-    if (isCollection(v)) {
-      if (isEmptyCollection(v)) { out.push(pad(indent) + keyStr + ': ' + (Array.isArray(v) ? '[]' : '{}')); continue; }
-      out.push(pad(indent) + keyStr + ':');
-      out.push(...dumpBlock(v, Array.isArray(v) ? indent : indent + 2));
-    } else if (typeof v === 'string' && v.includes('\n')) {
-      out.push(pad(indent) + keyStr + ': |');
-      for (const l of v.split('\n')) out.push(pad(indent + 2) + l);
-    } else {
-      out.push(pad(indent) + keyStr + ': ' + yamlScalar(v));
-    }
+function writeBlockMapping(obj, level, compact) {
+  let result = '';
+  for (const k of Object.keys(obj)) {
+    let buf = '';
+    if (!compact || result !== '') buf += '\n' + pad(INDENT * level);
+    const key = String(k);
+    const keyText = renderScalar(key, level + 1, true, false);
+    const explicitPair = key.indexOf('\n') !== -1;
+    if (explicitPair) buf += (keyText && keyText[0] === '\n') ? '?' : '? ';
+    buf += keyText;
+    if (explicitPair) buf += '\n' + pad(INDENT * level);
+    const valueText = writeNode(obj[k], level + 1, { block: true, compact: explicitPair, isblockseq: explicitPair });
+    buf += (valueText === '' || valueText[0] === '\n') ? ':' : ': ';
+    buf += valueText;
+    result += buf;
   }
-  return out;
+  return result;
+}
+
+function writeNode(v, level, ctx) {
+  const { block = false, compact = false } = ctx;
+  if (isCollection(v)) {
+    if (isEmptyCollection(v) || !block) { openEnded = false; return Array.isArray(v)
+      ? '[' + v.map((i) => writeNode(i, level, {})).join(', ') + ']'
+      : '{' + Object.keys(v).map((k) => renderScalar(String(k), level, true, true) + ': ' + writeNode(v[k], level, {})).join(', ') + '}'; }
+    return Array.isArray(v) ? writeBlockSequence(v, level, compact) : writeBlockMapping(v, level, compact);
+  }
+  return renderScalar(v, level, ctx.iskey === true, !block);
 }
 
 export function yamlDump(obj) {
-  if (isCollection(obj)) return (isEmptyCollection(obj) ? (Array.isArray(obj) ? '[]' : '{}') : dumpBlock(obj, 0).join('\n')) + '\n';
-  return yamlScalar(obj) + '\n...\n';
+  openEnded = false;
+  // A document left open-ended (a block scalar ending in a blank line) needs the "..." marker.
+  const body = writeNode(obj, 0, { block: true, compact: true });
+  return body + '\n' + (openEnded ? '...\n' : '');
 }
 
 // --- YAML parsing ---

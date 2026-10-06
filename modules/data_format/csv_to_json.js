@@ -1,28 +1,35 @@
 import { module } from './_cat.js';
 import { A } from '../../core/registry.js';
 
-function parseCsv(t, delimiter) {
-  const rows = [];
-  let row = [], field = '', inQuotes = false;
-  for (let i = 0; i < t.length; i++) {
-    const c = t[i];
-    if (inQuotes) {
-      if (c === '"') { if (t[i + 1] === '"') { field += '"'; i++; } else inQuotes = false; }
-      else field += c;
-    } else if (c === '"') inQuotes = true;
-    else if (c === delimiter) { row.push(field); field = ''; }
-    else if (c === '\n' || c === '\r') { if (c === '\r' && t[i + 1] === '\n') i++; row.push(field); rows.push(row); row = []; field = ''; }
-    else field += c;
+const ROW_DELIMS = ['\r', '\n'];
+
+function parseCsv(data, cellDelims) {
+  const lines = [];
+  let cell = '', line = [], inString = false, renderNext = false;
+  if (data.length && data[0] === '﻿') data = data.slice(1);
+  for (let i = 0; i < data.length; i++) {
+    const b = data[i], next = data[i + 1] || '';
+    if (renderNext) { cell += b; renderNext = false; }
+    else if (b === '"' && !inString) inString = true;
+    else if (b === '"' && inString) { if (next === '"') renderNext = true; else inString = false; }
+    else if (!inString && cellDelims.includes(b)) { line.push(cell); cell = ''; }
+    else if (!inString && ROW_DELIMS.includes(b)) {
+      line.push(cell); cell = ''; lines.push(line); line = [];
+      if (ROW_DELIMS.includes(next) && next !== b) i++;
+    } else cell += b;
   }
-  if (field.length || row.length) { row.push(field); rows.push(row); }
-  return rows.filter(r => r.length > 1 || r[0] !== '');
+  if (line.length) { line.push(cell); lines.push(line); }
+  return lines;
 }
 
 module('CSV to JSON', 'Converts a CSV table into a JSON array of objects (first row = headers).', [A.string('Cell delimiter', ','), A.select('Format', ['Array of objects', 'Array of arrays'])],
   (t, delimiter, fmt) => {
-    const rows = parseCsv(t, delimiter);
-    if (!rows.length) return '[]';
-    if (fmt === 'Array of arrays') return JSON.stringify(rows, null, 2);
-    const [header, ...body] = rows;
-    return JSON.stringify(body.map(r => Object.fromEntries(header.map((h, i) => [h, r[i] ?? '']))), null, 2);
+    const rows = parseCsv(t, delimiter.split(''));
+    if (fmt === 'Array of arrays') return JSON.stringify(rows, null, 4);
+    const [header = [], ...body] = rows;
+    return JSON.stringify(body.map(r => {
+      const obj = {};
+      header.forEach((h, i) => { obj[h] = r[i]; });
+      return obj;
+    }), null, 4);
   }, { text: true });

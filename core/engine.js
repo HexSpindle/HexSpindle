@@ -8,8 +8,12 @@ export class RecipeError extends Error {}
 class ReturnSignal { constructor(data) { this.data = data; } }
 
 function subst(s, regs) {
-  if (regs.size && s.includes('$R')) return s.replace(/\$R(\d+)/g, (m, g) => regs.has(+g) ? regs.get(+g) : m);
-  return s;
+  if (!regs.size || !s.includes('$R')) return s;
+  return s.replace(/(\\*)\$R(\d{1,2})/g, (m, slashes, g) => {
+    if (!regs.has(+g)) return m;
+    if (slashes.length % 2 !== 0) return m.slice(1);
+    return slashes + regs.get(+g);
+  });
 }
 
 function resolveArgs(mod, raw, regs) {
@@ -67,8 +71,11 @@ function findBlockEnd(ops, i) {
   while (j < ops.length) {
     if (!ops[j].disabled) {
       const n = ops[j].module;
-      if (BLOCK_OPEN.includes(n)) depth++;
-      else if (n === 'Merge') { depth--; if (depth === 0) return j; }
+      if (n === 'Merge') {
+        depth--;
+        const mergeAll = (ops[j].args || [])[0];
+        if (depth === 0 || (mergeAll === undefined ? true : !!mergeAll)) return j;
+      } else if (BLOCK_OPEN.includes(n)) depth++;
     }
     j++;
   }
@@ -81,15 +88,19 @@ function preview(data, n = 240) {
 
 class Ctx {
   constructor(upto) {
-    this.regs = new Map(); this.steps = {}; this.html = false;
+    this.regs = new Map(); this.numRegs = 0; this.steps = {}; this.html = false;
     this.upto = upto; this.pausedAt = null; this.error = null; this.last = null;
   }
 }
 
 export async function runOps(data, ops, ctx, top = false, offset = 0) {
   const labels = {};
-  ops.forEach((op, idx) => { if (op.module === 'Label' && !op.disabled) labels[String((op.args || [])[0] || '').trim()] = idx; });
-  const jumps = {};
+  ops.forEach((op, idx) => {
+    if (op.module !== 'Label' || op.disabled) return;
+    const key = String((op.args || [])[0] ?? '');
+    if (!(key in labels)) labels[key] = idx;
+  });
+  let numJumps = 0;
   let i = 0;
   while (i < ops.length) {
     const op = ops[i];
@@ -104,6 +115,10 @@ export async function runOps(data, ops, ctx, top = false, offset = 0) {
     if (BLOCK_OPEN.includes(name)) {
       const end = findBlockEnd(ops, i);
       const args = resolveArgs(mod, op.args, ctx.regs);
+      if (name === 'Subsection' && (args[0] === '' || data.length === 0)) {
+        if (top) ctx.steps[gi] = { ms: 0, size: data.length, preview: preview(data) };
+        i++; continue;
+      }
       data = await runBlock(name, data, ops.slice(i + 1, end), args, ctx, offset + i + 1);
       if (top) {
         for (let k = i; k < Math.min(end + 1, ops.length); k++) ctx.steps[offset + k] = { ms: 0, size: data.length, inblock: k !== i };
@@ -119,24 +134,30 @@ export async function runOps(data, ops, ctx, top = false, offset = 0) {
     if (name === 'Return') { if (top) ctx.steps[gi] = { ms: 0, size: data.length }; throw new ReturnSignal(data); }
     if (name === 'Jump' || name === 'Conditional Jump') {
       const a = resolveArgs(mod, op.args, ctx.regs);
-      let label, maxj, doJump;
-      if (name === 'Jump') { [label, maxj, doJump] = [a[0], a[1] | 0, true]; }
-      else {
-        const [rx, invert, lbl, mj] = a;
-        const txt = decodeUtf8(data);
-        doJump = rx ? (!!txt.match(new RegExp(rx, reFlags())) !== !!invert) : true;
-        label = lbl; maxj = mj | 0;
-      }
+      const [rx, invert] = name === 'Jump' ? ['', false] : [a[0], a[1]];
+      const label = name === 'Jump' ? a[0] : a[2];
+      const maxj = (name === 'Jump' ? a[1] : a[3]) | 0;
       if (top) ctx.steps[gi] = { ms: 0, size: data.length, preview: preview(data) };
-      const lkey = label.trim();
-      if (doJump && lkey in labels && (jumps[i] || 0) < maxj) { jumps[i] = (jumps[i] || 0) + 1; i = labels[lkey]; continue; }
-      i++; continue;
+      const target = label in labels ? labels[label] : -1;
+      if (numJumps >= maxj || target === -1) { numJumps = 0; i++; continue; }
+      if (name === 'Conditional Jump') {
+        if (rx === '') { i++; continue; }
+        const hit = decodeUtf8(data).search(rx) > -1;
+        if (!(hit !== !!invert)) { numJumps = 0; i++; continue; }
+      }
+      numJumps++; i = target; continue;
     }
     if (name === 'Register') {
       const a = resolveArgs(mod, op.args, ctx.regs);
       const txt = decodeUtf8(data);
       const m = txt.match(new RegExp(a[0], reFlags(a[1], a[2], a[3])));
-      if (m) { const groups = m.length > 1 ? m.slice(1) : [m[0]]; groups.forEach((g, gi2) => ctx.regs.set(gi2, g || '')); }
+      // Only capture GROUPS become registers (a regex without groups sets none), and numbering
+      // carries on across Register operations - $R0 is the first group of the first Register.
+      if (m && m.length > 1) {
+        const base = ctx.numRegs;
+        m.slice(1).forEach((g, k) => ctx.regs.set(base + k, g || ''));
+        ctx.numRegs = base + m.length - 1;
+      }
       if (top) ctx.steps[gi] = { ms: 0, size: data.length, preview: preview(data), regs: m ? Object.fromEntries([...ctx.regs].map(([k, v]) => [`$R${k}`, v])) : { '': 'no match' } };
       i++; continue;
     }
@@ -160,7 +181,9 @@ export async function runOps(data, ops, ctx, top = false, offset = 0) {
 
 async function runBlock(kind, data, sub, args, ctx, offset) {
   const ignore = kind === 'Fork' ? args[2] : args[4];
+  const regs0 = new Map(ctx.regs), numRegs0 = ctx.numRegs;
   async function runSub(piece) {
+    ctx.regs = new Map(regs0); ctx.numRegs = numRegs0;
     try { return await runOps(piece, sub, ctx, false, offset); }
     catch (e) {
       if (e instanceof ReturnSignal) return e.data;
@@ -171,22 +194,28 @@ async function runBlock(kind, data, sub, args, ctx, offset) {
   if (kind === 'Fork') {
     const [splitD, mergeD] = [delim(args[0]), delim(args[1])];
     const txt = decodeUtf8(data);
-    const pieces = splitD ? txt.split(splitD) : [...txt];
+    const pieces = txt.split(splitD);
     const outs = [];
     for (const p of pieces) outs.push(await runSub(encodeUtf8(p)));
+    ctx.regs = regs0; ctx.numRegs = numRegs0;
     return concatBytes(outs.flatMap((o, idx) => idx ? [encodeUtf8(mergeD), o] : [o]));
   }
-  const [rx, ci, mlt, dot] = args;
+  const [rx, ci, mlt, dot, , global] = args;
   const txt = decodeUtf8(data);
-  const re = new RegExp(rx, reFlags(ci, mlt, dot) + 'g');
+  const re = new RegExp(rx, reFlags(ci, mlt, dot) + (global === false ? '' : 'g'));
   const out = []; let last = 0, m;
   while ((m = re.exec(txt)) !== null) {
-    out.push(encodeUtf8(txt.slice(last, m.index)));
-    out.push(await runSub(encodeUtf8(m[0])));
-    last = m.index + m[0].length;
+    const grouped = m.length > 1 && m[1] !== undefined;
+    const start = grouped ? m.index + m[0].indexOf(m[1]) : m.index;
+    const piece = grouped ? m[1] : m[0];
+    out.push(encodeUtf8(txt.slice(last, start)));
+    out.push(await runSub(encodeUtf8(piece)));
+    last = start + piece.length;
+    if (!re.global) break;
     if (m[0].length === 0) re.lastIndex++;
   }
   out.push(encodeUtf8(txt.slice(last)));
+  ctx.regs = regs0; ctx.numRegs = numRegs0;
   return concatBytes(out);
 }
 

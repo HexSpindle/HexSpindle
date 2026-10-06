@@ -4,13 +4,13 @@ import { parseOneDer, derSequence, derInteger, parseSeq } from './_asn1.js';
 import { bytesToBigInt } from './_bignum.js';
 import { parseHex, bytesToHex, base64Encode, base64Decode, decodeLatin1 } from '../../core/util.js';
 
-const FORMATS = ['Auto', 'ASN.1 HEX', 'P1363 HEX', 'JSON Web Signature', 'Raw JSON'];
-const OUT_FORMATS = ['ASN.1 HEX', 'P1363 HEX', 'JSON Web Signature', 'Raw JSON'];
+export const FORMATS = ['Auto', 'ASN.1 HEX', 'P1363 HEX', 'JSON Web Signature', 'Raw JSON'];
+export const OUT_FORMATS = ['ASN.1 HEX', 'P1363 HEX', 'JSON Web Signature', 'Raw JSON'];
 
-function isHexString(s) { return /^[0-9a-f]{2,}$/i.test(s); }
+export function isHexString(s) { return /^[0-9a-f]{2,}$/i.test(s); }
 
 /** True if `hex` is exactly one DER SEQUENCE of two INTEGERs (an ECDSA ASN.1 signature). */
-function isAsn1Sig(hex) {
+export function isAsn1Sig(hex) {
   try {
     const bytes = parseHex(hex);
     const node = parseOneDer(bytes);
@@ -20,15 +20,15 @@ function isAsn1Sig(hex) {
   } catch { return false; }
 }
 
-function base64UrlEncode(bytes) {
+export function base64UrlEncode(bytes) {
   return base64Encode(bytes).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 }
-function isBase64UrlString(s) { return /^[A-Za-z0-9_-]+$/.test(s); }
+export function isBase64UrlString(s) { return /^[A-Za-z0-9_-]+$/.test(s); }
 
 /** jsrsasign's KJUR.crypto.ECDSA.hexRSSigToASN1Sig: builds a DER SEQUENCE{INTEGER r, INTEGER s}
  * from two hex-string big integers (leading zero bytes in the input are irrelevant: each is
  * parsed as a plain unsigned integer, then re-encoded as a minimal DER INTEGER). */
-function hexRSSigToAsn1Hex(rHex, sHex) {
+export function hexRSSigToAsn1Hex(rHex, sHex) {
   const r = bytesToBigInt(parseHex(rHex));
   const s = bytesToBigInt(parseHex(sHex));
   return bytesToHex(derSequence([derInteger(r), derInteger(s)]));
@@ -36,7 +36,7 @@ function hexRSSigToAsn1Hex(rHex, sHex) {
 
 /** jsrsasign's KJUR.crypto.ECDSA.concatSigToASN1Sig: splits a P1363 r||s hex string exactly in
  * half (no curve size needed - half the hex length is used directly as r, the rest as s). */
-function p1363HexToAsn1Hex(concatHex) {
+export function p1363HexToAsn1Hex(concatHex) {
   if (concatHex.length % 4 !== 0) throw new Error('Invalid P1363 signature length');
   const r = concatHex.slice(0, concatHex.length / 2);
   const s = concatHex.slice(concatHex.length / 2);
@@ -45,7 +45,7 @@ function p1363HexToAsn1Hex(concatHex) {
 
 /** jsrsasign's KJUR.crypto.ECDSA.parseSigHexInHexRS: the raw hex of each INTEGER's content bytes
  * (including a leading 0x00 sign-pad byte, if DER added one). */
-function asn1HexToRS(derHex) {
+export function asn1HexToRS(derHex) {
   const bytes = parseHex(derHex);
   const [rNode, sNode] = parseSeq(bytes, 0, bytes.length)[0].children;
   if (rNode.class !== 0 || rNode.tag !== 2) throw new Error('1st item not ASN.1 integer');
@@ -56,7 +56,7 @@ function asn1HexToRS(derHex) {
 function leftPadHex(s, len) { return s.length >= len ? s : '0'.repeat(len - s.length) + s; }
 
 /** jsrsasign's KJUR.crypto.ECDSA.asn1SigToConcatSig, verbatim (see module comment above). */
-function asn1HexToP1363Hex(derHex) {
+export function asn1HexToP1363Hex(derHex) {
   let { r, s } = asn1HexToRS(derHex);
   if (r.length >= 130 && r.length <= 134) {
     if (r.length % 2 !== 0) throw new Error('unknown ECDSA sig r length error');
@@ -75,43 +75,50 @@ function asn1HexToP1363Hex(derHex) {
   return r + s;
 }
 
+export function detectSignatureFormat(input, inputFormat) {
+  if (inputFormat === 'Auto') {
+    try {
+      const parsed = JSON.parse(input);
+      if (parsed && typeof parsed === 'object') inputFormat = 'Raw JSON';
+    } catch { /* not JSON */ }
+  }
+  if (inputFormat === 'Auto' && isHexString(input)) {
+    inputFormat = input.slice(0, 2).toLowerCase() === '30' && isAsn1Sig(input) ? 'ASN.1 HEX' : 'P1363 HEX';
+  }
+  if (inputFormat === 'Auto' && isBase64UrlString(input)) inputFormat = 'JSON Web Signature';
+  return inputFormat;
+}
+
+export function signatureToAsn1Hex(input, inputFormat) {
+  switch (inputFormat) {
+    case 'ASN.1 HEX': return input;
+    case 'P1363 HEX': return p1363HexToAsn1Hex(input);
+    case 'JSON Web Signature': return p1363HexToAsn1Hex(bytesToHex(base64Decode(input)));
+    case 'Raw JSON': {
+      const json = JSON.parse(input);
+      if (!json.r) throw new Error('No "r" value in the signature JSON');
+      if (!json.s) throw new Error('No "s" value in the signature JSON');
+      return hexRSSigToAsn1Hex(json.r, json.s);
+    }
+    case 'Auto': throw new Error('Signature format could not be detected');
+    default: throw new Error(`Unknown input format: ${inputFormat}`);
+  }
+}
+
+/** Renders an ASN.1 hex ECDSA signature in one of the four output formats. */
+export function asn1HexToFormat(asn1Hex, outputFormat) {
+  switch (outputFormat) {
+    case 'ASN.1 HEX': return asn1Hex;
+    case 'P1363 HEX': return asn1HexToP1363Hex(asn1Hex);
+    case 'JSON Web Signature': return base64UrlEncode(parseHex(asn1HexToP1363Hex(asn1Hex)));
+    case 'Raw JSON': return JSON.stringify(asn1HexToRS(asn1Hex));
+    default: throw new Error(`Unknown output format: ${outputFormat}`);
+  }
+}
+
 module('ECDSA Signature Conversion', 'Converts an ECDSA signature between ASN.1 DER hex, the fixed-width P1363 raw hex (r||s), a JSON Web Signature (base64url) and a {r,s} JSON object.',
   [A.select('Input Format', FORMATS), A.select('Output Format', OUT_FORMATS)],
   (data, inputFormat, outputFormat) => {
     const input = (decodeLatin1(data)).trim();
-
-    if (inputFormat === 'Auto') {
-      try {
-        const parsed = JSON.parse(input);
-        if (parsed && typeof parsed === 'object') inputFormat = 'Raw JSON';
-      } catch { /* not JSON */ }
-    }
-    if (inputFormat === 'Auto' && isHexString(input)) {
-      inputFormat = input.slice(0, 2).toLowerCase() === '30' && isAsn1Sig(input) ? 'ASN.1 HEX' : 'P1363 HEX';
-    }
-    if (inputFormat === 'Auto' && isBase64UrlString(input)) inputFormat = 'JSON Web Signature';
-    if (inputFormat === 'Auto') throw new Error('Signature format could not be detected');
-
-    let asn1Hex;
-    switch (inputFormat) {
-      case 'ASN.1 HEX': asn1Hex = input; break;
-      case 'P1363 HEX': asn1Hex = p1363HexToAsn1Hex(input); break;
-      case 'JSON Web Signature': asn1Hex = p1363HexToAsn1Hex(bytesToHex(base64Decode(input))); break;
-      case 'Raw JSON': {
-        const json = JSON.parse(input);
-        if (!json.r) throw new Error('No "r" value in the signature JSON');
-        if (!json.s) throw new Error('No "s" value in the signature JSON');
-        asn1Hex = hexRSSigToAsn1Hex(json.r, json.s);
-        break;
-      }
-      default: throw new Error(`Unknown input format: ${inputFormat}`);
-    }
-
-    switch (outputFormat) {
-      case 'ASN.1 HEX': return asn1Hex;
-      case 'P1363 HEX': return asn1HexToP1363Hex(asn1Hex);
-      case 'JSON Web Signature': return base64UrlEncode(parseHex(asn1HexToP1363Hex(asn1Hex)));
-      case 'Raw JSON': return JSON.stringify(asn1HexToRS(asn1Hex));
-      default: throw new Error(`Unknown output format: ${outputFormat}`);
-    }
+    return asn1HexToFormat(signatureToAsn1Hex(input, detectSignatureFormat(input, inputFormat)), outputFormat);
   });

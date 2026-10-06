@@ -3,6 +3,14 @@ import { A } from '../../core/registry.js';
 import { canvasToPng } from './_img.js';
 import { RECORD_DELIMITERS, FIELD_DELIMITERS, getSeriesValues } from './_charts.js';
 
+export function seriesPoints(xValues, serie, seriesWidth, seriesHeight) {
+  const ys = Object.values(serie.data);
+  const yMin = Math.min(...ys), yMax = Math.max(...ys);
+  const xScale = i => xValues.length > 1 ? (seriesWidth * i) / (xValues.length - 1) : seriesWidth / 2;
+  const yScale = v => yMax === yMin ? seriesHeight / 2 : seriesHeight - ((v - yMin) / (yMax - yMin)) * seriesHeight;
+  return { yMin, yMax, points: xValues.map((x, i) => serie.data[x] === undefined ? null : { x, y: serie.data[x], cx: xScale(i), cy: yScale(serie.data[x]) }) };
+}
+
 module('Series chart',
   'Draws one or more time/line series as connected points. Input is one record per line of ' +
   '"series name, x value, y value" (fields separated by the chosen delimiter) - x values are treated ' +
@@ -13,7 +21,7 @@ module('Series chart',
     A.select('Record delimiter', Object.keys(RECORD_DELIMITERS)),
     A.select('Field delimiter', Object.keys(FIELD_DELIMITERS)),
     A.string('X label', ''),
-    A.number('Point radius', 2, 0),
+    A.number('Point radius', 1, 0),
     A.string('Series colours', 'mediumseagreen, dodgerblue, tomato'),
   ],
   (input, recordDelimName, fieldDelimName, xLabel, pointRadius, seriesColoursArg) => {
@@ -53,35 +61,26 @@ module('Series chart',
 
     series.forEach((serie, seriesIndex) => {
       const colour = seriesColours[seriesIndex % seriesColours.length];
-      const yVals = xValues.map(x => serie.data[x]).filter(v => v !== undefined);
-      const yMin = Math.min(...yVals), yMax = Math.max(...yVals);
-      const yRange = (yMax - yMin) || 1;
-      const yScale = v => seriesHeight - ((v - yMin) / yRange) * seriesHeight;
-
+      const { yMin, yMax, points } = seriesPoints(xValues, serie, seriesWidth, seriesHeight);
       const top = xAxisHeight + interSeriesPadding + seriesIndex * (seriesHeight + interSeriesPadding);
 
       ctx.strokeStyle = colour;
       ctx.lineWidth = 1;
       ctx.beginPath();
       let started = false;
-      for (let i = 0; i < xValues.length; i++) {
-        const v = serie.data[xValues[i]];
-        if (v === undefined) { started = false; continue; }
-        const x = seriesLabelWidth + xScale(i), y = top + yScale(v);
+      for (const p of points) {
+        if (!p) { started = false; continue; }
+        const x = seriesLabelWidth + p.cx, y = top + p.cy;
         if (!started) { ctx.moveTo(x, y); started = true; } else ctx.lineTo(x, y);
       }
       ctx.stroke();
 
       ctx.fillStyle = colour;
-      for (let i = 0; i < xValues.length; i++) {
-        const v = serie.data[xValues[i]];
-        if (v === undefined) continue;
-        const x = seriesLabelWidth + xScale(i), y = top + yScale(v);
-        if (pointRadius > 0) {
-          ctx.beginPath();
-          ctx.arc(x, y, pointRadius, 0, Math.PI * 2);
-          ctx.fill();
-        }
+      for (const p of points) {
+        if (!p || !(pointRadius > 0)) continue;
+        ctx.beginPath();
+        ctx.arc(seriesLabelWidth + p.cx, top + p.cy, pointRadius, 0, Math.PI * 2);
+        ctx.fill();
       }
 
       ctx.strokeStyle = '#333';

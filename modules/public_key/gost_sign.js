@@ -1,7 +1,16 @@
 import { module } from './_cat.js';
 import { A } from '../../core/registry.js';
-import { parseHex, decodeLatin1, bytesToHex } from '../../core/util.js';
+import { parseHex, decodeLatin1 } from '../../core/util.js';
 import { gostSign } from '../encryption_encoding/_gost_sign.js';
+
+export function gostHexEncode(bytes) {
+  let out = '';
+  for (let i = 0; i < bytes.length; i++) {
+    if (i > 0 && i % 32 === 0) out += '\r\n';
+    out += bytes[i].toString(16).padStart(2, '0');
+  }
+  return out;
+}
 
 export const ALGORITHMS = ['GOST R 34.12 (Magma, 2015)', 'GOST R 34.12 (Kuznyechik, 2015)'];
 const ALGO_INFO = { 'GOST R 34.12 (Magma, 2015)': { algo: 'Magma', blockBytes: 8 }, 'GOST R 34.12 (Kuznyechik, 2015)': { algo: 'Kuznyechik', blockBytes: 16 } };
@@ -23,5 +32,5 @@ module('GOST Sign', 'Signs a message with a GOST block cipher in MAC ("imitovsta
     if (macLenBytes > blockBytes) throw new Error(`MAC length must be at most ${blockBytes * 8} bits for ${algorithm}`);
     if (iv.length && iv.length !== blockBytes) throw new Error(`IV must be ${blockBytes} bytes for ${algorithm} (or empty for the default all-zero IV)`);
     const mac = gostSign(algo, key, data, macLenBytes, iv.length ? iv : null);
-    return out === 'Hex' ? bytesToHex(mac) : mac;
+    return out === 'Hex' ? gostHexEncode(mac) : mac;
   });

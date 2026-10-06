@@ -10,10 +10,10 @@ module('JWT Decode', "Decodes a JSON Web Token and shows its payload (signature 
     const parts = t.trim().split('.');
     if (parts.length < 2) throw new Error('Not a JWT');
     const payload = JSON.parse(b64u(parts[1]));
-    if (!full) return JSON.stringify(payload, null, 2);
+    if (!full) return JSON.stringify(payload, null, 4);
     return JSON.stringify({
       header: JSON.parse(b64u(parts[0])),
       payload,
       signature: parts.length > 2 ? parts[2] : '',
-    }, null, 2);
+    }, null, 4);
   }, { text: true });

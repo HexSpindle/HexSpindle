@@ -1,40 +1,28 @@
 import { module } from './_cat.js';
 import { A } from '../../core/registry.js';
 
-const CLAUSES = ['SELECT', 'FROM', 'WHERE', 'GROUP BY', 'ORDER BY', 'HAVING', 'LIMIT', 'OFFSET', 'UNION ALL', 'UNION', 'INSERT INTO', 'VALUES', 'UPDATE', 'SET', 'DELETE FROM',
-  'LEFT OUTER JOIN', 'RIGHT OUTER JOIN', 'LEFT JOIN', 'RIGHT JOIN', 'INNER JOIN', 'FULL JOIN', 'CROSS JOIN', 'JOIN', 'ON', 'AND', 'OR'];
+let lib = null;
+/** The sql-formatter bundle is ~66 KB, so it is only fetched the first time this op runs. */
+async function formatter() {
+  if (!lib) lib = await import('./_sql_formatter.mjs');
+  return lib;
+}
 
-const MAJOR = new Set(['SELECT', 'FROM', 'WHERE', 'GROUP BY', 'ORDER BY', 'HAVING', 'LIMIT', 'OFFSET', 'UNION', 'UNION ALL', 'INSERT INTO', 'VALUES', 'UPDATE', 'SET', 'DELETE FROM']);
-
-const CLAUSE_RX = new RegExp('\\b(' + [...CLAUSES].sort((a, b) => b.length - a.length).join('|') + ')\\b', 'i');
-
-module('SQL Beautify', 'Formats SQL with clause-per-line layout.', [A.string('Indent string', '    ')],
-  (t, indent) => {
-    indent = indent.replace(/\\t/g, '\t');
-    const strings = [];
-    t = t.replace(/'(?:''|[^'])*'|"[^"]*"/g, (m) => { strings.push(m); return `\0${strings.length - 1}\0`; });
-    t = t.replace(/--[^\n]*|\/\*[\s\S]*?\*\//g, '');
-    t = t.replace(/\s+/g, ' ').trim();
-    const out = [];
-    const pieces = t.split(CLAUSE_RX);
-    let cur = '';
-    for (const p of pieces) {
-      if (p === undefined) continue;
-      const up = p.toUpperCase().trim();
-      if (CLAUSES.includes(up)) {
-        out.push(cur.replace(/\s+$/, ''));
-        cur = MAJOR.has(up) ? up + ' ' : indent + up + ' ';
-      } else {
-        let piece = p;
-        if (cur.startsWith('SELECT') || cur.startsWith('SET')) {
-          piece = piece.replace(/,\s*/g, ',\n' + indent);
-        }
-        cur += piece.trim() ? piece.trim() + ' ' : '';
-      }
-    }
-    out.push(cur.replace(/\s+$/, ''));
-    const res = out.filter((l) => l.trim()).join('\n');
-    return res.replace(/\0(\d+)\0/g, (_, i) => strings[parseInt(i, 10)]);
+module('SQL Beautify', 'Indents and pretty-prints SQL (sql-formatter, MySQL dialect).', [A.string('Indent string', '\\t')],
+  async (t, indent) => {
+    const { formatDialect, mysql } = await formatter();
+    const indentStr = indent.replace(/\\t/g, '\t');
+    // Bind variables (:name) are not valid MySQL, so hide them behind placeholders while formatting.
+    const binds = {};
+    let n = 0;
+    const masked = t.replace(/:\w+/g, (m) => { const p = `__BIND_${n++}__`; binds[p] = m; return p; });
+    const out = formatDialect(masked, {
+      dialect: mysql,
+      useTabs: indentStr === '\t',
+      tabWidth: indentStr.length || 4,
+      indentStyle: 'standard',
+    });
+    return out.replace(/__BIND_\d+__/g, (m) => binds[m] || m);
   },
   { text: true }
 );

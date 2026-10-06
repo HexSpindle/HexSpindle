@@ -3,19 +3,18 @@ import { A } from '../../core/registry.js';
 import { bytesToHex, concatBytes } from '../../core/util.js';
 import { md5 } from './_hashes.js';
 
-const HASHES = ['MD5', 'SHA1', 'SHA256', 'SHA512'];
-const WEBCRYPTO_HASH = { SHA1: 'SHA-1', SHA256: 'SHA-256', SHA512: 'SHA-512' };
+const HASHES = ['SHA1', 'SHA256', 'SHA384', 'SHA512', 'MD5'];
+const WEBCRYPTO_HASH = { SHA1: 'SHA-1', SHA256: 'SHA-256', SHA384: 'SHA-384', SHA512: 'SHA-512' };
 
 async function hashOnce(h, data) {
   if (h === 'MD5') return md5(data);
   return new Uint8Array(await crypto.subtle.digest(WEBCRYPTO_HASH[h], data));
 }
 
-module('Derive EVP key', 'OpenSSL EVP_BytesToKey key derivation; outputs the key as hex.',
+module('Derive EVP key', 'OpenSSL EVP_BytesToKey key derivation from the Passphrase argument (the input is ignored); outputs the key as hex.',
   [A.toggle('Passphrase', '', ['UTF8', 'Hex', 'Latin1', 'Base64'], 'UTF8'), A.number('Key size (bits)', 128, 8),
     A.number('Iterations', 1, 1), A.select('Hashing function', HASHES), A.toggle('Salt', '', ['Hex', 'UTF8', 'Latin1', 'Base64'], 'Hex')],
   async (data, pw, bits, iters, h, salt) => {
-    if (!pw || !pw.length) pw = data;
     iters = Math.floor(iters);
     const need = Math.floor(bits / 8);
     let out = new Uint8Array(0);

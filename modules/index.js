@@ -348,6 +348,7 @@ import './hashing/fletcher64_checksum.js';
 import './hashing/fletcher8_checksum.js';
 import './hashing/generate_all_checksums.js';
 import './hashing/generate_all_hashes.js';
+import './hashing/gost_hash.js';
 import './hashing/has160.js';
 import './hashing/hmac_op.js';
 import './hashing/keccak.js';

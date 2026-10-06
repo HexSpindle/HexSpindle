@@ -1,36 +1,271 @@
 import { module } from './_cat.js';
 
-function parseSymbolic(t) {
-  let mode = 0;
-  const rest = t.slice(1);
-  for (let i = 0; i < rest.length; i++) {
-    const c = rest[i];
-    const grp = Math.floor(i / 3), pos = i % 3;
-    const bit = (1 << (2 - pos)) << (3 * (2 - grp));
-    const special = [0o4000, 0o2000, 0o1000][grp];
-    if ('rwx'.includes(c)) mode |= bit;
-    else if ('st'.includes(c)) mode |= bit | special;
-    else if ('ST'.includes(c)) mode |= special;
+module('Parse UNIX file permissions', 'Explains an octal mode (e.g. 755) or a textual mode (e.g. drwxr-xr-x): textual and octal forms, file type, special bits and a permission matrix.', [],
+  (input) => {
+    const perms = {
+      d:  false, // directory
+      sl: false, // symbolic link
+      np: false, // named pipe
+      s:  false, // socket
+      cd: false, // character device
+      bd: false, // block device
+      dr: false, // door
+      sb: false, // sticky bit
+      su: false, // setuid
+      sg: false, // setgid
+      ru: false, // read user
+      wu: false, // write user
+      eu: false, // execute user
+      rg: false, // read group
+      wg: false, // write group
+      eg: false, // execute group
+      ro: false, // read other
+      wo: false, // write other
+      eo: false  // execute other
+    };
+    let d = 0,
+      u = 0,
+      g = 0,
+      o = 0,
+      output = "",
+      octal = null,
+      textual = null;
+
+    if (input.search(/\s*[0-7]{1,4}\s*/i) === 0) {
+      // Input is octal
+      octal = input.match(/\s*([0-7]{1,4})\s*/i)[1];
+
+      if (octal.length === 4) {
+        d = parseInt(octal[0], 8);
+        u = parseInt(octal[1], 8);
+        g = parseInt(octal[2], 8);
+        o = parseInt(octal[3], 8);
+      } else {
+        if (octal.length > 0) u = parseInt(octal[0], 8);
+        if (octal.length > 1) g = parseInt(octal[1], 8);
+        if (octal.length > 2) o = parseInt(octal[2], 8);
+      }
+
+      perms.su = d >> 2 & 0x1;
+      perms.sg = d >> 1 & 0x1;
+      perms.sb = d & 0x1;
+
+      perms.ru = u >> 2 & 0x1;
+      perms.wu = u >> 1 & 0x1;
+      perms.eu = u & 0x1;
+
+      perms.rg = g >> 2 & 0x1;
+      perms.wg = g >> 1 & 0x1;
+      perms.eg = g & 0x1;
+
+      perms.ro = o >> 2 & 0x1;
+      perms.wo = o >> 1 & 0x1;
+      perms.eo = o & 0x1;
+    } else if (input.search(/\s*[dlpcbDrwxsStT-]{1,10}\s*/) === 0) {
+      // Input is textual
+      textual = input.match(/\s*([dlpcbDrwxsStT-]{1,10})\s*/)[1];
+
+      switch (textual[0]) {
+        case "d":
+          perms.d = true;
+          break;
+        case "l":
+          perms.sl = true;
+          break;
+        case "p":
+          perms.np = true;
+          break;
+        case "s":
+          perms.s = true;
+          break;
+        case "c":
+          perms.cd = true;
+          break;
+        case "b":
+          perms.bd = true;
+          break;
+        case "D":
+          perms.dr = true;
+          break;
+      }
+
+      if (textual.length > 1) perms.ru = textual[1] === "r";
+      if (textual.length > 2) perms.wu = textual[2] === "w";
+      if (textual.length > 3) {
+        switch (textual[3]) {
+          case "x":
+            perms.eu = true;
+            break;
+          case "s":
+            perms.eu = true;
+            perms.su = true;
+            break;
+          case "S":
+            perms.su = true;
+            break;
+        }
+      }
+
+      if (textual.length > 4) perms.rg = textual[4] === "r";
+      if (textual.length > 5) perms.wg = textual[5] === "w";
+      if (textual.length > 6) {
+        switch (textual[6]) {
+          case "x":
+            perms.eg = true;
+            break;
+          case "s":
+            perms.eg = true;
+            perms.sg = true;
+            break;
+          case "S":
+            perms.sg = true;
+            break;
+        }
+      }
+
+      if (textual.length > 7) perms.ro = textual[7] === "r";
+      if (textual.length > 8) perms.wo = textual[8] === "w";
+      if (textual.length > 9) {
+        switch (textual[9]) {
+          case "x":
+            perms.eo = true;
+            break;
+          case "t":
+            perms.eo = true;
+            perms.sb = true;
+            break;
+          case "T":
+            perms.sb = true;
+            break;
+        }
+      }
+    } else {
+      throw new Error("Invalid input format.\nPlease enter the permissions in either octal (e.g. 755) or textual (e.g. drwxr-xr-x) format.");
+    }
+
+    output += "Textual representation: " + permsToStr(perms);
+    output += "\nOctal representation:   " + permsToOctal(perms);
+
+    // File type
+    if (textual) {
+      output += "\nFile type: " + ftFromPerms(perms);
+    }
+
+    // setuid, setgid
+    if (perms.su) {
+      output += "\nThe setuid flag is set";
+    }
+    if (perms.sg) {
+      output += "\nThe setgid flag is set";
+    }
+
+    // sticky bit
+    if (perms.sb) {
+      output += "\nThe sticky bit is set";
+    }
+
+    // Permission matrix
+    output += `
+
+ +---------+-------+-------+-------+
+ |         | User  | Group | Other |
+ +---------+-------+-------+-------+
+ |    Read |   ${perms.ru ? "X" : " "}   |   ${perms.rg ? "X" : " "}   |   ${perms.ro ? "X" : " "}   |
+ +---------+-------+-------+-------+
+ |   Write |   ${perms.wu ? "X" : " "}   |   ${perms.wg ? "X" : " "}   |   ${perms.wo ? "X" : " "}   |
+ +---------+-------+-------+-------+
+ | Execute |   ${perms.eu ? "X" : " "}   |   ${perms.eg ? "X" : " "}   |   ${perms.eo ? "X" : " "}   |
+ +---------+-------+-------+-------+`;
+
+    return output;
+  }, { text: true });
+
+function permsToStr(perms) {
+  let str = "",
+    type = "-";
+
+  if (perms.d) type = "d";
+  if (perms.sl) type = "l";
+  if (perms.np) type = "p";
+  if (perms.s) type = "s";
+  if (perms.cd) type = "c";
+  if (perms.bd) type = "b";
+  if (perms.dr) type = "D";
+
+  str = type;
+
+  str += perms.ru ? "r" : "-";
+  str += perms.wu ? "w" : "-";
+  if (perms.eu && perms.su) {
+    str += "s";
+  } else if (perms.su) {
+    str += "S";
+  } else if (perms.eu) {
+    str += "x";
+  } else {
+    str += "-";
   }
-  return mode;
+
+  str += perms.rg ? "r" : "-";
+  str += perms.wg ? "w" : "-";
+  if (perms.eg && perms.sg) {
+    str += "s";
+  } else if (perms.sg) {
+    str += "S";
+  } else if (perms.eg) {
+    str += "x";
+  } else {
+    str += "-";
+  }
+
+  str += perms.ro ? "r" : "-";
+  str += perms.wo ? "w" : "-";
+  if (perms.eo && perms.sb) {
+    str += "t";
+  } else if (perms.sb) {
+    str += "T";
+  } else if (perms.eo) {
+    str += "x";
+  } else {
+    str += "-";
+  }
+
+  return str;
 }
 
-module('Parse UNIX file permissions', 'Explains an octal mode (755) or symbolic mode (drwxr-xr-x).', [],
-  (t) => {
-    t = t.trim();
-    let ftype = '-', mode;
-    if (/^[0-7]{3,4}$/.test(t)) mode = parseInt(t, 8);
-    else if (/^[-dlcbps][-rwxsStT]{9}$/.test(t)) { ftype = t[0]; mode = parseSymbolic(t); }
-    else throw new Error('Use an octal mode like 755 or a string like drwxr-xr-x');
-    const out = [`Octal: ${(mode & 0o7777).toString(8).padStart(4, '0')}`];
-    let sym = '';
-    ['Owner', 'Group', 'Others'].forEach((who, i) => {
-      const bits = (mode >> (6 - 3 * i)) & 7;
-      const names = [['read', 4], ['write', 2], ['execute', 1]].filter(([, b]) => bits & b).map(([nm]) => nm);
-      out.push(`${who}: ${names.join(', ') || 'no permissions'}`);
-      sym += (bits & 4 ? 'r' : '-') + (bits & 2 ? 'w' : '-') + (bits & 1 ? 'x' : '-');
-    });
-    [['setuid', 0o4000], ['setgid', 0o2000], ['sticky', 0o1000]].forEach(([flag, bit]) => { if (mode & bit) out.push(`Special: ${flag}`); });
-    out.splice(1, 0, `Symbolic: ${ftype}${sym}`);
-    return out.join('\n');
-  }, { text: true });
+function permsToOctal(perms) {
+  let d = 0,
+    u = 0,
+    g = 0,
+    o = 0;
+
+  if (perms.su) d += 4;
+  if (perms.sg) d += 2;
+  if (perms.sb) d += 1;
+
+  if (perms.ru) u += 4;
+  if (perms.wu) u += 2;
+  if (perms.eu) u += 1;
+
+  if (perms.rg) g += 4;
+  if (perms.wg) g += 2;
+  if (perms.eg) g += 1;
+
+  if (perms.ro) o += 4;
+  if (perms.wo) o += 2;
+  if (perms.eo) o += 1;
+
+  return d.toString() + u.toString() + g.toString() + o.toString();
+}
+
+
+function ftFromPerms(perms) {
+  if (perms.d) return "Directory";
+  if (perms.sl) return "Symbolic link";
+  if (perms.np) return "Named pipe";
+  if (perms.s) return "Socket";
+  if (perms.cd) return "Character device";
+  if (perms.bd) return "Block device";
+  if (perms.dr) return "Door";
+  return "Regular file";
+}

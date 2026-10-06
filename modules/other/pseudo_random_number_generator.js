@@ -8,7 +8,7 @@ module('Pseudo-Random Number Generator', 'Generates cryptographically secure ran
   (data, n, fmt) => {
     const b = secureRandomBytes(Math.trunc(n));
     if (fmt === 'Hex') return bytesToHex(b);
-    if (fmt === 'Integer') { let v = 0n; for (const x of b) v = (v << 8n) | BigInt(x); return v.toString(); }
-    if (fmt === 'Byte array') return [...b].join(' ');
+    if (fmt === 'Integer') { let v = 0n; for (let i = b.length - 1; i >= 0; i--) v = (v << 8n) | BigInt(b[i]); return v.toString(); }
+    if (fmt === 'Byte array') return JSON.stringify([...b]);
     return b;
   }, { nondeterministic: true });

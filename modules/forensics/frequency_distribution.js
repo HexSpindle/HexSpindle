@@ -1,9 +1,16 @@
 import { module } from './_cat.js';
 import { A, Html } from '../../core/registry.js';
 
-module('Frequency distribution', 'Counts how often each byte value occurs.',
-  [A.boolean('Show 0%s', false), A.select('Output', ['Chart', 'Text table'])],
+module('Frequency distribution', 'Counts how often each byte value occurs. The default output is the data as JSON (data length, percentages, distribution, bytes represented); pick Chart or Text table for a rendered view.',
+  [A.boolean('Show 0%s', true), A.select('Output', ['Data (JSON)', 'Chart', 'Text table'])],
   (data, zeros, fmt) => {
+    if (fmt === 'Data (JSON)') {
+      if (!data.length) throw new Error('No data');
+      const distribution = new Array(256).fill(0);
+      for (const b of data) distribution[b]++;
+      const percentages = distribution.map(c => c / data.length * 100);
+      return JSON.stringify({ dataLength: data.length, percentages, distribution, bytesRepresented: distribution.filter(c => c > 0).length }, null, 4);
+    }
     const counts = new Array(256).fill(0);
     for (const b of data) counts[b]++;
     const n = Math.max(data.length, 1);

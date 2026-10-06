@@ -1,22 +1,17 @@
 import { module } from './_cat.js';
 import { A } from '../../core/registry.js';
-import { loadImage, canvasToPng } from './_img.js';
+import { loadBitmap, bitmapToPng } from './_img.js';
+import { resize, scaleToFit, RESIZE_MODES } from './_jimp.js';
 
-const QUALITY = { Bicubic: 'medium', 'Nearest Neighbour': null, Bilinear: 'low', Lanczos: 'high' };
-
-module('Resize Image', 'Resizes an image.',
+module('Resize Image',
+  'Resizes an image, in pixels or as a percentage of its current size. With "Maintain aspect ratio" ' +
+  'the image is scaled to fit inside the given box instead of being stretched to it. The resampling ' +
+  'algorithms are the five Jimp implements.',
   [A.number('Width', 100, 1), A.number('Height', 100, 1), A.select('Unit type', ['Pixels', 'Percent']),
-   A.boolean('Maintain aspect ratio', true), A.select('Resampling', ['Bicubic', 'Nearest Neighbour', 'Bilinear', 'Lanczos'])],
-  async (data, w, h, unit, aspect, resample) => {
-    const { canvas: src, width, height } = await loadImage(data);
-    if (unit === 'Percent') { w = Math.trunc((width * w) / 100); h = Math.trunc((height * h) / 100); }
-    else if (aspect) { h = Math.max(1, Math.trunc((height * w) / width)); }
-    w = Math.max(1, w); h = Math.max(1, h);
-    const out = new OffscreenCanvas(w, h);
-    const ctx = out.getContext('2d');
-    const quality = QUALITY[resample];
-    ctx.imageSmoothingEnabled = quality !== null;
-    if (quality) ctx.imageSmoothingQuality = quality;
-    ctx.drawImage(src, 0, 0, w, h);
-    return canvasToPng(out);
+   A.boolean('Maintain aspect ratio', false),
+   A.select('Resizing algorithm', Object.keys(RESIZE_MODES), 'Bilinear')],
+  async (data, w, h, unit, aspect, alg) => {
+    const bm = await loadBitmap(data);
+    if (unit === 'Percent') { w = bm.width * (w / 100); h = bm.height * (h / 100); }
+    return bitmapToPng(aspect ? scaleToFit(bm, w, h, alg) : resize(bm, w, h, alg));
   });

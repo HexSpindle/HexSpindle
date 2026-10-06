@@ -65,13 +65,14 @@ function triggerDownload(bytes, filename) {
 }
 
 module('HTTP request', 'Full-featured HTTP(S) client: auth, cookies, redirects, gzip/deflate, retries and timing details (TLS verification, a custom proxy and the exact redirect/byte-level details are not available from a browser sandbox - see the op\'s notes). Runs only when you press BAKE.',
-  [A.select('Method', ['GET', 'POST', 'HEAD', 'PUT', 'PATCH', 'DELETE', 'OPTIONS']), A.string('URL', 'https://'),
+  [A.select('Method', ['GET', 'POST', 'HEAD', 'PUT', 'PATCH', 'DELETE', 'OPTIONS']), A.string('URL', ''),
     A.area('Headers', '', 'One per line, e.g. User-Agent: Mozilla/5.0'), A.select('Output', OUTPUTS), A.number('Timeout (s)', 30, 1, 300),
     A.boolean('Verify TLS certificate', true), A.select('Authentication', ['None', 'Basic (user:password)', 'Bearer token']), A.string('Credentials', '', 'user:password, or the token'),
     A.string('Cookies', '', 'name=value; name2=value2'), A.boolean('Follow redirects', true), A.number('Max redirects', 10, 0, 50),
     A.string('Proxy', '', 'Not supported from a browser - ignored'), A.boolean('Decompress gzip / deflate', true), A.number('Max response size (MB)', 50, 1, 1024), A.number('Retries on connection errors', 0, 0, 10),
     A.string('Save response to file', '', 'Triggers a browser download instead of streaming to a server-side folder')],
   async (data, method, url, headersText, output, timeout, _verify, auth, creds, cookies, follow, maxRedirects, _proxy, _decompress, maxMb, retries, saveTo = '') => {
+    if (!url.trim()) return '';
     if (!OUTPUTS.includes(output)) output = String(output).toLowerCase() === 'true' ? OUTPUTS[2] : OUTPUTS[0];
     const h = parseHeaderLines(headersText);
     const low = new Set(Object.keys(h).map(k => k.toLowerCase()));

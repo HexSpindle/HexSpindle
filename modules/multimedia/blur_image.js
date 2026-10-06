@@ -1,12 +1,14 @@
 import { module } from './_cat.js';
 import { A } from '../../core/registry.js';
-import { loadImage, canvasToPng, boxBlur, gaussianBlur } from './_img.js';
+import { loadBitmap, bitmapToPng } from './_img.js';
+import { blur, gaussian } from './_jimp.js';
 
-module('Blur Image', 'Applies a Gaussian or box blur.', [A.number('Radius', 5, 0), A.select('Type', ['Gaussian', 'Box'])],
-  async (data, radius, kind) => {
-    const { canvas, ctx, width, height } = await loadImage(data);
-    const img = ctx.getImageData(0, 0, width, height);
-    const blurred = kind === 'Gaussian' ? gaussianBlur(img, width, height, radius) : boxBlur(img, width, height, radius);
-    ctx.putImageData(blurred, 0, 0);
-    return canvasToPng(canvas);
+module('Blur Image',
+  'Blurs an image. "Fast" is the two-pass "Superfast Blur" box approximation Jimp uses (much ' +
+  'quicker, and the default); "Gaussian" is a true Gaussian convolution with a ' +
+  'radius of 2.57x the amount, which is far slower but smoother.',
+  [A.number('Amount', 5, 1), A.select('Type', ['Fast', 'Gaussian'])],
+  async (data, amount, kind) => {
+    const bm = await loadBitmap(data);
+    return bitmapToPng(kind === 'Fast' ? blur(bm, amount) : gaussian(bm, amount));
   });

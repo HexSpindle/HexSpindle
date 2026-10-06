@@ -1,11 +1,15 @@
 import { module } from './_cat.js';
 import { A, Html } from '../../core/registry.js';
 import { b64Encode, b64Decode } from '../../core/codec.js';
-import { decodeLatin1, decodeUtf8 } from '../../core/util.js';
+import { decodeLatin1 } from '../../core/util.js';
 
 const STD_ALPHABET = 'A-Za-z0-9+/=';
-const escapeHtml = (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
-const b64DecStr = (str, alphabet) => decodeUtf8(b64Decode(str, alphabet));
+const HTML_CHARS = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#x27;', '`': '&#x60;', '\u0000': '\ue000' };
+const escapeHtml = (s) => s.replace(/[&<>"'`\u0000]/g, c => HTML_CHARS[c]);
+const b64DecStr = (str, alphabet) => {
+  const bytes = b64Decode(str, alphabet);
+  try { return new TextDecoder('utf-8', { fatal: true }).decode(bytes); } catch { return Array.from(bytes, b => String.fromCharCode(b)).join(''); }
+};
 
 function tip(text, inner) {
   return `<span title="${escapeHtml(text)}">${inner}</span>`;

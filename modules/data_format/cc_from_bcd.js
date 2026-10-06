@@ -35,7 +35,7 @@ module('From BCD', 'Binary-Coded Decimal (BCD) is a class of binary encodings of
 
     const neg = output.startsWith('-');
     const digits = neg ? output.slice(1) : output;
-    if (digits === '') return neg ? 'NaN' : '0';
+    if (digits === '') throw new Error(`Not a number: ${output}`);
     const canonical = BigInt(digits).toString();
     return (neg && canonical !== '0' ? '-' : '') + canonical;
   }, { text: true });

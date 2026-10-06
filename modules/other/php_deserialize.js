@@ -1,65 +1,85 @@
 import { module } from './_cat.js';
-import { Flt, pyFloatRepr, toPyJson } from './_cat.js';
+import { A } from '../../core/registry.js';
 
-function pyStr(v) {
-  if (v instanceof Flt) return pyFloatRepr(v.value);
-  if (typeof v === 'boolean') return v ? 'True' : 'False';
-  return String(v);
+/** Deserialises PHP's serialize() format straight into the output text, the way PHP
+ * itself writes it: every keyed array becomes a JSON-ish object (JSON has no integer
+ * keys, so with "Output valid JSON" those keys are quoted), numbers keep the digits
+ * exactly as serialised, and strings keep their contents verbatim apart from the
+ * quote escaping. PHP `O:` objects are an extension - they have no JSON mapping and
+ * are rejected by other tools, so they are rendered as an object with __class__. */
+function deserialize(s, validJson) {
+  let i = 0;
+
+  function read(n) {
+    if (i + n > s.length) throw new Error('End of input reached before end of script');
+    const r = s.slice(i, i + n);
+    i += n;
+    return r;
+  }
+  function readUntil(until) {
+    let out = '';
+    for (;;) {
+      const c = read(1);
+      if (c === until) return out;
+      out += c;
+    }
+  }
+  function expect(what) {
+    if (read(what.length) !== what) throw new Error('Unexpected input found');
+  }
+  function member(key, value) {
+    const num = /[0-9]+/.exec(key);
+    return validJson && num && num[0].length === key.length ? `"${key}": ${value}` : `${key}: ${value}`;
+  }
+  function pairs(count) {
+    const out = [];
+    for (let n = 0; n < count; n++) {
+      const key = value();
+      out.push(member(key, value()));
+    }
+    return out.join(',');
+  }
+  function value() {
+    const kind = read(1).toLowerCase();
+    if (kind === 'n') { expect(';'); return 'null'; }
+    if (kind === 'i' || kind === 'd' || kind === 'b') {
+      expect(':');
+      const data = readUntil(';');
+      return kind === 'b' ? String(parseInt(data, 10) !== 0) : data;
+    }
+    if (kind === 'a') {
+      expect(':');
+      const count = parseInt(readUntil(':'), 10);
+      expect('{');
+      const body = pairs(count);
+      expect('}');
+      return `{${body}}`;
+    }
+    if (kind === 's') {
+      expect(':');
+      const len = parseInt(readUntil(':'), 10);
+      expect('"');
+      const str = read(len);
+      expect('";');
+      return `"${validJson ? str.replace(/"/g, '\\"') : str}"`;
+    }
+    if (kind === 'o') {
+      expect(':');
+      const nameLen = parseInt(readUntil(':'), 10);
+      expect('"');
+      const name = read(nameLen);
+      expect('":');
+      const count = parseInt(readUntil(':'), 10);
+      expect('{');
+      const body = pairs(count);
+      expect('}');
+      return `{"__class__": "${name}"${body ? ',' + body : ''}}`;
+    }
+    throw new Error(`Unknown type: ${kind}`);
+  }
+
+  return value();
 }
 
-function deser(s, i) {
-  const kind = s[i];
-  if (kind === 'N') return [null, i + 2];
-  if (kind === 'b') return [s[i + 2] === '1', s.indexOf(';', i) + 1];
-  if (kind === 'i') { const j = s.indexOf(';', i); return [parseInt(s.slice(i + 2, j), 10), j + 1]; }
-  if (kind === 'd') { const j = s.indexOf(';', i); return [new Flt(parseFloat(s.slice(i + 2, j))), j + 1]; }
-  if (kind === 's') {
-    const j = s.indexOf(':', i + 2);
-    const n = parseInt(s.slice(i + 2, j), 10);
-    const start = j + 2; // skip :"
-    const val = s.slice(start, start + n);
-    return [val, start + n + 2]; // skip ";
-  }
-  if (kind === 'a') {
-    const j = s.indexOf(':', i + 2);
-    const count = parseInt(s.slice(i + 2, j), 10);
-    let p = j + 2; // skip :{
-    const items = [];
-    for (let c = 0; c < count; c++) {
-      let k, v;
-      [k, p] = deser(s, p);
-      [v, p] = deser(s, p);
-      items.push([k, v]);
-    }
-    p += 1; // skip }
-    if (items.every(([k], idx) => k === idx)) return [items.map(([, v]) => v), p];
-    const m = new Map();
-    for (const [k, v] of items) m.set(pyStr(k), v);
-    return [m, p];
-  }
-  if (kind === 'O') {
-    const j = s.indexOf(':', i + 2);
-    const nlen = parseInt(s.slice(i + 2, j), 10);
-    const name = s.slice(j + 2, j + 2 + nlen);
-    let p = j + 2 + nlen + 2;
-    const j2 = s.indexOf(':', p);
-    const count = parseInt(s.slice(p, j2), 10);
-    p = j2 + 2;
-    const m = new Map();
-    m.set('__class__', name);
-    for (let c = 0; c < count; c++) {
-      let k, v;
-      [k, p] = deser(s, p);
-      [v, p] = deser(s, p);
-      m.set(pyStr(k), v);
-    }
-    return [m, p + 1];
-  }
-  throw new Error(`Unknown PHP serialize type '${kind}' at offset ${i}`);
-}
-
-module('PHP Deserialize', "Converts PHP's serialize() format to JSON.", [],
-  (t) => {
-    const [val] = deser(t.trim(), 0);
-    return toPyJson(val);
-  }, { text: true });
+module('PHP Deserialize', "Converts PHP's serialize() format to JSON.", [A.boolean('Output valid JSON', true)],
+  (t, validJson) => deserialize(t.trim(), validJson), { text: true });

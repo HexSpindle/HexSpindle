@@ -1,11 +1,18 @@
 import { module } from './_cat.js';
-import { TABLE, DIGITS } from './to_braille.js';
+import { A } from '../../core/registry.js';
+import { TABLE, DIGITS, MODES, BRAILLE_ASCII, BRAILLE_DOT6 } from './to_braille.js';
 
 const REV = new Map([...TABLE].map(([k, v]) => [v, k]));
 const REVD = new Map([...DIGITS].map(([k, v]) => [v, k]));
 
-module('From Braille', 'Converts Unicode Braille back to text.', [],
-  (t) => {
+module('From Braille', 'Converts six-dot braille symbols to text.', [A.select('Mode', MODES)],
+  (t, mode) => {
+    if (mode !== 'Grade 1') {
+      return [...t].map(b => {
+        const idx = BRAILLE_DOT6.indexOf(b);
+        return idx < 0 ? b : BRAILLE_ASCII[idx];
+      }).join('');
+    }
     const out = [];
     let cap = false, num = false;
     for (const c of t) {

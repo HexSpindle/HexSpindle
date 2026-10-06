@@ -1,97 +1,168 @@
 import { module } from './_cat.js';
 import { A } from '../../core/registry.js';
 
-const WORDS = ('lorem ipsum dolor sit amet consectetur adipiscing elit sed do eiusmod tempor incididunt ut labore et dolore magna aliqua enim ad minim veniam quis nostrud exercitation ullamco '
-  + 'laboris nisi aliquip ex ea commodo consequat duis aute irure in reprehenderit voluptate velit esse cillum fugiat nulla pariatur excepteur sint occaecat cupidatat non proident '
-  + 'sunt culpa qui officia deserunt mollit anim id est laborum').split(' ');
-
-class PyRandom {
-  constructor(seed) { this.mt = new Uint32Array(624); this.mti = 625; this.initByArray([seed >>> 0]); }
-  initGenrand(s) {
-    this.mt[0] = s >>> 0;
-    for (let i = 1; i < 624; i++) {
-      const prev = this.mt[i - 1] ^ (this.mt[i - 1] >>> 30);
-      this.mt[i] = (Math.imul(1812433253, prev) + i) >>> 0;
+function GenerateParagraphs(length=3) {
+    const paragraphs = [];
+    while (paragraphs.length < length) {
+        const paragraphLength = getRandomLength(PARAGRAPH_LENGTH_MEAN, PARAGRAPH_LENGTH_STD_DEV);
+        const sentences = [];
+        while (sentences.length < paragraphLength) {
+            const sentenceLength = getRandomLength(SENTENCE_LENGTH_MEAN, SENTENCE_LENGTH_STD_DEV);
+            const sentence = getWords(sentenceLength);
+            sentences.push(formatSentence(sentence));
+        }
+        paragraphs.push(formatParagraph(sentences));
     }
-    this.mti = 624;
-  }
-  initByArray(key) {
-    this.initGenrand(19650218);
-    let i = 1, j = 0;
-    let k = Math.max(624, key.length);
-    for (; k; k--) {
-      const prev = this.mt[i - 1] ^ (this.mt[i - 1] >>> 30);
-      const t = (this.mt[i] ^ Math.imul(prev, 1664525)) >>> 0;
-      this.mt[i] = (t + key[j] + j) >>> 0;
-      i++; j++;
-      if (i >= 624) { this.mt[0] = this.mt[623]; i = 1; }
-      if (j >= key.length) j = 0;
-    }
-    for (k = 623; k; k--) {
-      const prev = this.mt[i - 1] ^ (this.mt[i - 1] >>> 30);
-      const t = (this.mt[i] ^ Math.imul(prev, 1566083941)) >>> 0;
-      this.mt[i] = (t - i) >>> 0;
-      i++;
-      if (i >= 624) { this.mt[0] = this.mt[623]; i = 1; }
-    }
-    this.mt[0] = 0x80000000;
-  }
-  genrandUint32() {
-    const N = 624, M = 397, MATRIX_A = 0x9908b0df, UPPER = 0x80000000, LOWER = 0x7fffffff;
-    if (this.mti >= N) {
-      let kk;
-      for (kk = 0; kk < N - M; kk++) {
-        const y = (this.mt[kk] & UPPER) | (this.mt[kk + 1] & LOWER);
-        this.mt[kk] = this.mt[kk + M] ^ (y >>> 1) ^ (y & 1 ? MATRIX_A : 0);
-      }
-      for (; kk < N - 1; kk++) {
-        const y = (this.mt[kk] & UPPER) | (this.mt[kk + 1] & LOWER);
-        this.mt[kk] = this.mt[kk + (M - N)] ^ (y >>> 1) ^ (y & 1 ? MATRIX_A : 0);
-      }
-      const y = (this.mt[N - 1] & UPPER) | (this.mt[0] & LOWER);
-      this.mt[N - 1] = this.mt[M - 1] ^ (y >>> 1) ^ (y & 1 ? MATRIX_A : 0);
-      this.mti = 0;
-    }
-    let y = this.mt[this.mti++];
-    y ^= (y >>> 11);
-    y ^= (y << 7) & 0x9d2c5680;
-    y ^= (y << 15) & 0xefc60000;
-    y ^= (y >>> 18);
-    return y >>> 0;
-  }
-  getrandbits(k) { return this.genrandUint32() >>> (32 - k); }
-  randbelow(n) {
-    if (n <= 0) return 0;
-    const k = n.toString(2).length;
-    let r = this.getrandbits(k);
-    while (r >= n) r = this.getrandbits(k);
-    return r;
-  }
-  randint(a, b) { return a + this.randbelow(b - a + 1); }
-  choice(seq) { return seq[this.randbelow(seq.length)]; }
+    paragraphs[paragraphs.length-1] = paragraphs[paragraphs.length-1].slice(0, -2);
+    paragraphs[0] = replaceStart(paragraphs[0]);
+    return paragraphs.join("");
 }
 
-module('Generate Lorem Ipsum', 'Generates placeholder text (the input is ignored).',
-  [A.number('Length', 3, 1, 1000), A.select('Length in', ['Paragraphs', 'Sentences', 'Words', 'Bytes'])],
-  (data, n, unit) => {
-    n = Math.trunc(n);
-    const rnd = new PyRandom(42);
-    const sent = () => {
-      const len = rnd.randint(6, 14);
-      const words = [];
-      for (let i = 0; i < len; i++) words.push(rnd.choice(WORDS));
-      const s = words.join(' ');
-      return s.charAt(0).toUpperCase() + s.slice(1) + '.';
-    };
-    if (unit === 'Words') return Array.from({ length: n }, (_, i) => WORDS[i % WORDS.length]).join(' ');
-    if (unit === 'Sentences') return Array.from({ length: n }, () => sent()).join(' ');
-    if (unit === 'Bytes') {
-      let s = '';
-      while (s.length < n) s += sent() + ' ';
-      return s.slice(0, n);
+
+function GenerateSentences(length=3) {
+    const sentences = [];
+    while (sentences.length < length) {
+        const sentenceLength = getRandomLength(SENTENCE_LENGTH_MEAN, SENTENCE_LENGTH_STD_DEV);
+        const sentence = getWords(sentenceLength);
+        sentences.push(formatSentence(sentence));
     }
-    return Array.from({ length: n }, () => {
-      const cnt = rnd.randint(3, 6);
-      return Array.from({ length: cnt }, () => sent()).join(' ');
-    }).join('\n\n');
-  });
+    const paragraphs = sentencesToParagraphs(sentences);
+    return paragraphs.join("");
+}
+
+
+function GenerateWords(length=3) {
+    const words = getWords(length);
+    const sentences = wordsToSentences(words);
+    const paragraphs = sentencesToParagraphs(sentences);
+    return paragraphs.join("");
+}
+
+
+function GenerateBytes(length=3) {
+    const str = GenerateWords(length/3);
+    return str.slice(0, length);
+}
+
+
+function getWords(length=3) {
+    const words = [];
+    let word;
+    let previousWord;
+    while (words.length < length) {
+        do {
+            word = wordList[Math.floor(Math.random() * wordList.length)];
+        } while (previousWord === word);
+        words.push(word);
+        previousWord = word;
+    }
+    return words;
+}
+
+
+function wordsToSentences(words) {
+    const sentences = [];
+    while (words.length > 0) {
+        const sentenceLength = getRandomLength(SENTENCE_LENGTH_MEAN, SENTENCE_LENGTH_STD_DEV);
+        if (sentenceLength <= words.length) {
+            sentences.push(formatSentence(words.splice(0, sentenceLength)));
+        } else {
+            sentences.push(formatSentence(words.splice(0, words.length)));
+        }
+    }
+    return sentences;
+}
+
+
+function sentencesToParagraphs(sentences) {
+    const paragraphs = [];
+    while (sentences.length > 0) {
+        const paragraphLength = getRandomLength(PARAGRAPH_LENGTH_MEAN, PARAGRAPH_LENGTH_STD_DEV);
+        paragraphs.push(formatParagraph(sentences.splice(0, paragraphLength)));
+    }
+    paragraphs[paragraphs.length-1] = paragraphs[paragraphs.length-1].slice(0, -1);
+    paragraphs[0] = replaceStart(paragraphs[0]);
+    return paragraphs;
+}
+
+
+function formatSentence(words) {
+    // 0.35 chance of a  comma being added randomly to the sentence.
+    if (Math.random() < PROBABILITY_OF_A_COMMA) {
+        const pos = Math.round(Math.random()*(words.length-1));
+        words[pos] +=",";
+    }
+    let sentence = words.join(" ");
+    sentence = sentence.charAt(0).toUpperCase() + sentence.slice(1);
+    sentence += ".";
+    return sentence;
+}
+
+
+function formatParagraph(sentences) {
+    let paragraph = sentences.join(" ");
+    paragraph += "\n\n";
+    return paragraph;
+}
+
+
+function getRandomLength(mean, stdDev) {
+    let length;
+    do {
+        length =  Math.round((Math.random()*2-1)+(Math.random()*2-1)+(Math.random()*2-1)*stdDev+mean);
+    } while (length <= 0);
+    return length;
+}
+
+
+function replaceStart(str) {
+    let words = str.split(" ");
+    if (words.length > 5) {
+        words.splice(0, 5, "Lorem", "ipsum", "dolor", "sit", "amet");
+        return words.join(" ");
+    } else {
+        const lorem = ["Lorem", "ipsum", "dolor", "sit", "amet"];
+        words = lorem.slice(0, words.length);
+        str = words.join(" ");
+        str += ".";
+        return str;
+    }
+}
+
+
+const SENTENCE_LENGTH_MEAN = 15;
+const SENTENCE_LENGTH_STD_DEV = 9;
+const PARAGRAPH_LENGTH_MEAN = 5;
+const PARAGRAPH_LENGTH_STD_DEV = 2;
+const PROBABILITY_OF_A_COMMA = 0.35;
+
+const wordList = [
+    "ad", "adipisicing", "aliqua", "aliquip", "amet", "anim",
+    "aute", "cillum", "commodo", "consectetur", "consequat", "culpa",
+    "cupidatat", "deserunt", "do", "dolor", "dolore", "duis",
+    "ea", "eiusmod", "elit", "enim", "esse", "est",
+    "et", "eu", "ex", "excepteur", "exercitation", "fugiat",
+    "id", "in", "incididunt", "ipsum", "irure", "labore",
+    "laboris", "laborum", "Lorem", "magna", "minim", "mollit",
+    "nisi", "non", "nostrud", "nulla", "occaecat", "officia",
+    "pariatur", "proident", "qui", "quis", "reprehenderit", "sint",
+    "sit", "sunt", "tempor", "ullamco", "ut", "velit",
+    "veniam", "voluptate",
+];
+
+const maxLoremWords = 100000, maxLoremCharacters = 1000000;
+
+module('Generate Lorem Ipsum', 'Generates placeholder text (the input is ignored).',
+  [A.number('Length', 3, 1, 100000), A.select('Length in', ['Paragraphs', 'Sentences', 'Words', 'Bytes'])],
+  (data, length, lengthType) => {
+    if (length < 1) throw new Error('Length must be greater than 0');
+    if (lengthType === 'Bytes' ? length > maxLoremCharacters : length > maxLoremWords)
+      throw new Error('Length must be less than ' + (lengthType === 'Bytes' ? maxLoremCharacters : maxLoremWords));
+    switch (lengthType) {
+      case 'Paragraphs': return GenerateParagraphs(length);
+      case 'Sentences': return GenerateSentences(length);
+      case 'Words': return GenerateWords(length);
+      case 'Bytes': return GenerateBytes(length);
+      default: throw new Error('Invalid length type');
+    }
+  }, { nondeterministic: true });

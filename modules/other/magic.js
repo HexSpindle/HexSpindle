@@ -18,15 +18,27 @@ function pyRepr(s) {
   return out + quote;
 }
 
-module('Magic', 'Speculatively tries many decoders (Base64, hex, gzip, ROT13, ...) and ranks the plausible results. Use it when you don\'t know what the data is.',
-  [A.number('Depth', 3, 1, 6), A.boolean('Intensive mode (1-byte XOR brute force)', false), A.string('Crib (regex)', ''), A.number('Show top', 8, 1, 30)],
-  async (data, depth, intensive, crib, top) => {
-    const res = await search(data, Math.trunc(depth), intensive, crib || null);
-    const lines = [];
-    for (const { data: out, path, score: sc } of res.slice(0, Math.trunc(top))) {
-      const chain = path.map(([n]) => n).join(' → ') || '(input as-is)';
-      const snippet = decodeUtf8(out.subarray(0, 70)).replace(/\n/g, '⏎');
-      lines.push(`[${sc.toFixed(1).padStart(6)}] ${chain}\n         ${pyRepr(snippet)}`);
+let ccMagicPromise = null;
+
+module('Magic', 'Detects properties of the input and suggests operations that could help make sense of it, recursively, ranked (byte-frequency language scores, valid UTF-8, file type, entropy, recipe length). By default the output is the full option list as JSON; "Ranked list" gives HexSpindle\'s compact scored list instead.',
+  [A.number('Depth', 3, 1, 6), A.boolean('Intensive mode (1-byte XOR brute force)', false), A.string('Crib (regex)', ''), A.number('Show top', 8, 1, 30),
+    A.boolean('Extensive language support', false), A.select('Output', ['Options (JSON)', 'Ranked list'])],
+  async (data, depth, intensive, crib, top, extLang = false, output = 'Options (JSON)') => {
+    if (output === 'Ranked list') {
+      const res = await search(data, Math.trunc(depth), intensive, crib || null);
+      const lines = [];
+      for (const { data: out, path, score: sc } of res.slice(0, Math.trunc(top))) {
+        const chain = path.map(([n]) => n).join(' → ') || '(input as-is)';
+        const snippet = decodeUtf8(out.subarray(0, 70)).replace(/\n/g, '⏎');
+        lines.push(`[${sc.toFixed(1).padStart(6)}] ${chain}\n         ${pyRepr(snippet)}`);
+      }
+      return lines.join('\n');
     }
-    return lines.join('\n');
+    if (!ccMagicPromise) ccMagicPromise = import('./_magic_lib.mjs').then(m => m.MagicLib);
+    const MagicLib = await ccMagicPromise;
+    const buf = data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength);
+    const cribRegex = crib && crib.length ? new RegExp(crib, 'i') : null;
+    let options = await new MagicLib(buf).speculativeExecution(depth, extLang, intensive, [], false, cribRegex);
+    if (cribRegex) options = options.filter(o => o.matchesCrib);
+    return JSON.stringify(options, null, 4);
   });

@@ -10,12 +10,12 @@ function shannon(u8) {
   return -e || 0;
 }
 
-module('Entropy', 'Shannon entropy of the input, with optional block-entropy or histogram visualisations.',
-  [A.select('Visualisation', ['Shannon scale', 'Block entropy', 'Histogram (byte frequency)', 'Number only']), A.number('Block size', 256, 16)],
+module('Entropy', "Shannon entropy of the input. 'Shannon scale' gives the bare value; 'Report' adds a verdict, and there are block-entropy and histogram visualisations.",
+  [A.select('Visualisation', ['Shannon scale', 'Block entropy', 'Histogram (byte frequency)', 'Number only', 'Report']), A.number('Block size', 256, 16)],
   (data, vis, block) => {
     const e = shannon(data);
-    if (vis === 'Number only') return String(e);
-    if (vis === 'Shannon scale') {
+    if (vis === 'Number only' || vis === 'Shannon scale') return String(e);
+    if (vis === 'Report') {
       const verdict = e > 7.5 ? 'Very high (likely compressed or encrypted)' : e > 6.5 ? 'High (packed/compressed?)' : e > 4.5 ? 'Medium (code / mixed data)' : e > 1 ? 'Low (text / structured)' : 'Very low (repetitive)';
       return `Shannon entropy: ${e.toFixed(6)} bits/byte (max 8)\nScale: ${verdict}`;
     }

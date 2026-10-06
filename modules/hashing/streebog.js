@@ -93,5 +93,5 @@ export function streebog(data, bits = 512) {
   return h.subarray(64 - digestSize);
 }
 
-module('Streebog (GOST R 34.11-2012)', 'The Russian national standard hash function (256 or 512-bit).', [A.select('Size', ['512', '256'])],
+module('Streebog (GOST R 34.11-2012)', 'The Russian national standard hash function (256 or 512-bit).', [A.select('Size', ['256', '512'])],
   (data, size) => bytesToHex(streebog(data, parseInt(size, 10))));

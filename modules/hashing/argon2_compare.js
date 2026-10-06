@@ -1,6 +1,6 @@
 import { module } from './_cat.js';
 import { A } from '../../core/registry.js';
-import { base64Decode, bytesEqual } from '../../core/util.js';
+import { base64Decode, bytesEqual, decodeUtf8 } from '../../core/util.js';
 import { argon2, TYPE_D, TYPE_I, TYPE_ID } from './argon2.js';
 
 const TYPE_BY_NAME = { argon2id: TYPE_ID, argon2i: TYPE_I, argon2d: TYPE_D };
@@ -18,7 +18,8 @@ function parsePhc(h) {
 
 module('Argon2 compare', 'Checks whether the input matches an Argon2 hash (as produced by the Argon2 operation).', [A.string('Hash', '')],
   (data, h) => {
-    const parsed = parsePhc(h.trim());
+    let parsed;
+    try { parsed = parsePhc(h.trim()); } catch { return 'No match'; }
     const recomputed = argon2(parsed.type, data, parsed.salt, parsed.timeCost, parsed.memCost, parsed.parallelism, parsed.hash.length);
-    return bytesEqual(recomputed, parsed.hash) ? 'Match' : 'No match';
+    return bytesEqual(recomputed, parsed.hash) ? `Match: ${decodeUtf8(data)}` : 'No match';
   });

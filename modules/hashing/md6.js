@@ -75,7 +75,7 @@ function f(nWords, r) {
   return A.slice(A.length - 16);
 }
 
-function md6(digestBits, data, key, levels) {
+export function md6(digestBits, data, key, levels) {
   const b = 512, c = 128, n = N_CONST;
   const d = digestBits;
   let K = key.slice(0, 64);
@@ -83,7 +83,7 @@ function md6(digestBits, data, key, levels) {
   while (K.length < 64) K.push(0);
   K = toWords(K);
 
-  const r = Math.max(k ? 80 : 0, 40 + Math.ceil(d / 4));
+  const r = Math.max(k ? 80 : 0, 40 + Math.floor(d / 4));
   const L = levels;
   let ell = 0;
 

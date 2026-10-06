@@ -1,23 +1,26 @@
 import { module } from './_cat.js';
 import { A } from '../../core/registry.js';
-import { loadImage, canvasToPng } from './_img.js';
+import { loadBitmap, bitmapToPng } from './_img.js';
 
 const CHANNEL_INDEX = { Red: 0, Green: 1, Blue: 2, Alpha: 3 };
 
-module('View Bit Plane', 'Shows a single bit plane of a colour channel (useful for LSB steganography).',
+module('View Bit Plane',
+  'Shows a single bit plane of a colour channel as a black-and-white image (useful for spotting LSB ' +
+  'steganography). Bit 0 is the least significant bit. A set bit is drawn black and a clear bit ' +
+  'white, the usual convention. "Grey" is a HexSpindle extra: it takes the bit ' +
+  'from the pixel\'s luma instead of one channel.',
   [A.select('Colour', ['Red', 'Green', 'Blue', 'Alpha', 'Grey']), A.number('Bit', 0, 0, 7)],
   async (data, colour, bit) => {
-    const { canvas, ctx, width, height } = await loadImage(data);
-    const img = ctx.getImageData(0, 0, width, height);
+    if (bit < 0 || bit > 7) throw new Error('Error: Bit argument must be between 0 and 7');
+    const bm = await loadBitmap(data);
     const chan = CHANNEL_INDEX[colour];
-    for (let i = 0; i < img.data.length; i += 4) {
+    for (let i = 0; i < bm.data.length; i += 4) {
       let v;
-      if (chan === undefined) v = Math.round(0.299 * img.data[i] + 0.587 * img.data[i + 1] + 0.114 * img.data[i + 2]);
-      else v = img.data[i + chan];
-      const out = (v >> bit) & 1 ? 255 : 0;
-      img.data[i] = img.data[i + 1] = img.data[i + 2] = out;
-      img.data[i + 3] = 255;
+      if (chan === undefined) v = Math.round(0.299 * bm.data[i] + 0.587 * bm.data[i + 1] + 0.114 * bm.data[i + 2]);
+      else v = bm.data[i + chan];
+      const out = (v >> bit) & 1 ? 0 : 255;
+      bm.data[i] = bm.data[i + 1] = bm.data[i + 2] = out;
+      bm.data[i + 3] = 255;
     }
-    ctx.putImageData(img, 0, 0);
-    return canvasToPng(canvas);
+    return bitmapToPng(bm);
   });

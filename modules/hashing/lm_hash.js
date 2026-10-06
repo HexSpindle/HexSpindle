@@ -104,8 +104,7 @@ export function lmHash(text) {
   const upper = text.toUpperCase();
   const bytes = new Uint8Array(14);
   for (let i = 0; i < Math.min(14, upper.length); i++) {
-    const c = upper.charCodeAt(i);
-    bytes[i] = c < 256 ? c : 0x3f;
+    bytes[i] = upper.charCodeAt(i) & 0xff;
   }
   const magic = encodeUtf8('KGS!@#$%');
   const half = i => desBlock(key7to8(bytes.subarray(i, i + 7)), magic);

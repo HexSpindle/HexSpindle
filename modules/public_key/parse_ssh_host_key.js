@@ -1,29 +1,75 @@
 import { module } from './_cat.js';
-import { base64Encode, base64Decode, bytesToHex } from '../../core/util.js';
+import { A } from '../../core/registry.js';
+import { base64Encode, base64Decode, bytesToHex, parseHex, decodeLatin1 } from '../../core/util.js';
 import { md5 } from '../hashing/md5.js';
 
-module('Parse SSH Host Key', 'Decodes an OpenSSH public key line and shows its fingerprints.', [],
-  async (t) => {
-    const parts = t.trim().split(/\s+/);
-    const blob = base64Decode(parts.length > 1 && !parts[0].startsWith('AAAA') ? parts[1] : parts[0]);
-    const fields = [];
-    let i = 0;
-    while (i < blob.length) {
-      const n = (blob[i] << 24 | blob[i + 1] << 16 | blob[i + 2] << 8 | blob[i + 3]) >>> 0;
-      fields.push(blob.subarray(i + 4, i + 4 + n));
-      i += 4 + n;
+/** ParseSSHHostKey.detectKeyFormat. */
+function detectKeyFormat(key) {
+  if (/^(?:[\dA-Fa-f]{2}[ ,;:]?)+$/.test(key)) return 'Hex';
+  if (/^\s*(?:[A-Za-z\d+/]{4})+(?:[A-Za-z\d+/]{2}==|[A-Za-z\d+/]{3}=)?\s*$/.test(key)) return 'Base64';
+  throw new Error('Unable to detect input key format.');
+}
+
+/** ParseSSHHostKey.convertKeyToBinary. */
+function convertKeyToBinary(inputKey, inputFormat) {
+  const keyMatch = inputKey.match(/^(?:ssh|ecdsa-sha2)\S+\s+(\S*)/);
+  if (keyMatch) inputKey = keyMatch[1];
+  if (inputFormat === 'Auto') inputFormat = detectKeyFormat(inputKey);
+  if (inputFormat === 'Hex') return parseHex(inputKey.replace(/[ ,;:]/g, ''));
+  if (inputFormat === 'Base64') return base64Decode(inputKey);
+  throw new Error('Invalid input format.');
+}
+
+/** ParseSSHHostKey.parseKey: length-prefixed fields, as hex strings. */
+function parseKey(key) {
+  const fields = [];
+  while (key.length > 0) {
+    const lengthField = key.slice(0, 4);
+    let decodedLength = 0;
+    for (let i = 0; i < lengthField.length; i++) {
+      decodedLength += lengthField[i];
+      decodedLength = decodedLength << 8;
     }
-    const kt = new TextDecoder().decode(fields[0]);
-    const md5Hex = bytesToHex(md5(blob), ':');
-    const sha256 = base64Encode(new Uint8Array(await crypto.subtle.digest('SHA-256', blob))).replace(/=+$/, '');
-    const out = [`Key type: ${kt}`, `MD5 fingerprint: ${md5Hex}`, `SHA256 fingerprint: SHA256:${sha256}`];
-    if (kt === 'ssh-rsa') {
-      const bi = (b) => { let v = 0n; for (const x of b) v = (v << 8n) | BigInt(x); return v; };
-      out.push(`Exponent: ${bi(fields[1])}`, `Modulus bits: ${bi(fields[2]).toString(2).length}`);
-    } else if (kt.startsWith('ecdsa')) {
-      out.push(`Curve: ${new TextDecoder().decode(fields[1])}`);
-    } else if (kt === 'ssh-ed25519') {
-      out.push(`Public key: ${bytesToHex(fields[1])}`);
+    decodedLength = decodedLength >> 8;
+    if (decodedLength <= 0) break;
+    fields.push(bytesToHex(key.slice(4, 4 + decodedLength)));
+    key = key.slice(4 + decodedLength);
+  }
+  return fields;
+}
+
+module('Parse SSH Host Key', 'Parses an SSH host key and extracts fields from it. The key type can be ssh-rsa, ssh-dss, ecdsa-sha2 or ssh-ed25519, and the key format either Hex or Base64. "Show fingerprints" additionally prints the MD5 and SHA256 fingerprints of the key blob, as ssh-keygen -l does.',
+  [A.select('Input Format', ['Auto', 'Base64', 'Hex']), A.boolean('Show fingerprints', false)],
+  async (t, inputFormat, showFingerprints) => {
+    const inputKey = convertKeyToBinary(t.trim(), inputFormat);
+    const fields = parseKey(inputKey);
+    const keyType = decodeLatin1(parseHex(fields[0]));
+
+    let output = `Key type: ${keyType}`;
+
+    if (showFingerprints) {
+      const sha256 = base64Encode(new Uint8Array(await crypto.subtle.digest('SHA-256', inputKey))).replace(/=+$/, '');
+      output += `\nMD5 fingerprint: ${bytesToHex(md5(inputKey), ':')}`;
+      output += `\nSHA256 fingerprint: SHA256:${sha256}`;
     }
-    return out.join('\n');
+
+    if (keyType === 'ssh-rsa') {
+      output += `\nExponent: 0x${fields[1]}`;
+      output += `\nModulus: 0x${fields[2]}`;
+    } else if (keyType === 'ssh-dss') {
+      output += `\np: 0x${fields[1]}`;
+      output += `\nq: 0x${fields[2]}`;
+      output += `\ng: 0x${fields[3]}`;
+      output += `\ny: 0x${fields[4]}`;
+    } else if (keyType.startsWith('ecdsa-sha2')) {
+      output += `\nCurve: ${decodeLatin1(parseHex(fields[1]))}`;
+      output += `\nPoint: 0x${fields.slice(2)}`;
+    } else if (keyType === 'ssh-ed25519') {
+      output += `\nx: 0x${fields[1]}`;
+    } else {
+      output += '\nUnsupported key type.';
+      output += `\nParameters: ${fields.slice(1)}`;
+    }
+
+    return output;
   }, { text: true });

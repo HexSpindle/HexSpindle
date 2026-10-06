@@ -1,6 +1,6 @@
 import { module } from './_cat.js';
 import { A } from '../../core/registry.js';
-import { base64Encode } from '../../core/util.js';
+import { base64Encode, bytesToHex } from '../../core/util.js';
 import { blake2b } from './blake2b.js';
 
 export { argon2, TYPE_D, TYPE_I, TYPE_ID };
@@ -188,10 +188,13 @@ function b64NoPad(u8) { return base64Encode(u8).replace(/=+$/, ''); }
 
 module('Argon2', 'Hashes the input (as a password) with Argon2 (id / i / d).',
   [A.select('Type', ['Argon2id', 'Argon2i', 'Argon2d']), A.number('Time cost', 3, 1), A.number('Memory cost (KiB)', 65536, 8),
-   A.number('Parallelism', 4, 1), A.number('Hash length (bytes)', 32, 4), A.toggle('Salt', '', ['UTF8', 'Hex', 'Latin1', 'Base64'], 'UTF8')],
-  (data, kind, t, m, p, length, salt) => {
+   A.number('Parallelism', 4, 1), A.number('Hash length (bytes)', 32, 4), A.toggle('Salt', '', ['UTF8', 'Hex', 'Latin1', 'Base64'], 'UTF8'),
+   A.select('Output format', ['Encoded hash', 'Hex hash', 'Raw hash'])],
+  (data, kind, t, m, p, length, salt, format) => {
     const [name, type] = TYPE_NAMES[kind];
     const saltBytes = salt.length ? salt : DEFAULT_SALT;
     const out = argon2(type, data, saltBytes, t, m, p, length);
+    if (format === 'Hex hash') return bytesToHex(out);
+    if (format === 'Raw hash') return out;
     return `$${name}$v=19$m=${m},t=${t},p=${p}$${b64NoPad(saltBytes)}$${b64NoPad(out)}`;
   });

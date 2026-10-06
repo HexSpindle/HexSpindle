@@ -50,6 +50,7 @@ module('Colossus',
     A.number('Start M61', 1, 1, 61), A.number('Start M37', 1, 1, 37),
     A.number('Start Ψ1', 1, 1, 43), A.number('Start Ψ2', 1, 1, 47), A.number('Start Ψ3', 1, 1, 51),
     A.number('Start Ψ4', 1, 1, 53), A.number('Start Ψ5', 1, 1, 59),
+    A.select('Output', ['Data (JSON)', 'Text']),
   ],
   (input, pattern, qz, qchi, qpsi, limitation,
     r1q1, r1q2, r1q3, r1q4, r1q5, r1neg, r1ctr,
@@ -58,7 +59,7 @@ module('Colossus',
     negateAll,
     aq1, aq2, aq3, aq4, aq5, aEquals, aCounter1, addNegateAll, totalMotor,
     setTotal, fastStep, slowStep,
-    x1, x2, x3, x4, x5, m61, m37, s1, s2, s3, s4, s5) => {
+    x1, x2, x3, x4, x5, m61, m37, s1, s2, s3, s4, s5, outFmt = 'Data (JSON)') => {
     input = input.toUpperCase();
     for (const character of input) {
       if (VALID_ITA2.indexOf(character) === -1) {
@@ -107,6 +108,7 @@ module('Colossus',
 
     const colossus = new ColossusComputer(input, pattern, qbusin, qbusswitches, control, starts, setTotal, limit);
     const result = colossus.run();
+    if (outFmt !== 'Text') return JSON.stringify(result, null, 4);
 
     return `${result.printout}\nColossus Counters\nC1  C2  C3  C4  C5\n${result.counters.join('   ')}`;
   }, { text: true });

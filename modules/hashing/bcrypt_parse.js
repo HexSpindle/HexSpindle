@@ -1,11 +1,12 @@
 import { module } from './_cat.js';
 
-module('Bcrypt parse', 'Splits a bcrypt hash into version, cost, salt and digest.',
+module('Bcrypt parse', 'Splits a bcrypt hash into its cost (rounds), salt and password hash.',
   [],
   (t) => {
-    t = t.trim();
-    const p = t.split('$');
-    if (p.length !== 4 || p[3].length !== 53) throw new Error('Not a bcrypt hash');
-    const rounds = parseInt(p[2], 10);
-    return `Version: $${p[1]}$\nRounds: ${rounds} (2^${rounds} iterations)\nSalt: ${p[3].slice(0, 22)}\nHash: ${p[3].slice(22)}`;
+    if (t.length !== 60) throw new Error(`Error: Illegal hash length: ${t.length} != 60`);
+    const salt = t.substring(0, 29);
+    return `Rounds: ${parseInt(t.split('$')[2], 10)}
+Salt: ${salt}
+Password hash: ${t.split(salt)[1]}
+Full hash: ${t}`;
   }, { text: true });

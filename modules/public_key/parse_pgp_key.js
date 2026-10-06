@@ -29,7 +29,7 @@ function mpiBitLength(bytes) {
 module('Parse PGP Key', 'Parses an ASCII-armoured PGP (v4 or v6) key and reports its version, creation date, key ID, fingerprint, algorithm, and (where applicable) RSA key size or EC curve.',
   [],
   async (data) => {
-    if (!data.trim()) throw new Error('No key provided.');
+    if (!data.length) throw new Error('No key provided');
     let key;
     try {
       key = await openpgp.readKey({ armoredKey: data });

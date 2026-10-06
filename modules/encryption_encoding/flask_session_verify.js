@@ -8,5 +8,5 @@ module('Flask Session Verify', 'Verifies and decodes a Flask session cookie with
     const { payload, timestamp } = await verifyFull(t.trim(), secret, maxAge || null);
     const out = { valid: true, payload };
     if (viewTs) out.timestamp = timestamp;
-    return JSON.stringify(out, null, 2);
+    return JSON.stringify(out, null, 4);
   }, { text: true });

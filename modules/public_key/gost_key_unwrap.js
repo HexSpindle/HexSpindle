@@ -1,8 +1,8 @@
 import { module } from './_cat.js';
 import { A } from '../../core/registry.js';
-import { parseHex, decodeLatin1, bytesToHex } from '../../core/util.js';
+import { parseHex, decodeLatin1 } from '../../core/util.js';
 import { gostKeyUnwrapNo, gostKeyUnwrapCp } from '../encryption_encoding/_gost_sign.js';
-import { ALGORITHMS } from './gost_sign.js';
+import { ALGORITHMS, gostHexEncode } from './gost_sign.js';
 
 const ALGO_INFO = { 'GOST R 34.12 (Magma, 2015)': { algo: 'Magma', blockBytes: 8 }, 'GOST R 34.12 (Kuznyechik, 2015)': { algo: 'Kuznyechik', blockBytes: 16 } };
 
@@ -24,5 +24,5 @@ module('GOST Key Unwrap', 'Unwraps a content-encryption key (CEK) that was wrapp
     const expectedLen = keyWrapping === 'CP' ? 36 : 32 + (blockBytes >> 1);
     if (data.length !== expectedLen) throw new Error(`Incorrect input length. Expected ${expectedLen} bytes.`);
     const cek = keyWrapping === 'CP' ? gostKeyUnwrapCp(algo, kek, data, ukm) : gostKeyUnwrapNo(algo, kek, data, ukm);
-    return out === 'Hex' ? bytesToHex(cek) : cek;
+    return out === 'Hex' ? gostHexEncode(cek) : cek;
   });

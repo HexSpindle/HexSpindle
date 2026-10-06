@@ -1,22 +1,26 @@
 import { module } from './_cat.js';
-import { A } from '../../core/registry.js';
+import { A, Html } from '../../core/registry.js';
+import { scatterSvg } from './_svg_charts.js';
 import { canvasToPng } from './_img.js';
 import { RECORD_DELIMITERS, FIELD_DELIMITERS, getScatterValues, getScatterValuesWithColour, drawAxes } from './_charts.js';
 
 module('Scatter chart',
   'Plots two-variable (x, y) data as points on a graph. Input is one record per line, fields ' +
-  'separated by the chosen delimiter (e.g. "1,2" per line for simple x,y data).',
+  'separated by the chosen delimiter (e.g. "1,2" per line for simple x,y data).' +
+  " Output: 'SVG' (default) returns SVG markup built with d3, and the page renders it as HTML. 'PNG image' instead draws HexSpindle's own canvas version.",
   [
     A.select('Record delimiter', Object.keys(RECORD_DELIMITERS)),
     A.select('Field delimiter', Object.keys(FIELD_DELIMITERS)),
-    A.boolean('Use first row as column headers', true),
+    A.boolean('Use column headers as labels', true),
     A.string('X label', ''),
     A.string('Y label', ''),
     A.string('Colour', 'black'),
-    A.number('Point radius', 4, 0.5),
+    A.number('Point radius', 10, 0.5),
     A.boolean('Use colour from third column', false),
+    A.select('Output', ['SVG', 'PNG image']),
   ],
-  (input, recordDelimName, fieldDelimName, headersIncluded, xLabelArg, yLabelArg, fillColour, radius, colourInInput) => {
+  async (input, recordDelimName, fieldDelimName, headersIncluded, xLabelArg, yLabelArg, fillColour, radius, colourInInput, output) => {
+    if (output !== 'PNG image') return new Html(await scatterSvg(input, [recordDelimName, fieldDelimName, headersIncluded, xLabelArg, yLabelArg, fillColour, radius, colourInInput]));
     const recordDelim = RECORD_DELIMITERS[recordDelimName], fieldDelim = FIELD_DELIMITERS[fieldDelimName];
     const dataFn = colourInInput ? getScatterValuesWithColour : getScatterValues;
     const { headings, values } = dataFn(input, recordDelim, fieldDelim, headersIncluded);

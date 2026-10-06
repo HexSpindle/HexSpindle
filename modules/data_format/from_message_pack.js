@@ -73,4 +73,4 @@ function mp(b, i, n) {
   return [out, i];
 }
 
-module('From MessagePack', 'Decodes MessagePack to JSON.', [], (data) => stringifyTyped(dec(data)[0]));
+module('From MessagePack', 'Decodes MessagePack to JSON.', [], (data) => stringifyTyped(dec(data)[0], 4));
