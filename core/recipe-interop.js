@@ -9,54 +9,144 @@ const knownDelimiters = new Set(['Space', 'Comma', 'Semi-colon', 'Colon', 'Line 
 const validBase64Alphabet = x => typeof x === 'string' && x.length > 0;
 const compatibleKey = key => isRecord(key) && typeof key.string === 'string' && ['Hex', 'UTF8', 'Latin1', 'Base64'].includes(key.option);
 
-// Maps only verified CyberChef operations/argument configurations. Some other
-// same-named operations in the two products have DIFFERENT semantics.
+// Bidirectional mappings checked against the GCHQ CyberChef operation definitions
+// in src/core/operations. Never assume matching names imply matching arguments.
+// Some HexSpindle settings have no exact CyberChef equivalent and are rejected.
+const isBool = x => typeof x === 'boolean';
+const isText = x => typeof x === 'string';
+const isNumber = x => Number.isFinite(x);
+const isNat = x => Number.isInteger(x) && x >= 0;
+const goodArray = (a, ...check) => Array.isArray(a) && a.length === check.length &&
+  a.every((x, i) => check[i](x));
+const valueIn = (...options) => x => options.includes(x);
+const goodToggle = x => isRecord(x) && typeof x.string === 'string' &&
+  ['Hex', 'UTF8', 'Latin1', 'Base64', 'Decimal', 'Binary'].includes(x.option);
+const emptyToggle = x => goodToggle(x) && x.string === '';
+const emptyBinary = () => ({ option: 'Hex', string: '' });
+const byteArgs = args => goodArray(args, isNat, isNat, isBool);
+// CyberChef's 'Nothing' option is not equivalent to our per-character setting.
+const sharedHeadDelimiters = new Set(['Line feed', 'CRLF', 'Space', 'Comma', 'Semi-colon', 'Colon']);
+const findModes = {
+  'Regex': 'Regex',
+  'Simple string': 'Simple string',
+  'Extended (\\n, \\t, ...)': 'Extended (\\n, \\t, \\x...)',
+};
+const reverseFindModes = Object.fromEntries(Object.entries(findModes).map(([k, v]) => [v, k]));
+function safeFindMode(find, mode) {
+  // HexSpindle Extended supports only the three escapes below, while
+  // CyberChef also supports hex byte escapes, backspace and form feed.
+  return mode !== 'Extended (\\n, \\t, ...)' || !/\\(?![ntr])/.test(find);
+}
+const findParts = a => goodArray(a, isText, isText, isText, isBool, isBool, isBool, isBool) &&
+  Object.hasOwn(findModes, a[2]) && safeFindMode(a[0], a[2]) &&
+  // Simple/Extended use literal replacement in HexSpindle, but CyberChef's
+  // regex engine interprets special $ substitution tokens. Reject ambiguous
+  // replacement strings rather than silently changing their meaning.
+  (a[2] === 'Regex' || !a[1].includes('$')) &&
+  (a[2] !== 'Extended (\\n, \\t, ...)' || !a[1].includes('\\'));
+function toCyberFind(a) {
+  if (!findParts(a)) return null;
+  return [{ option: findModes[a[2]], string: a[0] }, a[1], ...a.slice(3)];
+}
+function fromCyberFind(a) {
+  if (!goodArray(a, x => isRecord(x) && isText(x.string) && isText(x.option), isText, isBool, isBool, isBool, isBool) ||
+      !Object.hasOwn(reverseFindModes, a[0].option)) return null;
+  const result = [a[0].string, a[1], reverseFindModes[a[0].option], ...a.slice(2)];
+  return findParts(result) ? result : null;
+}
+function toCyberAesEncrypt(a) {
+  if (!goodArray(a, compatibleKey, compatibleKey, valueIn('Raw', 'Hex'), valueIn('Hex', 'Raw'))) return null;
+  return [a[0], a[1], 'CBC', a[2], a[3], emptyBinary(), 'Off'];
+}
+function fromCyberAesEncrypt(a) {
+  if (!Array.isArray(a) || a.length !== 7 || a[2] !== 'CBC' ||
+      !emptyToggle(a[5]) || a[6] !== 'Off') return null;
+  const r = [a[0], a[1], a[3], a[4]];
+  return toCyberAesEncrypt(r) ? r : null;
+}
+function toCyberAesDecrypt(a) {
+  if (!goodArray(a, compatibleKey, compatibleKey, valueIn('Raw', 'Hex'), valueIn('Hex', 'Raw'))) return null;
+  return [a[0], a[1], 16, 'CBC', a[2], a[3], emptyBinary(), emptyBinary(), 'Off'];
+}
+function fromCyberAesDecrypt(a) {
+  if (!Array.isArray(a) || a.length !== 9 || a[2] !== 16 || a[3] !== 'CBC' ||
+      !emptyToggle(a[6]) || !emptyToggle(a[7]) || a[8] !== 'Off') return null;
+  const r = [a[0], a[1], a[4], a[5]];
+  return toCyberAesDecrypt(r) ? r : null;
+}
+function headTailToCyber(a) {
+  return goodArray(a, isNat, isText, isBool) && !a[2] && sharedHeadDelimiters.has(a[1]) ? [a[1], a[0]] : null;
+}
+function headTailFromCyber(a) {
+  return goodArray(a, isText, isNat) && sharedHeadDelimiters.has(a[0]) ? [a[1], a[0], false] : null;
+}
+
 const CYBERCHEF = {
-  'To Base64': {
-    validate: args => args.length === 1 && validBase64Alphabet(args[0]),
-  },
-  'From Base64': {
-    validate: args => args.length === 3 && validBase64Alphabet(args[0]) &&
-      typeof args[1] === 'boolean' && typeof args[2] === 'boolean',
-  },
-  'To Hex': {
-    validate: args => args.length === 2 && knownDelimiters.has(args[0]) &&
-      Number.isInteger(args[1]) && args[1] >= 0,
-  },
-  'From Hex': {
-    validate: args => args.length === 1 &&
-      ['Auto', ...knownDelimiters, 'Percent'].includes(args[0]),
-  },
-  ROT13: {
-    validate: args => args.length === 4 && typeof args[0] === 'boolean' &&
-      typeof args[1] === 'boolean' && typeof args[2] === 'boolean' &&
-      Number.isInteger(args[3]) && args[3] >= 0,
-  },
-  'URL Encode': {
-    validate: args => args.length === 1 && typeof args[0] === 'boolean',
-  },
-  'Remove null bytes': { validate: args => args.length === 0 },
+  'To Base64': { validate: a => goodArray(a, validBase64Alphabet) },
+  'From Base64': { validate: a => goodArray(a, validBase64Alphabet, isBool, isBool) },
+  'To Base32': { validate: a => goodArray(a, validBase64Alphabet) },
+  'From Base32': { validate: a => goodArray(a, validBase64Alphabet, isBool) },
+  'To Hex': { validate: a => goodArray(a, x => knownDelimiters.has(x), isNat) },
+  'From Hex': { validate: a => goodArray(a, x => ['Auto', ...knownDelimiters, 'Percent'].includes(x)) },
+  'To Binary': { validate: a => goodArray(a, isText, n => isNat(n) && n >= 1 && n <= 64) },
+  'From Binary': { validate: a => goodArray(a, isText, n => isNat(n) && n >= 1 && n <= 64) },
+  'To Decimal': { validate: a => goodArray(a, isText, isBool) },
+  'From Decimal': { validate: a => goodArray(a, isText, isBool) },
+  ROT13: { validate: a => goodArray(a, isBool, isBool, isBool, isNumber) },
+  ROT47: { validate: a => goodArray(a, isNumber) },
+  'URL Encode': { validate: a => goodArray(a, isBool) },
   'URL Decode': {
-    // CyberChef has a '+' toggle; HexSpindle always treats '+' as space.
-    toCyber: args => args.length === 0 ? [true] : null,
-    fromCyber: args => args.length === 1 && args[0] === true ? [] : null,
+    // HexSpindle currently always treats '+' as a space.
+    toCyber: a => goodArray(a) ? [true] : null,
+    fromCyber: a => goodArray(a, x => x === true) ? [] : null,
   },
+  'Remove null bytes': { validate: a => goodArray(a) },
+  'Remove whitespace': { validate: a => goodArray(a, isBool, isBool, isBool, isBool, isBool, isBool) },
+  'To Lower case': { validate: a => goodArray(a) },
+  'To Upper case': { validate: a => goodArray(a, valueIn('All', 'Word', 'Sentence')) },
+  'Defang IP Addresses': { validate: a => goodArray(a) },
+  'Defang URL': { validate: a => goodArray(a, isBool, isBool, isBool,
+    valueIn('Valid domains and full URLs', 'Only full URLs', 'Everything')) },
   Reverse: {
-    // 'Line' differs for some trailing-line/CRLF combinations.
-    validate: args => args.length === 1 && ['Byte', 'Character'].includes(args[0]),
+    // Line mode differs around terminal CRLF and empty lines.
+    validate: a => goodArray(a, valueIn('Byte', 'Character')),
   },
   XOR: {
-    // Differential/Cascade modes are not identical between implementations.
-    validate: args => args.length === 3 && compatibleKey(args[0]) &&
-      args[1] === 'Standard' && typeof args[2] === 'boolean',
+    // Standard, Input differential, Output differential share key updates.
+    // CyberChef's Cascade uses the next input byte; HexSpindle's differs.
+    validate: a => goodArray(a, x => goodToggle(x) &&
+      ['Hex', 'UTF8', 'Latin1', 'Base64', 'Decimal'].includes(x.option),
+      valueIn('Standard', 'Input differential', 'Output differential'), isBool),
   },
-  Gunzip: { validate: args => args.length === 0 },
-  MD5: { validate: args => args.length === 0 },
+  'AES Encrypt': { toCyber: toCyberAesEncrypt, fromCyber: fromCyberAesEncrypt },
+  'AES Decrypt': { toCyber: toCyberAesDecrypt, fromCyber: fromCyberAesDecrypt },
+  'Find / Replace': { toCyber: toCyberFind, fromCyber: fromCyberFind },
+  'Regular expression': {
+    toCyber: a => goodArray(a, isText, isBool, isBool, isBool, isText) &&
+      ['Highlight matches', 'List matches', 'List capture groups', 'List matches with capture groups'].includes(a[4]) ?
+      ['User defined', a[0], a[1], a[2], a[3], false, false, false, a[4]] : null,
+    fromCyber: a => Array.isArray(a) && a.length === 9 && a[0] === 'User defined' &&
+      a[5] === false && a[6] === false && a[7] === false &&
+      goodArray([a[1], a[2], a[3], a[4], a[8]], isText, isBool, isBool, isBool, isText) &&
+      ['Highlight matches', 'List matches', 'List capture groups', 'List matches with capture groups'].includes(a[8]) ?
+      [a[1], a[2], a[3], a[4], a[8]] : null,
+  },
+  Head: { toCyber: headTailToCyber, fromCyber: headTailFromCyber },
+  Tail: { toCyber: headTailToCyber, fromCyber: headTailFromCyber },
+  'Drop bytes': { validate: byteArgs },
+  'Take bytes': { validate: byteArgs },
+  'Extract URLs': {
+    // CyberChef also offers Display total and Sort (both omitted locally).
+    toCyber: a => goodArray(a, isBool) ? [false, false, a[0]] : null,
+    fromCyber: a => goodArray(a, x => x === false, x => x === false, isBool) ? [a[2]] : null,
+  },
+  Gunzip: { validate: a => goodArray(a) },
+  MD5: { validate: a => goodArray(a) },
   SHA1: {
-    // CyberChef SHA1 offers a Rounds option; 80 is the standard SHA-1.
-    toCyber: args => args.length === 0 ? [80] : null,
-    fromCyber: args => args.length === 1 && args[0] === 80 ? [] : null,
+    toCyber: a => goodArray(a) ? [80] : null,
+    fromCyber: a => goodArray(a, n => n === 80) ? [] : null,
   },
+  SHA3: { validate: a => goodArray(a, valueIn('224', '256', '384', '512')) },
 };
 
 function validateArgs(name, args, mods) {
@@ -96,12 +186,16 @@ function validateArgs(name, args, mods) {
 }
 
 function cyberArgs(name, args, backwards = false) {
-  const m = CYBERCHEF[name];
-  if (!m) throw new Error(`${name}: CyberChef conversion is not yet verified for this operation`);
-  const x = backwards ? (m.fromCyber ? m.fromCyber(args) : args) : (m.toCyber ? m.toCyber(args) : args);
-  if (!x || (!backwards || !m.fromCyber) && m.validate && !m.validate(args))
-    throw new Error(`${name}: this argument configuration is not supported by the CyberChef converter`);
-  return x;
+  const mapping = CYBERCHEF[name];
+  if (!mapping) {
+    throw new Error(`${name}: CyberChef converter mapping is not yet verified (this does not mean CyberChef lacks the operation)`);
+  }
+  const adapter = backwards ? mapping.fromCyber : mapping.toCyber;
+  const translated = adapter ? adapter(args) : args;
+  if (!Array.isArray(translated) || (mapping.validate && !mapping.validate(args))) {
+    throw new Error(`${name}: this argument configuration is not supported by the converter and cannot be translated faithfully to ${backwards ? 'HexSpindle' : 'CyberChef'}`);
+  }
+  return translated;
 }
 
 function normalizeOperation(row, index, mods, type) {
@@ -211,7 +305,7 @@ function parseChefValues(src) {
   const steps = [];
   ws();
   while (i < src.length) {
-    const m = /^[A-Za-z][A-Za-z0-9_]*/.exec(src.slice(i));
+    const m = /^[A-Za-z][A-Za-z0-9_\/-]*/.exec(src.slice(i));
     if (!m) fail('Expected CyberChef operation name');
     i += m[0].length; ws(); if (src[i++] !== '(') fail('Expected opening parenthesis');
     const args = []; let disabled = false, breakpoint = false;
