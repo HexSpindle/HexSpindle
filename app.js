@@ -58,6 +58,31 @@ function hydrateIcons(root = document) { $$('[data-i]', root).forEach(e => { if 
 
 const b64enc = u8 => { let s = ''; for (let i = 0; i < u8.length; i += 0x8000) s += String.fromCharCode.apply(null, u8.subarray(i, i + 0x8000)); return btoa(s); };
 const b64dec = s => { const bin = atob(s); const u = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i); return u; };
+// Control pictures preserve character positions while making invisible bytes visible.
+// These substitutions are for the editor only; recipes and downloads use original bytes.
+function visibleControls(s) {
+  return s.replace(/[\x00-\x08\x0b-\x1f\x7f]/g, c =>
+    String.fromCharCode(c.charCodeAt(0) === 127 ? 0x2421 : 0x2400 + c.charCodeAt(0)));
+}
+function restoreControls(s) {
+  return s.replace(/[\u2400-\u2408\u240b-\u241f\u2421]/g, c =>
+    String.fromCharCode(c.charCodeAt(0) === 0x2421 ? 127 : c.charCodeAt(0) - 0x2400));
+}
+// Preserve literal Unicode control-picture characters when editing. Only
+// the parts of the display that already represented real control bytes are
+// mapped back; newly typed characters are treated as literal text.
+function updatedInputText(inp, display) {
+  const previous = inp._displayText ?? '';
+  const raw = inp._rawText ?? '';
+  let left = 0, right = 0;
+  while (left < previous.length && left < display.length && previous[left] === display[left]) left++;
+  while (right < previous.length - left && right < display.length - left &&
+    previous[previous.length - right - 1] === display[display.length - right - 1]) right++;
+  const result = raw.slice(0, left) + display.slice(left, display.length - right) + raw.slice(previous.length - right);
+  inp._displayText = display;
+  inp._rawText = result;
+  return result;
+}
 function decodeText(u8, enc) {
   if (enc === 'latin1') { let s = ''; for (let i = 0; i < u8.length; i += 0x8000) s += String.fromCharCode.apply(null, u8.subarray(i, i + 0x8000)); return s; }
   if (enc === 'hex') return [...u8].map(b => b.toString(16).padStart(2, '0')).join(' ');
@@ -357,7 +382,7 @@ function renderRecipe() {
     const card = el('div', { class: 'step' + (op.disabled ? ' disabled' : '') + (m.flow ? ' flow' : '') + (op.collapsed ? ' collapsed' : ''), style: `--h:${hue(op.module)};margin-left:${depth * 14}px`, dataset: { i } },
       el('div', { class: 'step-h', draggable: 'true', ondragstart: e => { e.dataTransfer.setData('text/df-step', String(i)); e.dataTransfer.effectAllowed = 'move'; } },
         el('span', { class: 'grip' }, icon('grip')), el('span', { class: 'idx' }, String(i + 1).padStart(2, '0')),
-        el('span', { class: 'title', title: m.desc, onclick: () => { op.collapsed = !op.collapsed; card.classList.toggle('collapsed'); } }, op.module),
+        el('span', { class: 'title', title: m.desc, onclick: () => { op.collapsed = !op.collapsed; card.classList.toggle('collapsed'); persist(); } }, op.module),
         el('button', { class: 'icon-btn', title: 'Show the output of this step', onclick: () => inspect(i) }, icon('eye')),
         el('button', { class: 'icon-btn' + (op.breakpoint ? ' on' : ''), title: 'Breakpoint: pause before this step', onclick: e => { op.breakpoint = !op.breakpoint; e.currentTarget.classList.toggle('on'); S.stepTo = null; commit(false); } }, icon('flag')),
         el('button', { class: 'icon-btn' + (op.disabled ? ' on' : ''), title: 'Disable / enable', onclick: () => { op.disabled = !op.disabled; commit(); } }, icon('power')),
@@ -404,7 +429,7 @@ function wireOpsPaneDnD() {
 let bakeTimer;
 function setStatus(kind, text) { $('#statusDot').className = 'dot' + (kind ? ' ' + kind : ''); $('#statusText').textContent = text; }
 const hasNet = () => S.recipe.some(o => !o.disabled && S.mods[o.module]?.net);
-function scheduleBake(now) { if (!S.auto && !now) return; if (hasNet() && now !== 'manual') { setStatus('', 'Network operation in the recipe: press BAKE to run it'); return; } clearTimeout(bakeTimer); bakeTimer = setTimeout(bake, now ? 0 : 220); }
+function scheduleBake(now) { S.outputDirty = true; if (!S.auto && !now) return; if (hasNet() && now !== 'manual') { setStatus('', 'Network operation in the recipe: press BAKE to run it'); return; } clearTimeout(bakeTimer); bakeTimer = setTimeout(bake, now ? 0 : 220); }
 // Runs entirely in this tab via core/engine.js - no network round trip, so there's no server job to
 // poll progress from or cancel; a stale result is simply dropped via the seq guard below if a newer
 // bake started while an older one was still running (e.g. a slow RSA key generation).
@@ -415,8 +440,9 @@ async function bake(opts = {}) {
   try {
     const j = await engineBake(inp.bytes, serialRecipe(), upto ?? null);
     if (seq !== S.seq) return;
-    S.res = j; S.out = j.output; S.viewLimit = VIEW_STEP; inp.out = { bytes: S.out, html: j.html };
+    S.res = j; S.out = j.output; S.outputTab = S.tab; S.outputDirty = false; S.viewLimit = VIEW_STEP; inp.out = { bytes: S.out, html: j.html };
     paintSteps(); renderOutput(); if (!$('#findbar').hidden) findRun();
+    persist(); // Preserve the displayed result, including binary output, across refreshes.
     $('#outTime').textContent = `${j.ms} ms`;
     setStatus(j.error ? 'err' : '', j.error ? `Error in step ${j.error.step + 1}` : j.pausedAt != null ? `Paused before step ${j.pausedAt + 1}` : 'Ready');
     $('#statusRight').textContent = `IN ${fmtBytes(inp.bytes.length)} → OUT ${fmtBytes(S.out.length)} · ${j.ms} ms`;
@@ -662,7 +688,8 @@ function renderOutput() {
     if ($('#outView').value !== 'auto') $('#outView').value = 'auto';
   }
   if (S.blobUrl) { URL.revokeObjectURL(S.blobUrl); S.blobUrl = null; }
-  [...body.children].forEach(c => { if (c !== ta) c.remove(); }); ta.hidden = false;
+  [...body.children].forEach(c => { if (c !== ta && c.id !== 'outHighlights') c.remove(); }); ta.hidden = false;
+  $('#outHighlights').hidden = true;
   const more = $('#outMore'); more.replaceChildren();
   if (view === 'files') {
     ta.hidden = true;
@@ -680,7 +707,8 @@ function renderOutput() {
   } else {
     const lim = view === 'hex' ? Math.floor(S.viewLimit / 4) : S.viewLimit, big = u.length > lim, src = big ? u.subarray(0, lim) : u;
     let t; if (view === 'hex') t = hexdump(u, lim); else if (view === 'base64') t = b64enc(src); else t = decodeText(src, view === 'latin1' ? 'latin1' : 'utf8');
-    ta.value = t;
+    S.outputRawText = t;
+    ta.value = view === 'hex' || view === 'base64' ? t : visibleControls(t);
     if (big) {
       const shown = view === 'hex' ? lim : src.length;
       more.append(el('span', { class: 'note' }, `showing the first ${fmtBytes(shown)} of ${fmtBytes(u.length)}`),
@@ -691,9 +719,10 @@ function renderOutput() {
   const lines = u.length ? countNl(u) + 1 : 0;
   $('#outStats').textContent = `${u.length.toLocaleString()} bytes · ${lines.toLocaleString()} lines` + (img ? ` · ${img.split('/')[1]}` : pdf ? ' · pdf' : '');
   applyWrap();
+  if (!$('#findbar').hidden) findRun(); else paintOutputHighlights();
 }
 
-function applyWrap() { $('#output').classList.toggle('wrap', S.wrap); $('#input').classList.toggle('wrap', S.wrap); $('#btnWrap').classList.toggle('on', S.wrap); $('#btnWrapIn').classList.toggle('on', S.wrap); }
+function applyWrap() { $('#output').classList.toggle('wrap', S.wrap); $('#input').classList.toggle('wrap', S.wrap); $('#btnWrap').classList.toggle('on', S.wrap); $('#btnWrapIn').classList.toggle('on', S.wrap); paintOutputHighlights(); }
 function setPane(p) { document.body.dataset.pane = p; LS.set('pane', p); $$('#mtabs button').forEach(b => b.classList.toggle('on', b.dataset.p === p || (p === 'io' && b.dataset.p === 'ops' && innerWidth > 760))); }
 const narrow = () => matchMedia('(max-width: 760px)').matches;
 
@@ -710,20 +739,20 @@ function renderInput() {
     // showing as "text" here (it's unreadable mojibake that reads as corruption), so say so plainly instead.
     ta.value = binary
       ? `[ ${inp.name}: ${fmtBytes(inp.bytes.length)} of binary data${kind ? ` (looks like ${kind.toUpperCase()})` : ''} - too large and not text, so it's not shown here. The full file is still used when you bake the recipe. ]`
-      : `[ ${inp.name}: ${fmtBytes(inp.bytes.length)} loaded — too large to edit in the box. Showing the first 4 KB ]\n\n` + decodeText(sample, 'latin1');
+      : `[ ${inp.name}: ${fmtBytes(inp.bytes.length)} loaded — too large to edit in the box. Showing the first 4 KB ]\n\n` + visibleControls(decodeText(sample, 'latin1'));
     ta.readOnly = true;
   }
-  else { ta.readOnly = false; ta.value = decodeText(inp.bytes, inp.enc); }
+  else { ta.readOnly = false; inp._rawText = decodeText(inp.bytes, inp.enc); inp._displayText = visibleControls(inp._rawText); ta.value = inp._displayText; }
   inputStats(); renderTabs();
 }
 function inputStats() { const b = cur().bytes; $('#inStats').textContent = `${b.length.toLocaleString()} bytes · ${(b.length ? countNl(b) + 1 : 0).toLocaleString()} lines`; }
 function renderTabs() {
   const box = $('#inTabs'); box.replaceChildren();
-  S.inputs.forEach((t, i) => box.append(el('div', { class: 'tab' + (i === S.tab ? ' on' : ''), onclick: () => { S.tab = i; S.inspect = null; renderInput(); scheduleBake(true); } }, t.name,
+  S.inputs.forEach((t, i) => box.append(el('div', { class: 'tab' + (i === S.tab ? ' on' : ''), onclick: () => { S.tab = i; S.inspect = null; renderInput(); persist(); scheduleBake(true); } }, t.name,
     S.inputs.length > 1 ? el('span', { class: 'x', onclick: e => { e.stopPropagation(); closeTab(i); } }, '×') : null)));
-  box.append(el('div', { class: 'tab', title: 'New input tab', onclick: () => { S.inputs.push({ name: `Input ${S.inputs.length + 1}`, bytes: new Uint8Array(0), enc: 'utf8', out: null, big: false }); S.tab = S.inputs.length - 1; renderInput(); } }, '+'));
+  box.append(el('div', { class: 'tab', title: 'New input tab', onclick: () => { S.inputs.push({ name: `Input ${S.inputs.length + 1}`, bytes: new Uint8Array(0), enc: 'utf8', out: null, big: false }); S.tab = S.inputs.length - 1; renderInput(); persist(); scheduleBake(true); } }, '+'));
 }
-function closeTab(i) { S.inputs.splice(i, 1); S.tab = Math.min(S.tab, S.inputs.length - 1); renderInput(); scheduleBake(true); }
+function closeTab(i) { S.inputs.splice(i, 1); S.tab = Math.min(S.tab, S.inputs.length - 1); renderInput(); persist(); scheduleBake(true); }
 function setInputBytes(u8, name, enc) {
   const inp = cur(); inp.bytes = u8; if (name) inp.name = name; inp.big = u8.length > (1 << 20);
   if (enc) inp.enc = enc; renderInput(); S.inspect = null; scheduleBake(true); persist();
@@ -740,10 +769,87 @@ async function loadFiles(files) {
 }
 
 // ---------------------------------------------------------------- persistence / sharing
-// Deliberately does not write the recipe/input to localStorage: refreshing or reopening the page
-// should always start clean, never silently resume a previous session (see init()'s restore-state
-// comment). Kept as a no-op debounce rather than removed so its many call sites don't need touching.
-const persist = debounce(() => {}, 300);
+// A workspace belongs to a *browser tab*, not the origin. sessionStorage survives
+// reloads in that tab, while a normally opened new tab/window starts with a clean
+// recipe, inputs and output. Never put input/output bytes in localStorage.
+const WORKSPACE_KEY = 'hexspindle.workspace.v1';
+let workspaceWarned = false;
+let restoredViewState = null;
+function workspaceSnapshot() {
+  return {
+    version: 1,
+    recipe: S.recipe.map(o => ({ ...o, id: undefined })),
+    inputs: S.inputs.map(i => ({ name: i.name, enc: i.enc, bytes: b64enc(i.bytes) })),
+    tab: S.tab, auto: S.auto, stepTo: S.stepTo, inspect: S.inspect,
+    // Store actual bytes rather than the visible control-picture representation.
+    out: S.res ? b64enc(S.out) : null,
+    res: S.res ? { html: S.res.html, steps: S.res.steps, error: S.res.error,
+      pausedAt: S.res.pausedAt, ms: S.res.ms, size: S.res.size } : null,
+    outTab: S.outputTab ?? S.tab, outputDirty: !!S.outputDirty,
+    outView: $('#outView').value, viewLimit: S.viewLimit,
+    find: { open: !$('#findbar').hidden, term: $('#findInput').value,
+      regex: $('#findRegex').checked },
+    scroll: { input: $('#input').scrollTop, output: $('#output').scrollTop,
+      recipe: $('#recipeList').scrollTop },
+  };
+}
+function saveWorkspace() {
+  let state;
+  try { state = workspaceSnapshot(); sessionStorage.setItem(WORKSPACE_KEY, JSON.stringify(state)); return; }
+  catch (e) {
+    // Large inputs or outputs may exceed the browser's tab-storage quota. Keep
+    // the recipe if possible rather than silently leaving an obsolete snapshot.
+    try {
+      const fallback = state || workspaceSnapshot();
+      fallback.out = null; fallback.res = null;
+      sessionStorage.setItem(WORKSPACE_KEY, JSON.stringify(fallback));
+      if (!workspaceWarned) toast('Output too large for tab storage. Recipe and inputs will survive refresh; output must be baked again.', true);
+    } catch {
+      try {
+        sessionStorage.setItem(WORKSPACE_KEY, JSON.stringify({ version: 1, recipe: serialRecipe(),
+          inputs: [{ name: 'Input 1', enc: 'utf8', bytes: '' }], tab: 0, partial: true }));
+      } catch { /* session storage might be disabled */ }
+      if (!workspaceWarned) toast('Tab storage is full or unavailable. Large inputs/outputs may not survive refresh; save them to files.', true);
+    }
+    workspaceWarned = true;
+  }
+}
+const persist = debounce(saveWorkspace, 200);
+function restoreWorkspace() {
+  try {
+    const raw = sessionStorage.getItem(WORKSPACE_KEY);
+    if (!raw) return false;
+    const saved = JSON.parse(raw);
+    if (saved.version !== 1 || !Array.isArray(saved.inputs) || !saved.inputs.length ||
+        !Array.isArray(saved.recipe)) return false;
+    const inputs = saved.inputs.map(i => {
+      if (typeof i.bytes !== 'string') throw new Error('Invalid stored input');
+      const bytes = b64dec(i.bytes);
+      return { name: String(i.name || 'Input'), enc: ['utf8', 'latin1', 'hex', 'base64'].includes(i.enc) ? i.enc : 'utf8',
+        bytes, out: null, big: bytes.length > (1 << 20) };
+    });
+    const recipe = saved.recipe.filter(o => o && typeof o.module === 'string' && S.mods[o.module])
+      .map(o => Object.assign(newOp(o.module), { args: Array.isArray(o.args) ? o.args : defaultArgs(S.mods[o.module]),
+        disabled: !!o.disabled, breakpoint: !!o.breakpoint, collapsed: !!o.collapsed }));
+    S.inputs = inputs; S.recipe = recipe;
+    S.tab = Math.max(0, Math.min(inputs.length - 1, Number(saved.tab) || 0));
+    S.auto = saved.auto !== false;
+    S.stepTo = Number.isInteger(saved.stepTo) ? saved.stepTo : null;
+    S.inspect = Number.isInteger(saved.inspect) ? saved.inspect : null;
+    S.viewLimit = Number.isFinite(saved.viewLimit) ? Math.max(VIEW_STEP, saved.viewLimit) : VIEW_STEP;
+    S.res = saved.res && typeof saved.out === 'string'
+      ? { ...saved.res, output: b64dec(saved.out) } : null;
+    S.out = S.res?.output || new Uint8Array(0);
+    S.outputTab = Number.isInteger(saved.outTab) ? saved.outTab : S.tab;
+    S.outputDirty = !!saved.outputDirty;
+    if (S.res && S.inputs[S.outputTab]) S.inputs[S.outputTab].out = { bytes: S.out, html: S.res.html };
+    restoredViewState = saved;
+    return true;
+  } catch (e) {
+    try { sessionStorage.removeItem(WORKSPACE_KEY); } catch { /* unavailable */ }
+    return false;
+  }
+}
 const u8url = s => btoa(String.fromCharCode(...new TextEncoder().encode(s))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 const urlu8 = s => new TextDecoder().decode(b64dec(s.replace(/-/g, '+').replace(/_/g, '/')));
 function shareLink() {
@@ -778,33 +884,125 @@ function loadRecipe(list, quiet) {
 }
 
 
-// ---- find-in-output bar
-const FIND = { term: '', idx: -1, matches: [] };
+// ---- find-in-output bar, plus overlays for matches and control characters.
+const FIND = { idx: -1, matches: [] };
+
+function paintOutputHighlights() {
+  const layer = $('#outHighlights'), ta = $('#output');
+  if (!layer || ta.hidden) { if (layer) layer.hidden = true; return; }
+  const source = ta.value;
+  const searching = !$('#findbar').hidden;
+  const controls = /[\u2400-\u2408\u240b-\u241f\u2421]/.test(source);
+  if (!controls && (!searching || !FIND.matches.length)) {
+    layer.hidden = true;
+    layer.replaceChildren();
+    return;
+  }
+  layer.hidden = false;
+  layer.classList.toggle('wrap', S.wrap);
+  layer.style.right = Math.max(0, ta.offsetWidth - ta.clientWidth) + 'px';
+  layer.style.bottom = Math.max(0, ta.offsetHeight - ta.clientHeight) + 'px';
+
+  const fragment = document.createDocumentFragment();
+  let controlCount = 0;
+  function appendText(parent, value) {
+    const pattern = /[\u2400-\u2408\u240b-\u241f\u2421]/g;
+    let last = 0, m;
+    while ((m = pattern.exec(value)) !== null && controlCount < 1500) {
+      if (m.index > last) parent.append(document.createTextNode(value.slice(last, m.index)));
+      parent.append(el('span', { class: 'ctrl' }, m[0]));
+      controlCount++;
+      last = m.index + m[0].length;
+    }
+    if (last < value.length) parent.append(document.createTextNode(value.slice(last)));
+  }
+
+  let matches = searching ? FIND.matches : [];
+  if (matches.length > 1600) {
+    const start = Math.max(0, FIND.idx - 300);
+    matches = [...matches.slice(0, 800), ...matches.slice(start, start + 600)];
+    matches.sort((a, b) => a[0] - b[0]);
+  }
+  let at = 0;
+  for (const [start, end] of matches) {
+    if (start < at || end > source.length) continue;
+    appendText(fragment, source.slice(at, start));
+    const active = searching && FIND.idx >= 0 &&
+      FIND.matches[FIND.idx]?.[0] === start && FIND.matches[FIND.idx]?.[1] === end;
+    const mark = el('mark', { class: 'hit' + (active ? ' cur' : '') });
+    appendText(mark, source.slice(start, end));
+    fragment.append(mark);
+    at = end;
+  }
+  appendText(fragment, source.slice(at));
+  layer.replaceChildren(fragment);
+  layer.scrollTop = ta.scrollTop;
+  layer.scrollLeft = ta.scrollLeft;
+}
+function syncOutputHighlights() {
+  const layer = $('#outHighlights');
+  if (layer && !layer.hidden) {
+    layer.scrollTop = $('#output').scrollTop;
+    layer.scrollLeft = $('#output').scrollLeft;
+  }
+}
 function findRun() {
-  const bar = $('#findbar'); if (bar.hidden) return;
+  if ($('#findbar').hidden) return;
   const term = $('#findInput').value, useRx = $('#findRegex').checked;
   const ta = $('#output'); FIND.matches = []; FIND.idx = -1;
-  if (!term) { $('#findCount').textContent = ''; return; }
+  if (ta.hidden) { $('#findCount').textContent = 'Text view only'; paintOutputHighlights(); persist(); return; }
+  if (!term) { $('#findCount').textContent = ''; paintOutputHighlights(); persist(); return; }
   const text = ta.value;
   try {
-    const rx = new RegExp(useRx ? term : term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi');
+    const rx = new RegExp(useRx ? term : term.replace(/[.*+?^{}$()|[\]\\]/g, '\\$&'), 'gi');
     let m; let guard = 0;
-    while ((m = rx.exec(text)) && guard++ < 20000) { FIND.matches.push([m.index, m.index + (m[0].length || 1)]); if (!m[0].length) rx.lastIndex++; }
-  } catch { $('#findCount').textContent = 'bad regex'; return; }
-  $('#findCount').textContent = FIND.matches.length ? `0 / ${FIND.matches.length}` : 'no matches';
-  if (FIND.matches.length) findGo(0);
+    while ((m = rx.exec(text)) && guard++ < 20000) {
+      FIND.matches.push([m.index, m.index + (m[0].length || 1)]);
+      if (!m[0].length) rx.lastIndex++;
+    }
+  } catch { $('#findCount').textContent = 'Bad regex'; paintOutputHighlights(); persist(); return; }
+  $('#findCount').textContent = FIND.matches.length ? '0 / ' + FIND.matches.length : 'No matches';
+  if (FIND.matches.length) findGo(0); else paintOutputHighlights();
+  persist();
 }
 function findGo(delta) {
   if (!FIND.matches.length) return;
   FIND.idx = ((FIND.idx === -1 ? 0 : FIND.idx + delta) % FIND.matches.length + FIND.matches.length) % FIND.matches.length;
-  const [s, e] = FIND.matches[FIND.idx]; const ta = $('#output');
-  ta.focus(); ta.setSelectionRange(s, e);
-  const lineHeight = 18, before = ta.value.slice(0, s).split('\n').length;
-  ta.scrollTop = Math.max(0, (before - 4) * lineHeight);
-  $('#findCount').textContent = `${FIND.idx + 1} / ${FIND.matches.length}`;
+  const [start, end] = FIND.matches[FIND.idx];
+  const ta = $('#output');
+  // The overlay marks the match; selecting inside the output textarea can
+  // steal keyboard focus in some browsers, preventing further search typing.
+  $('#findCount').textContent = (FIND.idx + 1) + ' / ' + FIND.matches.length;
+  paintOutputHighlights();
+  // Follow the highlighted position, including long wrapped lines. The mirror
+  // has the same typography and wrapping as the output editor.
+  const current = $('#outHighlights')?.querySelector?.('mark.hit.cur');
+  if (current && Number.isFinite(current.offsetTop)) {
+    ta.scrollTop = Math.max(0, current.offsetTop - ta.clientHeight * 0.3);
+    if (!S.wrap && Number.isFinite(current.offsetLeft)) {
+      const x = current.offsetLeft;
+      if (x < ta.scrollLeft + 14 || x > ta.scrollLeft + ta.clientWidth - 50)
+        ta.scrollLeft = Math.max(0, x - 40);
+    }
+    syncOutputHighlights();
+  } else {
+    const lineHeight = parseFloat(getComputedStyle(ta).lineHeight) || 19.5;
+    const linesBefore = ta.value.slice(0, start).split('\n').length;
+    ta.scrollTop = Math.max(0, (linesBefore - 4) * lineHeight);
+    syncOutputHighlights();
+  }
 }
-function findOpen() { const bar = $('#findbar'); bar.hidden = false; $('#findInput').focus(); $('#findInput').select(); findRun(); }
-function findClose() { $('#findbar').hidden = true; $('#findCount').textContent = ''; }
+function findOpen() {
+  const bar = $('#findbar'); bar.hidden = false;
+  $('#findInput').focus(); $('#findInput').select(); findRun(); persist();
+}
+function findClose() {
+  $('#findbar').hidden = true;
+  $('#findCount').textContent = '';
+  FIND.idx = -1; FIND.matches = [];
+  paintOutputHighlights();
+  persist();
+}
 
 // ---- batch mode: run the current recipe over every file in a folder/zip, download a zip of results
 function batchOpen() {
@@ -1281,34 +1479,64 @@ function localCatalogue() {
   };
 }
 async function init() {
+  const overlay = el('div', { id: 'outHighlights', class: 'out-highlights', 'aria-hidden': 'true' });
+  overlay.hidden = true;
+  $('#output').before(overlay);
   hydrateIcons(); setTheme(LS.get('theme', 'dark')); setAccent(LS.get('accent', 'cyan')); initSplits(); initBackground(); wireRecipeDnD(); wireOpsPaneDnD();
   const cat = localCatalogue();
   S.mods = cat.modules; S.cats = cat.categories; $('#opCount').textContent = `${Object.keys(S.mods).length} ops`;
   renderOps();
 
-  // restore state: only from an explicit share link (?#r=...&i=...) - never silently from a previous
-  // session, so refreshing or reopening the page always starts with an empty recipe and input.
-  const h = new URLSearchParams(location.hash.slice(1));
+  // Restore only within this browser tab. New tabs start clean, except for a
+  // deliberately opened share link; refreshing keeps the in-progress workspace.
+  // Fresh navigations, including duplicated tabs with copied sessionStorage,
+  // begin clean. Only reload/back-forward of this tab can reuse a snapshot.
   try {
-    if (h.get('r')) loadRecipe(JSON.parse(urlu8(h.get('r'))), true);
-    if (h.get('i')) cur().bytes = b64dec(h.get('i').replace(/-/g, '+').replace(/_/g, '/'));
-  } catch (e) { toast('Could not restore the shared recipe', true); }
-  if (!S.recipe.length) { renderRecipe(); }
-  hist.push(); renderInput(); $('#autoBake').checked = S.auto;
+    if (performance.getEntriesByType('navigation')[0]?.type === 'navigate')
+      sessionStorage.removeItem(WORKSPACE_KEY);
+  } catch { /* storage may be unavailable */ }
+  const restored = restoreWorkspace();
+  if (!restored) {
+    const h = new URLSearchParams(location.hash.slice(1));
+    try {
+      if (h.get('r')) loadRecipe(JSON.parse(urlu8(h.get('r'))), true);
+      if (h.get('i')) { cur().bytes = b64dec(h.get('i').replace(/-/g, '+').replace(/_/g, '/')); cur().big = cur().bytes.length > (1 << 20); }
+    } catch (e) { toast('Could not restore the shared recipe', true); }
+  }
+  renderRecipe(); hist.push(); renderInput(); $('#autoBake').checked = S.auto;
+  if (restoredViewState) {
+    const saved = restoredViewState;
+    if ([...$('#outView').options].some(o => o.value === saved.outView)) $('#outView').value = saved.outView;
+    $('#findbar').hidden = !saved.find?.open;
+    $('#findInput').value = saved.find?.term || '';
+    $('#findRegex').checked = !!saved.find?.regex;
+    if (S.res) {
+      paintSteps(); renderOutput();
+      $('#outTime').textContent = `${S.res.ms ?? 0} ms`;
+      $('#statusRight').textContent = `IN ${fmtBytes(cur().bytes.length)} → OUT ${fmtBytes(S.out.length)} · restored`;
+      if (saved.find?.open) findRun();
+    }
+    requestAnimationFrame(() => {
+      $('#input').scrollTop = saved.scroll?.input || 0;
+      $('#output').scrollTop = saved.scroll?.output || 0;
+      $('#recipeList').scrollTop = saved.scroll?.recipe || 0;
+      syncOutputHighlights();
+    });
+  }
 
   // wiring
   $('#opSearch').addEventListener('input', debounce(renderOps, 80));
   $('#opSearch').addEventListener('keydown', e => { if (e.key === 'Enter') { const r = searchOps($('#opSearch').value); if (r[0]) { addOp(r[0]); } } if (e.key === 'Escape') { e.target.value = ''; renderOps(); } });
-  $('#input').addEventListener('input', e => { const inp = cur(); try { inp.bytes = encodeText(e.target.value, inp.enc); e.target.style.outline = ''; } catch { e.target.style.outline = '1px solid var(--err)'; return; } inputStats(); S.inspect = null; persist(); scheduleBake(); });
-  $('#inEnc').addEventListener('change', e => { cur().enc = e.target.value; renderInput(); });
-  $('#outView').addEventListener('change', () => { S.viewLimit = VIEW_STEP; renderOutput(); });
+  $('#input').addEventListener('input', e => { const inp = cur(); try { inp.bytes = encodeText(inp.enc === 'utf8' || inp.enc === 'latin1' ? updatedInputText(inp, e.target.value) : e.target.value, inp.enc); e.target.style.outline = ''; } catch { e.target.style.outline = '1px solid var(--err)'; return; } inputStats(); S.inspect = null; persist(); scheduleBake(); });
+  $('#inEnc').addEventListener('change', e => { cur().enc = e.target.value; renderInput(); persist(); });
+  $('#outView').addEventListener('change', () => { S.viewLimit = VIEW_STEP; renderOutput(); persist(); });
   $('#btnWrap').onclick = $('#btnWrapIn').onclick = () => { S.wrap = !S.wrap; LS.set('wrap', S.wrap); applyWrap(); };
   $$('#mtabs button').forEach(b => b.onclick = () => setPane(b.dataset.p));
   setPane(LS.get('pane', 'recipe')); applyWrap();
   addEventListener('resize', () => setPane(document.body.dataset.pane));
   $('#btnBake').onclick = () => { S.stepTo = null; S.inspect = null; if (narrow()) setPane('io'); bake(); };
   $('#btnStep').onclick = () => { if (narrow()) setPane('io'); step(); };
-  $('#autoBake').onchange = e => { S.auto = e.target.checked; if (S.auto) scheduleBake(true); };
+  $('#autoBake').onchange = e => { S.auto = e.target.checked; persist(); if (S.auto) scheduleBake(true); };
   $('#btnClearRecipe').onclick = () => { S.recipe = []; S.stepTo = S.inspect = null; commit(); };
   $('#btnUndo').onclick = undo;
   $('#btnClearIn').onclick = () => setInputBytes(new Uint8Array(0));
@@ -1320,9 +1548,25 @@ async function init() {
   $('#btnMagic').onclick = magic; $('#btnCompare').onclick = compareOutputs; $('#btnPalette').onclick = palette; $('#btnExamples').onclick = examples; $('#btnSuggest').onclick = suggestRecipe; $('#btnRecipeIO').onclick = recipeIO; $('#btnHelp').onclick = help;
   $('#btnBatch').onclick = batchOpen; $('#batchInput').onchange = e => { runBatch(e.target.files); e.target.value = ''; };
   $('#btnExpandAll').onclick = expandAllCats; $('#btnCollapseAll').onclick = collapseAllCats;
+  $('#output').addEventListener('scroll', syncOutputHighlights);
+  $('#output').addEventListener('copy', e => {
+    const ta = e.currentTarget, from = ta.selectionStart, to = ta.selectionEnd;
+    if (to <= from || !e.clipboardData) return;
+    e.clipboardData.setData('text/plain', (S.outputRawText || '').slice(from, to));
+    e.preventDefault();
+  });
+  $('#input').addEventListener('copy', e => {
+    const ta = e.currentTarget, from = ta.selectionStart, to = ta.selectionEnd;
+    if (to <= from || !e.clipboardData) return;
+    const inp = cur(), raw = inp._rawText;
+    const selected = (inp.enc === 'latin1' || inp.enc === 'utf8') && raw !== undefined
+      ? raw.slice(from, to) : ta.value.slice(from, to);
+    e.clipboardData.setData('text/plain', selected);
+    e.preventDefault();
+  });
   $('#btnFind').onclick = findOpen; $('#findClose').onclick = findClose; $('#findInput').addEventListener('input', debounce(findRun, 120));
-  $('#findNext').onclick = () => findGo(1); $('#findPrev').onclick = () => findGo(-1); $('#findRegex').onchange = findRun;
-  $('#findInput').addEventListener('keydown', e => { if (e.key === 'Enter') findGo(e.shiftKey ? -1 : 1); if (e.key === 'Escape') findClose(); });
+  $('#findNext').onclick = () => { findGo(1); $('#findInput').focus({ preventScroll: true }); }; $('#findPrev').onclick = () => { findGo(-1); $('#findInput').focus({ preventScroll: true }); }; $('#findRegex').onchange = findRun;
+  $('#findInput').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); findGo(e.shiftKey ? -1 : 1); } if (e.key === 'Escape') findClose(); });
   $('#btnTheme').onclick = () => setTheme(document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark');
   $$('#accents i').forEach(i => i.onclick = () => setAccent(i.dataset.a));
   $('#overlay').addEventListener('mousedown', e => { if (e.target.id === 'overlay') closeModal(); }); $('#paletteOverlay').addEventListener('mousedown', e => { if (e.target.id === 'paletteOverlay') closeModal(); });
@@ -1350,7 +1594,10 @@ async function init() {
   ['dragleave', 'drop'].forEach(t => addEventListener(t, e => { if (t === 'drop' || e.target === document.documentElement || !e.relatedTarget) inPane.classList.remove('dragging'); }));
   addEventListener('drop', e => { if (e.dataTransfer?.files?.length) { e.preventDefault(); loadFiles(e.dataTransfer.files); } });
 
+  // Flush pending edits before reload; debounce handles normal keystrokes.
+  addEventListener('pagehide', saveWorkspace);
   setStatus('', `Ready · ${Object.keys(S.mods).length} operations`);
-  scheduleBake(true);
+  if (!restored || !S.res || S.outputTab !== S.tab || (S.auto && S.outputDirty)) scheduleBake(true);
+  persist();
 }
 init();
