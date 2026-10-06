@@ -138,7 +138,7 @@ const DEFAULT_FAV = [
   'ROT13', 'XOR', 'XOR Brute Force', 'JWT Decode', 'AES Encrypt', 'AES Decrypt', 'HMAC',
   'MD5', 'SHA2', 'Generate all hashes', 'Regular expression', 'Find / Replace', 'JSON Query (jq-lite)', 'Diff',
   'Gunzip', 'Gzip', 'Unzip', 'Zip',
-  'Detect File Type', 'Strings', 'Extract IOCs', 'Extract URLs', 'Defang IP Addresses', 'Defang URL',
+  'Detect File Type', 'Strings', 'Extract IOCs', 'Extract URLs', 'Defang IP Addresses', 'Defang URL', 'Extract IP addresses', 'IP Geolocation'
 ];
 const VIEW_STEP = 256 * 1024;   // bytes shown in the text box at first; laying out multi-MB text freezes the page
 const S = {
