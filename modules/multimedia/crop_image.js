@@ -1,6 +1,6 @@
 import { module } from './_cat.js';
 import { A } from '../../core/registry.js';
-import { loadBitmap, bitmapToPng } from './_img.js';
+import { loadBitmap, bitmapToOutput } from './_img.js';
 import { crop, autocrop } from './_jimp.js';
 
 module('Crop Image',
@@ -17,5 +17,5 @@ module('Crop Image',
     const bm = await loadBitmap(data);
     if (auto) autocrop(bm, { tolerance: tolerance / 100, cropOnlyFrames: onlyFrames, cropSymmetric: symmetric, leaveBorder: keepBorder });
     else crop(bm, x, y, w, h);
-    return bitmapToPng(bm);
+    return bitmapToOutput(bm, data);
   });

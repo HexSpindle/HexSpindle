@@ -1,6 +1,6 @@
 import { module } from './_cat.js';
 import { A } from '../../core/registry.js';
-import { loadBitmap, bitmapToPng } from './_img.js';
+import { loadBitmap, bitmapToOutput } from './_img.js';
 import { matrixRotate, advancedRotate } from './_jimp.js';
 import { loadImage, canvasToPng } from './_img.js';
 
@@ -13,8 +13,8 @@ module('Rotate Image',
     if (expand) {
       const bm = await loadBitmap(data);
       const d = deg % 360;
-      if (d === 0) return bitmapToPng(bm);
-      return bitmapToPng(d % 90 === 0 ? matrixRotate(bm, d) : advancedRotate(bm, d));
+      if (d === 0) return bitmapToOutput(bm, data);
+      return bitmapToOutput(d % 90 === 0 ? matrixRotate(bm, d) : advancedRotate(bm, d), data);
     }
     // Fixed-size rotation isn't something Jimp can do, so it stays a canvas transform.
     const { canvas: src, width, height } = await loadImage(data);

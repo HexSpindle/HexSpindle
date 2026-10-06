@@ -18,6 +18,17 @@ function pyRepr(s) {
   return out + quote;
 }
 
+// One byte per character when every character fits in a byte, otherwise UTF-8.
+function strToBytes(s) {
+  const out = new Uint8Array(s.length);
+  for (let i = 0; i < s.length; i++) {
+    const c = s.charCodeAt(i);
+    if (c > 255) return new TextEncoder().encode(s);
+    out[i] = c;
+  }
+  return out;
+}
+
 let ccMagicPromise = null;
 
 module('Magic', 'Detects properties of the input and suggests operations that could help make sense of it, recursively, ranked (byte-frequency language scores, valid UTF-8, file type, entropy, recipe length). By default the output is the full option list as JSON; "Ranked list" gives HexSpindle\'s compact scored list instead.',
@@ -40,5 +51,5 @@ module('Magic', 'Detects properties of the input and suggests operations that co
     const cribRegex = crib && crib.length ? new RegExp(crib, 'i') : null;
     let options = await new MagicLib(buf).speculativeExecution(depth, extLang, intensive, [], false, cribRegex);
     if (cribRegex) options = options.filter(o => o.matchesCrib);
-    return JSON.stringify(options, null, 4);
+    return strToBytes(JSON.stringify(options, null, 4));
   });

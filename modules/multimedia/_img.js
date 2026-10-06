@@ -81,3 +81,22 @@ export async function loadBitmap(data) {
 export async function bitmapToPng(bm) {
   return encodePng(bm);
 }
+
+function imageKind(b) {
+  if (b.length > 2 && b[0] === 0x42 && b[1] === 0x4d) return 'bmp';
+  if (b.length > 3 && b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff) return 'jpeg';
+  if (b.length > 4 && ((b[0] === 0x49 && b[1] === 0x49 && b[2] === 0x2a && b[3] === 0) || (b[0] === 0x4d && b[1] === 0x4d && b[2] === 0 && b[3] === 0x2a))) return 'tiff';
+  return 'png';
+}
+
+/** Encodes the result in the same format as the input image (BMP, JPEG or TIFF stay as they are;
+ *  PNG, GIF and anything else become PNG). */
+export async function bitmapToOutput(bm, input) {
+  const src = input instanceof Uint8Array ? input : new Uint8Array(input);
+  const kind = imageKind(src);
+  if (kind === 'png') return encodePng(bm);
+  const codecs = await import('./_img_codecs.mjs');
+  if (kind === 'bmp') return codecs.encodeBmpLike({}, bm.data, bm.width, bm.height);
+  if (kind === 'jpeg') return codecs.encodeJpeg(bm.data, bm.width, bm.height);
+  return codecs.encodeTiff(bm.data, bm.width, bm.height);
+}

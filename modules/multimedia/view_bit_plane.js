@@ -1,6 +1,6 @@
 import { module } from './_cat.js';
 import { A } from '../../core/registry.js';
-import { loadBitmap, bitmapToPng } from './_img.js';
+import { loadBitmap, bitmapToOutput } from './_img.js';
 
 const CHANNEL_INDEX = { Red: 0, Green: 1, Blue: 2, Alpha: 3 };
 
@@ -22,5 +22,5 @@ module('View Bit Plane',
       bm.data[i] = bm.data[i + 1] = bm.data[i + 2] = out;
       bm.data[i + 3] = 255;
     }
-    return bitmapToPng(bm);
+    return bitmapToOutput(bm, data);
   });

@@ -1,6 +1,6 @@
 import { module } from './_cat.js';
 import { A } from '../../core/registry.js';
-import { loadBitmap, bitmapToPng } from './_img.js';
+import { loadBitmap, bitmapToOutput } from './_img.js';
 import { contain, blit, RESIZE_MODES } from './_jimp.js';
 
 function parseBackground(css) {
@@ -28,5 +28,5 @@ module('Contain Image',
       }
       bm = blit(base, bm, 0, 0);
     }
-    return bitmapToPng(bm);
+    return bitmapToOutput(bm, data);
   });

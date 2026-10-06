@@ -1,5 +1,6 @@
 import { module } from './_cat.js';
-import { A } from '../../core/registry.js';
+import { A, Html } from '../../core/registry.js';
+import { seriesSvg } from './_svg_charts.js';
 import { canvasToPng } from './_img.js';
 import { RECORD_DELIMITERS, FIELD_DELIMITERS, getSeriesValues } from './_charts.js';
 
@@ -16,15 +17,18 @@ module('Series chart',
   '"series name, x value, y value" (fields separated by the chosen delimiter) - x values are treated ' +
   'as categorical labels (shared across series) rather than a numeric axis. Each ' +
   'series gets its own small sub-chart stacked vertically. Rendered directly onto a canvas and ' +
-  'rasterised to PNG',
+  'rasterised to PNG.' +
+  " Output: 'SVG' (default) returns SVG markup built with d3, and the page renders it as HTML. 'PNG image' instead draws HexSpindle's own canvas version.",
   [
     A.select('Record delimiter', Object.keys(RECORD_DELIMITERS)),
     A.select('Field delimiter', Object.keys(FIELD_DELIMITERS)),
     A.string('X label', ''),
     A.number('Point radius', 1, 0),
     A.string('Series colours', 'mediumseagreen, dodgerblue, tomato'),
+    A.select('Output', ['SVG', 'PNG image']),
   ],
-  (input, recordDelimName, fieldDelimName, xLabel, pointRadius, seriesColoursArg) => {
+  async (input, recordDelimName, fieldDelimName, xLabel, pointRadius, seriesColoursArg, output) => {
+    if (output !== 'PNG image') return new Html(await seriesSvg(input, [recordDelimName, fieldDelimName, xLabel, pointRadius, seriesColoursArg]));
     const recordDelim = RECORD_DELIMITERS[recordDelimName], fieldDelim = FIELD_DELIMITERS[fieldDelimName];
     const seriesColours = seriesColoursArg.split(',').map(c => c.trim()).filter(Boolean);
     if (!seriesColours.length) seriesColours.push('black');

@@ -1,5 +1,5 @@
 import { module } from './_cat.js';
-import { loadBitmap, bitmapToPng } from './_img.js';
+import { loadBitmap, bitmapToOutput } from './_img.js';
 import { dither } from './_jimp.js';
 
 module('Dither Image',
@@ -8,4 +8,4 @@ module('Dither Image',
   'name this does not reduce the image to black and white; it is the dither pass that would be ' +
   'applied before quantising to a 16-bit RGB565 palette.',
   [],
-  async (data) => bitmapToPng(dither(await loadBitmap(data))));
+  async (data) => bitmapToOutput(dither(await loadBitmap(data)), data));

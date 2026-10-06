@@ -1,6 +1,6 @@
 import { module } from './_cat.js';
 import { A } from '../../core/registry.js';
-import { loadBitmap, bitmapToPng } from './_img.js';
+import { loadBitmap, bitmapToOutput } from './_img.js';
 import { brightness, contrast, color } from './_jimp.js';
 
 module('Image Brightness / Contrast',
@@ -16,5 +16,5 @@ module('Image Brightness / Contrast',
     if (b !== 0) brightness(bm, b / 100);
     if (c !== 0) contrast(bm, c / 100);
     if (s !== 1) color(bm, [{ apply: 'saturate', params: [(s - 1) * 100] }]);
-    return bitmapToPng(bm);
+    return bitmapToOutput(bm, data);
   });

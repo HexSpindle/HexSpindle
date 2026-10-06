@@ -1,6 +1,6 @@
 import { module } from './_cat.js';
 import { A } from '../../core/registry.js';
-import { loadBitmap, bitmapToPng } from './_img.js';
+import { loadBitmap, bitmapToOutput } from './_img.js';
 import { resize, scaleToFit, RESIZE_MODES } from './_jimp.js';
 
 module('Resize Image',
@@ -13,5 +13,5 @@ module('Resize Image',
   async (data, w, h, unit, aspect, alg) => {
     const bm = await loadBitmap(data);
     if (unit === 'Percent') { w = bm.width * (w / 100); h = bm.height * (h / 100); }
-    return bitmapToPng(aspect ? scaleToFit(bm, w, h, alg) : resize(bm, w, h, alg));
+    return bitmapToOutput(aspect ? scaleToFit(bm, w, h, alg) : resize(bm, w, h, alg), data);
   });

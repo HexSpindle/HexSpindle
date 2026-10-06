@@ -3,13 +3,19 @@ import { A } from '../../core/registry.js';
 import { loadBitmap, bitmapToPng } from './_img.js';
 
 module('Split Colour Channels',
-  "Splits an image into its red, green and blue channels and lays them out side by side as one PNG. " +
-  'Each panel keeps only its own channel and zeroes the other two, the standard split ' +
-  '- other tools return them as three separate files (red.png, green.png, blue.png), which a ' +
-  'single-output engine like this one cannot, hence the contact sheet.',
-  [A.select('Layout', ['Horizontal', 'Vertical'])],
+  'Splits an image into its red, green and blue channels. Each channel keeps only its own colour ' +
+  'and zeroes the other two. Horizontal and Vertical lay the three channels out as one image; ' +
+  'Red, Green and Blue output that single channel as its own PNG.',
+  [A.select('Layout', ['Horizontal', 'Vertical', 'Red', 'Green', 'Blue'])],
   async (data, layout) => {
     const src = await loadBitmap(data);
+    const single = ['Red', 'Green', 'Blue'].indexOf(layout);
+    if (single >= 0) {
+      const out = { data: new Uint8Array(src.data), width: src.width, height: src.height };
+      for (let i = 0; i < out.data.length; i += 4)
+        for (let c = 0; c < 3; c++) if (c !== single) out.data[i + c] = 0;
+      return bitmapToPng(out);
+    }
     const w = src.width, h = src.height;
     const horizontal = layout === 'Horizontal';
     const sheet = {

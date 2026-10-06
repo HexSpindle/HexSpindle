@@ -1,6 +1,6 @@
 import { module } from './_cat.js';
 import { A } from '../../core/registry.js';
-import { loadBitmap, bitmapToPng } from './_img.js';
+import { loadBitmap, bitmapToOutput } from './_img.js';
 import { color } from './_jimp.js';
 
 module('Image Hue/Saturation/Lightness',
@@ -14,5 +14,5 @@ module('Image Hue/Saturation/Lightness',
     if (hue !== 0) color(bm, [{ apply: 'hue', params: [hue] }]);
     if (saturation !== 0) color(bm, [{ apply: 'saturate', params: [saturation] }]);
     if (lightness !== 0) color(bm, [{ apply: 'lighten', params: [lightness] }]);
-    return bitmapToPng(bm);
+    return bitmapToOutput(bm, data);
   });

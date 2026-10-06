@@ -1,6 +1,6 @@
 import { module } from './_cat.js';
 import { A } from '../../core/registry.js';
-import { loadBitmap, bitmapToPng } from './_img.js';
+import { loadBitmap, bitmapToOutput } from './_img.js';
 import { gaussian, cloneBitmap } from './_jimp.js';
 
 module('Sharpen Image',
@@ -32,5 +32,5 @@ module('Sharpen Image',
         }
       }
     }
-    return bitmapToPng(image);
+    return bitmapToOutput(image, data);
   });

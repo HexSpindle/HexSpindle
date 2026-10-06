@@ -1,6 +1,6 @@
 import { module } from './_cat.js';
 import { A } from '../../core/registry.js';
-import { loadBitmap, bitmapToPng } from './_img.js';
+import { loadBitmap, bitmapToOutput } from './_img.js';
 import { cover, RESIZE_MODES } from './_jimp.js';
 
 module('Cover Image',
@@ -11,4 +11,4 @@ module('Cover Image',
    A.select('Vertical align', ['Top', 'Middle', 'Bottom'], 'Middle'),
    A.select('Resizing algorithm', Object.keys(RESIZE_MODES), 'Bilinear')],
   async (data, w, h, hAlign, vAlign, alg) =>
-    bitmapToPng(cover(await loadBitmap(data), w, h, hAlign, vAlign, alg)));
+    bitmapToOutput(cover(await loadBitmap(data), w, h, hAlign, vAlign, alg), data));

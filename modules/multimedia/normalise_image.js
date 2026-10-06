@@ -1,6 +1,6 @@
 import { module } from './_cat.js';
 import { A } from '../../core/registry.js';
-import { loadBitmap, bitmapToPng } from './_img.js';
+import { loadBitmap, bitmapToOutput } from './_img.js';
 import { normalize } from './_jimp.js';
 
 function buildLut(hist, cutPct) {
@@ -34,10 +34,10 @@ module('Normalise Image',
   [A.number('Cut-off (%)', 0, 0, 49)],
   async (data, cut) => {
     const bm = await loadBitmap(data);
-    if (!cut) return bitmapToPng(normalize(bm));
+    if (!cut) return bitmapToOutput(normalize(bm), data);
     const hists = [new Array(256).fill(0), new Array(256).fill(0), new Array(256).fill(0)];
     for (let i = 0; i < bm.data.length; i += 4) for (let c = 0; c < 3; c++) hists[c][bm.data[i + c]]++;
     const luts = hists.map(h => buildLut(h, cut));
     for (let i = 0; i < bm.data.length; i += 4) for (let c = 0; c < 3; c++) bm.data[i + c] = luts[c][bm.data[i + c]];
-    return bitmapToPng(bm);
+    return bitmapToOutput(bm, data);
   });

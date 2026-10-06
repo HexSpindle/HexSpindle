@@ -1,6 +1,6 @@
 import { module } from './_cat.js';
 import { A } from '../../core/registry.js';
-import { loadBitmap, bitmapToPng } from './_img.js';
+import { loadBitmap, bitmapToOutput } from './_img.js';
 import { greyscale, sepia } from './_jimp.js';
 
 module('Image Filter',
@@ -13,5 +13,5 @@ module('Image Filter',
   [A.select('Filter type', ['Greyscale', 'Sepia'])],
   async (data, filterType) => {
     const bm = await loadBitmap(data);
-    return bitmapToPng(filterType === 'Greyscale' ? greyscale(bm) : sepia(bm));
+    return bitmapToOutput(filterType === 'Greyscale' ? greyscale(bm) : sepia(bm), data);
   });

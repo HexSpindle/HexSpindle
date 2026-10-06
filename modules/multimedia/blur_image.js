@@ -1,6 +1,6 @@
 import { module } from './_cat.js';
 import { A } from '../../core/registry.js';
-import { loadBitmap, bitmapToPng } from './_img.js';
+import { loadBitmap, bitmapToOutput } from './_img.js';
 import { blur, gaussian } from './_jimp.js';
 
 module('Blur Image',
@@ -10,5 +10,5 @@ module('Blur Image',
   [A.number('Amount', 5, 1), A.select('Type', ['Fast', 'Gaussian'])],
   async (data, amount, kind) => {
     const bm = await loadBitmap(data);
-    return bitmapToPng(kind === 'Fast' ? blur(bm, amount) : gaussian(bm, amount));
+    return bitmapToOutput(kind === 'Fast' ? blur(bm, amount) : gaussian(bm, amount), data);
   });
