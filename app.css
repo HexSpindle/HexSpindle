@@ -2658,3 +2658,8 @@ header.top .icon-btn:hover {
   header.top .top-actions { border-radius: 14px; }
 }
 
+@media (min-width: 1101px) {
+  header.top .top-actions {
+    margin-left: auto;
+  }
+}
