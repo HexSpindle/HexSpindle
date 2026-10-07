@@ -1,4 +1,4 @@
-import { MODULES, Html } from './registry.js';
+import { MODULES, Html, StructuredResult } from './registry.js';
 import { toBytes, encodeUtf8, decodeUtf8, concatBytes, delim, reFlags } from './util.js';
 
 export const BLOCK_OPEN = ['Fork', 'Subsection'];
@@ -49,14 +49,16 @@ function resolveArgs(mod, raw, regs) {
 }
 
 function toOutputBytes(res) {
-  if (res instanceof Html) return [encodeUtf8(res.toString()), true];
-  if (typeof res === 'string') return [encodeUtf8(res), false];
-  if (res instanceof Uint8Array) return [res, false];
-  if (res instanceof ArrayBuffer) return [new Uint8Array(res), false];
-  if (Array.isArray(res)) return [encodeUtf8(res.map(String).join('\n')), false];
-  if (res === null || res === undefined) return [new Uint8Array(0), false];
-  if (typeof res === 'object') return [encodeUtf8(JSON.stringify(res, null, 2)), false];
-  return [encodeUtf8(String(res)), false];
+  let mergeData = null;
+  if (res instanceof StructuredResult) { mergeData = res.mergeData; res = res.output; }
+  if (res instanceof Html) return [encodeUtf8(res.toString()), true, mergeData];
+  if (typeof res === 'string') return [encodeUtf8(res), false, mergeData];
+  if (res instanceof Uint8Array) return [res, false, mergeData];
+  if (res instanceof ArrayBuffer) return [new Uint8Array(res), false, mergeData];
+  if (Array.isArray(res)) return [encodeUtf8(res.map(String).join('\n')), false, mergeData];
+  if (res === null || res === undefined) return [new Uint8Array(0), false, mergeData];
+  if (typeof res === 'object') return [encodeUtf8(JSON.stringify(res, null, 2)), false, mergeData];
+  return [encodeUtf8(String(res)), false, mergeData];
 }
 
 export async function callModule(mod, data, args) {
@@ -65,6 +67,45 @@ export async function callModule(mod, data, args) {
   return toOutputBytes(res);
 }
 export { resolveArgs };
+
+function parallelCompatible(left, right) {
+  return !!left?.parallelSafe && !!right?.parallelSafe && !!left.parallelGroup && left.parallelGroup === right.parallelGroup;
+}
+
+function mergeIpEnrichment(branches) {
+  const records = new Map();
+  // First merge every provider that returned structured indicator rows.
+  for (const branch of branches) {
+    if (branch.error) continue;
+    const merge = branch.mergeData;
+    if (!merge || merge.type !== 'ip-enrichment' || !merge.provider || !Array.isArray(merge.rows)) {
+      throw new RecipeError(`Operation '${branch.op?.module || branch.module || '?'}' did not return merge-compatible IP enrichment data`);
+    }
+    for (const row of merge.rows) {
+      const ip = row?.ip;
+      if (!ip) continue;
+      if (!records.has(ip)) records.set(ip, { ip, enrichment: {} });
+      const { ip: _ip, error, ...data } = row;
+      records.get(ip).enrichment[merge.provider] = error
+        ? { status: 'error', error: String(error) }
+        : { status: 'success', data };
+    }
+  }
+
+  // If a whole provider failed (bad key, CORS, service outage, etc.), retain that
+  // failure beside successful siblings for every indicator we were able to recover.
+  for (const branch of branches) {
+    if (!branch.error) continue;
+    const provider = branch.mod?.parallelProvider || branch.op?.module || 'unknown';
+    const message = branch.error?.message || String(branch.error);
+    for (const record of records.values()) {
+      record.enrichment[provider] = { status: 'error', error: message };
+    }
+  }
+
+  const rows = [...records.values()];
+  return encodeUtf8(JSON.stringify(rows.length === 1 ? rows[0] : rows, null, 2));
+}
 
 function findBlockEnd(ops, i) {
   let depth = 1, j = i + 1;
@@ -93,6 +134,59 @@ class Ctx {
   }
 }
 
+async function runParallelGroup(data, ops, start, end, ctx, offset, top) {
+  const active = [];
+  for (let k = start; k <= end; k++) {
+    const op = ops[k], gi = offset + k;
+    if (op.disabled) { if (top) ctx.steps[gi] = { skipped: true, parallel: true }; continue; }
+    active.push({ op, gi, mod: MODULES[op.module] });
+  }
+  if (!active.length) return data;
+
+  // Every branch receives the exact same immutable upstream byte snapshot.
+  // Branch failures are isolated so one blocked/rate-limited provider does not
+  // throw away successful enrichment returned by its siblings.
+  const results = await Promise.all(active.map(async item => {
+    const t0 = performance.now();
+    try {
+      const args = resolveArgs(item.mod, item.op.args, ctx.regs);
+      const [bytes, html, mergeData] = await callModule(item.mod, data, args);
+      if (!mergeData || mergeData.type !== 'ip-enrichment' || !mergeData.provider || !Array.isArray(mergeData.rows))
+        throw new Error(`Operation '${item.op.module}' did not return merge-compatible IP enrichment data`);
+      return { ...item, bytes, html, mergeData, ms: +(performance.now() - t0).toFixed(2), error: null };
+    } catch (error) {
+      return { ...item, bytes: null, html: false, mergeData: null,
+        ms: +(performance.now() - t0).toFixed(2), error };
+    }
+  }));
+
+  const successful = [];
+  for (const result of results) {
+    if (result.error) {
+      const msg = result.error?.message ? `${result.error.name || 'Error'}: ${result.error.message}` : String(result.error);
+      if (top) ctx.steps[result.gi] = { error: msg, ms: result.ms, parallel: true };
+      continue;
+    }
+    successful.push(result);
+    if (top) ctx.steps[result.gi] = {
+      ms: result.ms, size: result.bytes.length, preview: preview(result.bytes), parallel: true,
+      service: result.mergeData.provider,
+    };
+  }
+
+  if (!successful.length) {
+    const first = results.find(r => r.error) || active[0];
+    const msg = first?.error?.message || 'Every operation in the parallel group failed';
+    ctx.error = { step: first.gi ?? (offset + start), module: first.op?.module || 'Parallel group', message: msg };
+    throw new RecipeError(`Parallel group: ${msg}`);
+  }
+
+  const merged = mergeIpEnrichment(results);
+  ctx.html = false;
+  if (top) ctx.last = merged;
+  return merged;
+}
+
 export async function runOps(data, ops, ctx, top = false, offset = 0) {
   const labels = {};
   ops.forEach((op, idx) => {
@@ -106,12 +200,46 @@ export async function runOps(data, ops, ctx, top = false, offset = 0) {
     const op = ops[i];
     const gi = offset + i;
     if (top && ctx.upto !== null && ctx.upto !== undefined && gi > ctx.upto) break;
-    if (top && op.breakpoint && !op.disabled && (ctx.upto === null || ctx.upto === undefined) && ctx.pausedAt === null) { ctx.pausedAt = gi; break; }
-    if (op.disabled) { if (top) ctx.steps[gi] = { skipped: true }; i++; continue; }
     const name = op.module;
     const mod = MODULES[name];
-    if (!mod) throw new RecipeError(`Unknown module: ${name}`);
     const t0 = performance.now();
+
+    // Detect a configured parallel stage before applying the normal disabled-step
+    // shortcut. This lets a group remain intact when its first member is disabled;
+    // disabled members are simply omitted from the concurrent execution.
+    // A parallel link belongs to the current operation and means "join the
+    // compatible operation directly above". The first member has no link;
+    // subsequent contiguous linked members form one atomic parallel stage.
+    if (!op.parallel && i + 1 < ops.length && ops[i + 1].parallel) {
+      let end = i + 1;
+      while (end + 1 < ops.length && ops[end + 1].parallel) end++;
+      let validEnd = end;
+      for (let k = i + 1; k <= end; k++) {
+        const prevMod = MODULES[ops[k - 1].module], curMod = MODULES[ops[k].module];
+        if (!parallelCompatible(prevMod, curMod)) {
+          throw new RecipeError(`Invalid parallel link: '${ops[k].module}' cannot run in parallel with '${ops[k - 1].module}'`);
+        }
+      }
+      if (top && ctx.upto !== null && ctx.upto !== undefined) validEnd = Math.min(end, ctx.upto - offset);
+      if (validEnd > i) {
+        if (top && (ctx.upto === null || ctx.upto === undefined)) {
+          const bp = Array.from({ length: validEnd - i + 1 }, (_, n) => i + n)
+            .find(k => ops[k].breakpoint && !ops[k].disabled);
+          if (bp != null && ctx.pausedAt === null) { ctx.pausedAt = offset + bp; break; }
+        }
+        data = await runParallelGroup(data, ops, i, validEnd, ctx, offset, top);
+        i = validEnd + 1;
+        continue;
+      }
+    }
+    if (op.parallel) {
+      throw new RecipeError(`Parallel operation '${name}' has no compatible group member above it`);
+    }
+
+    if (top && op.breakpoint && !op.disabled && (ctx.upto === null || ctx.upto === undefined) && ctx.pausedAt === null) { ctx.pausedAt = gi; break; }
+    if (op.disabled) { if (top) ctx.steps[gi] = { skipped: true }; i++; continue; }
+    if (!mod) throw new RecipeError(`Unknown module: ${name}`);
+
     if (BLOCK_OPEN.includes(name)) {
       const end = findBlockEnd(ops, i);
       const args = resolveArgs(mod, op.args, ctx.regs);
@@ -151,8 +279,6 @@ export async function runOps(data, ops, ctx, top = false, offset = 0) {
       const a = resolveArgs(mod, op.args, ctx.regs);
       const txt = decodeUtf8(data);
       const m = txt.match(new RegExp(a[0], reFlags(a[1], a[2], a[3])));
-      // Only capture GROUPS become registers (a regex without groups sets none), and numbering
-      // carries on across Register operations - $R0 is the first group of the first Register.
       if (m && m.length > 1) {
         const base = ctx.numRegs;
         m.slice(1).forEach((g, k) => ctx.regs.set(base + k, g || ''));

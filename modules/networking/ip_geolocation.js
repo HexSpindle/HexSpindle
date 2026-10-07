@@ -1,8 +1,13 @@
 import { module } from './_cat.js';
-import { A } from '../../core/registry.js';
+import { A, StructuredResult } from '../../core/registry.js';
 import { getGeoIpBundle } from './_geoip_store.js';
 import { isIp } from './_mmdb.js';
 import { normalizeGeoIpRecord, extractIpTokens } from './_geoip_normalize.js';
+import './virustotal_ip.js';
+import './apivoid_ip.js';
+import './abuseipdb.js';
+import './arin_rdap.js';
+import './sans_isc_ip.js';
 
 /* normalization lives in _geoip_normalize.js so it can be tested independently */
 function mergeNormalized(dst, src) {
@@ -11,7 +16,22 @@ function mergeNormalized(dst, src) {
     if (v !== null && v !== '' && dst[k] == null) dst[k] = v;
   }
 }
-const extractIps = text => extractIpTokens(text, isIp);
+const extractIps = text => {
+  const source = String(text ?? '').trim();
+  if (source) {
+    try {
+      const parsed = JSON.parse(source);
+      const rows = Array.isArray(parsed) ? parsed : (Array.isArray(parsed?.records) ? parsed.records : [parsed]);
+      const ips = [];
+      for (const row of rows) {
+        const ip = row && typeof row === 'object' ? (row.ip || row.indicator) : '';
+        if (typeof ip === 'string' && isIp(ip) && !ips.includes(ip)) ips.push(ip);
+      }
+      if (ips.length) return ips;
+    } catch { /* plain text input */ }
+  }
+  return extractIpTokens(source, isIp);
+};
 function toCsv(rows) {
   const cols = ['ip','country','country_code','continent','continent_code','region','region_code','city','postal_code','latitude','longitude','accuracy_radius_km','timezone','asn','as_name','as_domain','isp','connection_type','usage_type','as_type','proxy_type','is_proxy','proxy_provider','last_seen_days','threat','fraud_score','is_anonymous','is_anycast','is_hosting','is_mobile','is_satellite','is_relay','is_vpn','is_tor','is_public_proxy','is_residential_proxy','matched_databases'];
   const q = v => { const s = v == null ? '' : Array.isArray(v) ? v.join('; ') : String(v); return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
@@ -48,11 +68,18 @@ module(
       if (includeRaw) row.raw = raw;
       return row;
     });
-    if (output === 'CSV') return toCsv(rows);
-    if (output === 'JSON Lines') return rows.map(r => JSON.stringify(r)).join('\n');
-    return JSON.stringify(rows.length === 1 ? rows[0] : rows, null, 2);
+    const rendered = output === 'CSV' ? toCsv(rows)
+      : output === 'JSON Lines' ? rows.map(r => JSON.stringify(r)).join('\n')
+        : JSON.stringify(rows.length === 1 ? rows[0] : rows, null, 2);
+    return new StructuredResult(rendered, { type: 'ip-enrichment', provider: 'geoip', rows });
   },
-  { text: true, aliases: ['GeoIP', 'GeoLite2', 'MMDB', 'IP2Location', 'IPinfo', 'DB-IP'] }
+  {
+    text: true,
+    aliases: ['GeoIP', 'GeoLite2', 'MMDB', 'IP2Location', 'IPinfo', 'DB-IP'],
+    parallelSafe: true,
+    parallelGroup: 'ip-enrichment',
+    parallelProvider: 'geoip',
+  }
 );
 
 export { normalizeGeoIpRecord, extractIps };

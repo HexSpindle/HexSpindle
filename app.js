@@ -1,17 +1,18 @@
 'use strict';
 /* HexSpindle web UI - vanilla JS, no build step. Everything runs client-side: the recipe engine,
  * every operation, and Magic all execute in this browser tab - nothing is sent to any server. The
- * only network calls this file ever makes are the optional, explicit, user-initiated ones: Suggest
- * (direct to the selected AI provider, only with a user-supplied key) and the GitHub Pages hosting itself. */
+ * network calls are limited to explicit user actions: Suggest, network-enabled recipe operations,
+ * and their connection tests. API credentials are user supplied and are never embedded in HexSpindle. */
 import { MODULES, describe, CATEGORY_LABELS } from './core/registry.js';
 import { bake as engineBake } from './core/engine.js';
-import { normaliseRecipe, parseRecipeText, exportRecipeText } from './core/recipe-interop.js';
+import { normaliseRecipe, parseRecipeText, exportRecipeText } from './core/recipe-interop-parallel.js';
 import { AI_PROVIDERS, loadAISetting, saveAISetting, deleteAISetting, migrateLegacyAnthropicKey,
   maskAIKey, verifyAIConnection, requestAIText, readableAIError } from './core/ai-suggest.js';
 import { buildCandidateCatalogue, buildPlanningPrompt, buildConfigurationPrompt,
   validateAIPlan, validateAIRecipe } from './core/ai-recipe-builder.js';
 import { search as magicSearch } from './core/magic.js';
 import { loadGeoIpBundle, summarizeGeoIpBundle, dropGeoIpBundle } from './modules/networking/_geoip_store.js';
+import { getServiceCredential, setServiceCredential, clearServiceCredential } from './core/service-credentials.js';
 import './modules/index.js';
 
 // ---------------------------------------------------------------- helpers
@@ -49,6 +50,7 @@ const ICONS = {
   ai: '<path d="M12 3l1.6 4.4L18 9l-4.4 1.6L12 15l-1.6-4.4L6 9l4.4-1.6z"/><path d="M19 14.5l.8 2.2 2.2.8-2.2.8-.8 2.2-.8-2.2-2.2-.8 2.2-.8z"/>',
   grid: '<rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/>',
   layers: '<path d="m12 3 9 5-9 5-9-5z"/><path d="m3 13 9 5 9-5"/>', undo: '<path d="M9 14 4 9l5-5"/><path d="M4 9h10a6 6 0 0 1 0 12h-3"/>',
+  redo: '<path d="m15 14 5-5-5-5"/><path d="M20 9H10a6 6 0 0 0 0 12h3"/>', parallel: '<path d="M5 5v4a3 3 0 0 0 3 3h11"/><path d="M5 19v-4a3 3 0 0 1 3-3"/><path d="m16 9 3 3-3 3"/>',
   trash: '<path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/>', step: '<path d="M6 4l10 8-10 8z"/><path d="M19 4v16"/>', flame: '<path d="M12 2s5 4.5 5 10a5 5 0 0 1-10 0c0-2 1-3 2-4 0 2 1 3 2 3 0-3-1-5 1-9z"/>',
   in: '<path d="M12 3v12M7 10l5 5 5-5M4 21h16"/>', out: '<path d="M12 15V3M7 8l5-5 5 5M4 21h16"/>', paste: '<rect x="6" y="5" width="12" height="16" rx="2"/><path d="M9 5V3h6v2"/>',
   open: '<path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>', wrap: '<path d="M3 6h18M3 12h14a3 3 0 0 1 0 6h-4M3 18h6"/><path d="m11 15-2 3 2 3"/>',
@@ -174,7 +176,7 @@ const VIEW_STEP = 256 * 1024;   // bytes shown in the text box at first; laying 
 const S = {
   mods: {}, cats: [], recipe: [], uid: 0, inputs: [{ name: 'Input 1', bytes: new Uint8Array(0), enc: 'utf8', out: null, big: false }], tab: 0, auto: true,
   fav: new Set(LS.get('fav', DEFAULT_FAV)), open: new Set(LS.get('openCats', ['favourites', 'data_format'])), openSub: new Set(LS.get('openSub', [])), seq: 0, stepTo: null, inspect: null,
-  res: null, viewLimit: VIEW_STEP, out: new Uint8Array(0), hist: [], cards: [], wrap: LS.get('wrap', true), blobUrl: null,
+  res: null, viewLimit: VIEW_STEP, out: new Uint8Array(0), hist: [], redoHist: [], connectionState: new Map(), cards: [], wrap: LS.get('wrap', true), blobUrl: null,
 };
 const cur = () => S.inputs[S.tab];
 const hue = n => CAT_HUE[S.mods[n]?.category] ?? 200;
@@ -183,9 +185,9 @@ function defaultArgs(m) { return m.args.map(a => a.type === 'toggle' ? { string:
 function newOp(name, args) {
   const m = S.mods[name]; const a = defaultArgs(m);
   (args || []).forEach((v, i) => { if (v !== undefined && v !== null && i < a.length) a[i] = v; });
-  return { id: ++S.uid, module: name, args: a, disabled: false, breakpoint: false, collapsed: false };
+  return { id: ++S.uid, module: name, args: a, disabled: false, breakpoint: false, collapsed: false, parallel: false };
 }
-const serialRecipe = () => S.recipe.map(o => ({ module: o.module, args: o.args, disabled: o.disabled, breakpoint: o.breakpoint }));
+const serialRecipe = () => S.recipe.map(o => ({ module: o.module, args: o.args, disabled: o.disabled, breakpoint: o.breakpoint, ...(o.parallel ? { parallel: true } : {}) }));
 
 // ---------------------------------------------------------------- operations sidebar
 let tipEl;
@@ -272,12 +274,40 @@ function expandAllCats() {
 function collapseAllCats() { S.open = new Set(); LS.set('openCats', []); renderOps(); }
 
 // ---------------------------------------------------------------- recipe
-const hist = { push() { const j = JSON.stringify(serialRecipe()); if (S.hist[S.hist.length - 1] !== j) { S.hist.push(j); if (S.hist.length > 60) S.hist.shift(); } } };
-function undo() {
-  if (S.hist.length < 2) return toast('Nothing to undo'); S.hist.pop();
-  const r = JSON.parse(S.hist[S.hist.length - 1]); S.recipe = r.map(o => Object.assign(newOp(o.module), { args: o.args, disabled: o.disabled, breakpoint: o.breakpoint })); renderRecipe(); persist(); scheduleBake(true);
+function updateHistoryButtons() {
+  const undoBtn = $('#btnUndo'), redoBtn = $('#btnRedo');
+  if (undoBtn) undoBtn.disabled = S.hist.length < 2;
+  if (redoBtn) redoBtn.disabled = S.redoHist.length === 0;
 }
-function commit(structural = true) { hist.push(); persist(); if (structural) renderRecipe(); scheduleBake(); }
+function restoreHistoryRecipe(json) {
+  const r = JSON.parse(json);
+  S.recipe = r.map(o => Object.assign(newOp(o.module), {
+    args: o.args, disabled: !!o.disabled, breakpoint: !!o.breakpoint, parallel: !!o.parallel,
+  }));
+  normalizeParallelLinks();
+  S.stepTo = S.inspect = null;
+  renderRecipe(); persist(); scheduleBake(true); updateHistoryButtons();
+}
+const hist = { push(clearRedo = true) {
+  const j = JSON.stringify(serialRecipe());
+  if (S.hist[S.hist.length - 1] !== j) {
+    S.hist.push(j); if (S.hist.length > 60) S.hist.shift();
+    if (clearRedo) S.redoHist.length = 0;
+  }
+  updateHistoryButtons();
+} };
+function undo() {
+  if (S.hist.length < 2) return toast('Nothing to undo');
+  S.redoHist.push(S.hist.pop());
+  restoreHistoryRecipe(S.hist[S.hist.length - 1]);
+}
+function redo() {
+  if (!S.redoHist.length) return toast('Nothing to redo');
+  const next = S.redoHist.pop();
+  S.hist.push(next);
+  restoreHistoryRecipe(next);
+}
+function commit(structural = true) { normalizeParallelLinks(); hist.push(); persist(); if (structural) renderRecipe(); scheduleBake(); }
 const commitArg = debounce(() => { hist.push(); }, 600);
 function addOp(name, args, at) {
   const o = newOp(name, args); at == null ? S.recipe.push(o) : S.recipe.splice(at, 0, o);
@@ -303,6 +333,104 @@ function selectOptions(options, selected) {
       )
     );
   });
+}
+
+
+function parallelCompatible(left, right) {
+  const a = left && S.mods[left.module], b = right && S.mods[right.module];
+  return !!a?.parallelSafe && !!b?.parallelSafe && !!a.parallelGroup && a.parallelGroup === b.parallelGroup;
+}
+function canJoinPrevious(i) { return i > 0 && parallelCompatible(S.recipe[i - 1], S.recipe[i]); }
+function normalizeParallelLinks() {
+  for (let i = 0; i < S.recipe.length; i++) {
+    if (S.recipe[i].parallel && !canJoinPrevious(i)) S.recipe[i].parallel = false;
+  }
+}
+function toggleParallel(i) {
+  const op = S.recipe[i]; if (!op || !S.mods[op.module]?.parallelSafe) return;
+  if (!op.parallel && !canJoinPrevious(i)) return;
+  op.parallel = !op.parallel;
+  S.stepTo = S.inspect = null;
+  commit();
+}
+function inParallelGroup(i) { return !!S.recipe[i]?.parallel || !!S.recipe[i + 1]?.parallel; }
+function parallelClass(i) {
+  if (!inParallelGroup(i)) return '';
+  const first = !S.recipe[i]?.parallel && !!S.recipe[i + 1]?.parallel;
+  const last = !!S.recipe[i]?.parallel && !S.recipe[i + 1]?.parallel;
+  return ' parallel-member' + (first ? ' parallel-first' : '') + (last ? ' parallel-last' : '');
+}
+
+function maskCredential(value) {
+  const text = String(value || '');
+  if (!text) return '';
+  if (text.length <= 8) return '••••••••';
+  return text.slice(0, 4) + '••••' + text.slice(-4);
+}
+function connectionControl(mod) {
+  const cfg = mod?.connection;
+  if (!cfg?.id || typeof cfg.test !== 'function') return null;
+  let saved = getServiceCredential(cfg.id);
+  let remembered = S.connectionState.get(cfg.id);
+  if (!remembered) {
+    remembered = cfg.required && !saved
+      ? { kind: 'bad', text: `${cfg.label || 'Credential'} required` }
+      : { kind: 'muted', text: saved ? 'Saved in this tab · Test to verify' : 'Not tested' };
+    S.connectionState.set(cfg.id, remembered);
+  }
+  const box = el('div', { class: 'connection-box' });
+  const status = el('div', { class: 'connection-state', role: 'status' });
+  const input = cfg.type === 'none' ? null : el('input', {
+    type: 'password', autocomplete: 'new-password', spellcheck: 'false',
+    placeholder: saved ? `${maskCredential(saved)} (saved in this tab)` : (cfg.placeholder || cfg.label || 'Credential'),
+  });
+  const apply = (kind, text) => {
+    const state = { kind, text }; S.connectionState.set(cfg.id, state);
+    box.className = 'connection-box conn-' + kind;
+    status.className = 'connection-state ' + kind;
+    status.textContent = text;
+  };
+  const state = remembered; apply(state.kind, state.text);
+  let testing = false;
+  const test = async () => {
+    if (testing) return;
+    const existing = getServiceCredential(cfg.id);
+    const entered = input?.value.trim() || '';
+    const value = entered || existing;
+    if (cfg.required && !value) { apply('bad', `${cfg.label || 'Credential'} required`); input?.focus(); return; }
+    testing = true; testBtn.disabled = true; clearBtn && (clearBtn.disabled = true); apply('checking', 'Testing connection…');
+    try {
+      const result = await cfg.test(value);
+      if (!result?.ok) throw new Error(result?.message || 'Connection test failed');
+      if (input && entered) {
+        setServiceCredential(cfg.id, entered);
+        saved = entered;
+        input.value = '';
+        input.placeholder = `${maskCredential(entered)} (saved in this tab)`;
+      }
+      apply('ok', result.message || 'Connected');
+    } catch (error) {
+      apply('bad', error?.message || String(error));
+    } finally {
+      testing = false; testBtn.disabled = false; if (clearBtn) clearBtn.disabled = false;
+    }
+  };
+  const testBtn = el('button', { type: 'button', class: 'btn connection-test', onclick: test }, cfg.type === 'none' ? 'Test connection' : 'Save & Test');
+  const clearBtn = input ? el('button', { type: 'button', class: 'btn ghost', onclick: () => {
+    clearServiceCredential(cfg.id); saved = ''; input.value = ''; input.placeholder = cfg.placeholder || cfg.label || 'Credential';
+    apply(cfg.required ? 'bad' : 'muted', cfg.required ? `${cfg.label || 'Credential'} required` : 'Cleared');
+  } }, 'Clear') : null;
+  if (input) {
+    input.addEventListener('input', () => apply('bad', input.value.trim() ? 'Not verified · Save & Test' : (saved ? 'Saved value unchanged · Test to verify' : `${cfg.label || 'Credential'} required`)));
+    input.addEventListener('change', () => { if (input.value.trim()) test(); });
+  }
+  box.append(
+    el('div', { class: 'connection-title' }, cfg.label || 'Connection'),
+    input ? el('div', { class: 'connection-row' }, input, testBtn, clearBtn) : el('div', { class: 'connection-row' }, testBtn),
+    status,
+    cfg.help ? el('div', { class: 'connection-help' }, cfg.help) : null,
+  );
+  return box;
 }
 
 function argField(op, spec, i) {
@@ -384,17 +512,22 @@ function renderRecipe() {
     const m = S.mods[op.module]; if (!m) return;
     if (op.module === 'Merge') depth = Math.max(0, depth - 1);
     const info = el('div', { class: 'step-info' });
-    const card = el('div', { class: 'step' + (op.disabled ? ' disabled' : '') + (m.flow ? ' flow' : '') + (op.collapsed ? ' collapsed' : ''), style: `--h:${hue(op.module)};margin-left:${depth * 14}px`, dataset: { i } },
+    const card = el('div', { class: 'step' + (op.disabled ? ' disabled' : '') + (m.flow ? ' flow' : '') + (op.collapsed ? ' collapsed' : '') + parallelClass(i), style: `--h:${hue(op.module)};margin-left:${depth * 14}px`, dataset: { i } },
       el('div', { class: 'step-h', draggable: 'true', ondragstart: e => { e.dataTransfer.setData('text/df-step', String(i)); e.dataTransfer.effectAllowed = 'move'; } },
         el('span', { class: 'grip' }, icon('grip')), el('span', { class: 'idx' }, String(i + 1).padStart(2, '0')),
         el('span', { class: 'title', title: m.desc, onclick: () => { op.collapsed = !op.collapsed; card.classList.toggle('collapsed'); persist(); } }, op.module),
+        m.parallelSafe ? el('button', {
+          class: 'icon-btn parallel-btn' + (op.parallel ? ' on' : ''),
+          title: op.parallel ? 'Stop grouping this operation with the one above' : canJoinPrevious(i) ? 'Run in parallel with the compatible operation above' : 'Parallel-safe, but the operation above is not compatible',
+          disabled: !op.parallel && !canJoinPrevious(i), onclick: () => toggleParallel(i),
+        }, icon('parallel')) : null,
         el('button', { class: 'icon-btn', title: 'Show the output of this step', onclick: () => inspect(i) }, icon('eye')),
         el('button', { class: 'icon-btn' + (op.breakpoint ? ' on' : ''), title: 'Breakpoint: pause before this step', onclick: e => { op.breakpoint = !op.breakpoint; e.currentTarget.classList.toggle('on'); S.stepTo = null; commit(false); } }, icon('flag')),
         el('button', { class: 'icon-btn' + (op.disabled ? ' on' : ''), title: 'Disable / enable', onclick: () => { op.disabled = !op.disabled; commit(); } }, icon('power')),
         el('button', { class: 'icon-btn', title: 'Move up', onclick: () => move(i, i - 1) }, icon('up')),
         el('button', { class: 'icon-btn', title: 'Move down', onclick: () => move(i, i + 2) }, icon('down')),
         el('button', { class: 'icon-btn', title: 'Remove', onclick: () => { S.recipe.splice(i, 1); S.stepTo = null; commit(); } }, icon('x'))),
-      el('div', { class: 'step-b' }, m.desc ? el('div', { class: 'desc' }, m.desc) : null, m.args.map((a, j) => argField(op, a, j)), info));
+      el('div', { class: 'step-b' }, m.desc ? el('div', { class: 'desc' }, m.desc) : null, connectionControl(m), m.args.map((a, j) => argField(op, a, j)), info));
     card._info = info; S.cards[i] = card; box.append(card);
     if (op.module === 'Fork' || op.module === 'Subsection') depth++;
   });
@@ -835,7 +968,7 @@ function restoreWorkspace() {
     });
     const recipe = saved.recipe.filter(o => o && typeof o.module === 'string' && S.mods[o.module])
       .map(o => Object.assign(newOp(o.module), { args: Array.isArray(o.args) ? o.args : defaultArgs(S.mods[o.module]),
-        disabled: !!o.disabled, breakpoint: !!o.breakpoint, collapsed: !!o.collapsed }));
+        disabled: !!o.disabled, breakpoint: !!o.breakpoint, collapsed: !!o.collapsed, parallel: !!o.parallel }));
     S.inputs = inputs; S.recipe = recipe;
     S.tab = Math.max(0, Math.min(inputs.length - 1, Number(saved.tab) || 0));
     S.auto = saved.auto !== false;
@@ -858,7 +991,7 @@ function restoreWorkspace() {
 const u8url = s => btoa(String.fromCharCode(...new TextEncoder().encode(s))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 const urlu8 = s => new TextDecoder().decode(b64dec(s.replace(/-/g, '+').replace(/_/g, '/')));
 function shareLink() {
-  const rec = u8url(JSON.stringify(serialRecipe().map(o => [o.module, o.args, o.disabled ? 1 : 0]))); const b = cur().bytes;
+  const rec = u8url(JSON.stringify(serialRecipe().map(o => [o.module, o.args, o.disabled ? 1 : 0, o.breakpoint ? 1 : 0, o.parallel ? 1 : 0]))); const b = cur().bytes;
   return location.origin + '/#r=' + rec + (b.length && b.length < 4000 ? '&i=' + b64enc(b).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '') : '');
 }
 
@@ -883,9 +1016,9 @@ function loadRecipe(list, quiet) {
       if (sp.type === 'toggle') o.args[i] = typeof v === 'object' ? { string: v.string ?? '', option: sp.options.includes(v.option) ? v.option : sp.option } : { string: String(v), option: sp.option };
       else if (typeof v === 'object') { if (v.string === undefined) return; o.args[i] = v.string; } else o.args[i] = sp.type === 'number' ? Number(v) : sp.type === 'boolean' ? !!v : v;
     });
-    o.disabled = Array.isArray(r) ? !!r[2] : !!r.disabled; o.breakpoint = !Array.isArray(r) && !!r.breakpoint; ops.push(o);
+    o.disabled = Array.isArray(r) ? !!r[2] : !!r.disabled; o.breakpoint = Array.isArray(r) ? !!r[3] : !!r.breakpoint; o.parallel = Array.isArray(r) ? !!r[4] : !!r.parallel; ops.push(o);
   }
-  S.recipe = ops; S.stepTo = null; S.inspect = null; renderRecipe(); hist.push(); persist(); scheduleBake(true);
+  S.recipe = ops; normalizeParallelLinks(); S.stepTo = null; S.inspect = null; renderRecipe(); hist.push(); persist(); scheduleBake(true);
 }
 
 
@@ -1438,7 +1571,7 @@ function examples() {
   openModal('Examples', el('div', {}, search, chips, grid));
 }
 function help() {
-  const rows = [['Ctrl + Enter', 'Bake'], ['Ctrl + K', 'Search operations (command palette)'], ['Ctrl + S', 'Save / load recipe'], ['Ctrl + Z', 'Undo recipe change (focus the recipe)'], ['Esc', 'Close dialogs'],
+  const rows = [['Ctrl + Enter', 'Bake'], ['Ctrl + K', 'Search operations (command palette)'], ['Ctrl + S', 'Save / load recipe'], ['Ctrl + Z', 'Undo recipe change (focus the recipe)'], ['Ctrl + Shift + Z / Ctrl + Y', 'Redo recipe change'], ['Esc', 'Close dialogs'],
     ['Double-click / drag', 'Add an operation to the recipe'], ['Eye icon', 'Inspect the output of a single step'], ['Flag icon', 'Breakpoint: pause before that step, then Step to continue'], ['Wand icon', 'Magic: suggest decoding chains for the output']];
   openModal('Help & shortcuts', el('div', {}, el('table', { class: 'keys' }, rows.map(r => el('tr', {}, el('td', {}, el('kbd', {}, r[0])), el('td', {}, r[1])))),
     el('p', { class: 'desc' }, 'Use Fork … Merge to run operations on each line, Register to capture regex groups into $R0 (group 1), $R1 (group 2)…, and Label / Jump / Conditional Jump for loops. Registers can be used in any text argument.'),
@@ -1779,6 +1912,20 @@ function initBackground() {
 function setTheme(t) { document.documentElement.dataset.theme = t; LS.set('theme', t); $('#btnTheme').firstChild.innerHTML = `<svg viewBox="0 0 24 24">${ICONS[t === 'dark' ? 'sun' : 'moon']}</svg>`; if (S.res) renderOutput(); }
 function setAccent(a) { document.documentElement.dataset.accent = a; LS.set('accent', a); $$('#accents i').forEach(i => i.classList.toggle('on', i.dataset.a === a)); }
 
+// ---------------------------------------------------------------- feature chrome
+function ensureIntelChrome() {
+  if (!document.querySelector('link[data-hexspindle-intel]')) {
+    const css = document.createElement('link');
+    css.rel = 'stylesheet'; css.href = './ip-intel.css'; css.dataset.hexspindleIntel = '1';
+    document.head.append(css);
+  }
+  const undoBtn = $('#btnUndo');
+  if (undoBtn && !$('#btnRedo')) {
+    const redoBtn = el('button', { class: 'icon-btn', id: 'btnRedo', title: 'Redo (Ctrl+Shift+Z / Ctrl+Y)', disabled: true }, icon('redo'));
+    undoBtn.after(redoBtn);
+  }
+}
+
 // ---------------------------------------------------------------- init
 const CATEGORY_ORDER = ['data_format', 'encryption_encoding', 'public_key', 'arithmetic_logic', 'networking', 'language', 'utils', 'date_time',
   'extractors', 'compression', 'hashing', 'code_tidy', 'forensics', 'multimedia', 'other', 'flow_control'];
@@ -1795,6 +1942,7 @@ async function init() {
   const overlay = el('div', { id: 'outHighlights', class: 'out-highlights', 'aria-hidden': 'true' });
   overlay.hidden = true;
   $('#output').before(overlay);
+  ensureIntelChrome();
   hydrateIcons(); setTheme(LS.get('theme', 'dark')); setAccent(LS.get('accent', 'cyan')); initSplits(); initBackground(); wireRecipeDnD(); wireOpsPaneDnD();
   const cat = localCatalogue();
   S.mods = cat.modules; S.cats = cat.categories; $('#opCount').textContent = `${Object.keys(S.mods).length} ops`;
@@ -1851,7 +1999,7 @@ async function init() {
   $('#btnStep').onclick = () => { if (narrow()) setPane('io'); step(); };
   $('#autoBake').onchange = e => { S.auto = e.target.checked; persist(); if (S.auto) scheduleBake(true); };
   $('#btnClearRecipe').onclick = () => { S.recipe = []; S.stepTo = S.inspect = null; commit(); };
-  $('#btnUndo').onclick = undo;
+  $('#btnUndo').onclick = undo; if ($('#btnRedo')) $('#btnRedo').onclick = redo;
   $('#btnClearIn').onclick = () => setInputBytes(new Uint8Array(0));
   $('#btnPaste').onclick = async () => { try { setInputBytes(new TextEncoder().encode(await navigator.clipboard.readText())); } catch { toast('Clipboard access was denied - paste with Ctrl+V instead', true); } };
   $('#btnOpen').onclick = () => $('#fileInput').click(); $('#fileInput').onchange = e => { loadFiles(e.target.files); e.target.value = ''; };
@@ -1894,7 +2042,8 @@ async function init() {
     else if (mod && e.key.toLowerCase() === 'k') { e.preventDefault(); palette(); }
     else if (mod && e.key.toLowerCase() === 's') { e.preventDefault(); recipeIO(); }
     else if (mod && e.key.toLowerCase() === 'f' && !/INPUT|TEXTAREA/.test(document.activeElement?.tagName)) { e.preventDefault(); findOpen(); }
-    else if (mod && e.key.toLowerCase() === 'z' && $('#recipePane').contains(document.activeElement) && !/INPUT|TEXTAREA/.test(document.activeElement.tagName)) { e.preventDefault(); undo(); }
+    else if (mod && e.key.toLowerCase() === 'z' && $('#recipePane').contains(document.activeElement) && !/INPUT|TEXTAREA/.test(document.activeElement.tagName)) { e.preventDefault(); e.shiftKey ? redo() : undo(); }
+    else if (mod && e.key.toLowerCase() === 'y' && $('#recipePane').contains(document.activeElement) && !/INPUT|TEXTAREA/.test(document.activeElement.tagName)) { e.preventDefault(); redo(); }
   });
   addEventListener('paste', e => {
     const tag = document.activeElement?.tagName; if (/INPUT|TEXTAREA|SELECT/.test(tag)) return;
