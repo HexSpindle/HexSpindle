@@ -1,10 +1,7 @@
 import { module } from './_cat.js';
 import { A } from '../../core/registry.js';
-import { crypt } from './playfair_encode.js';
+import { playfairTransform } from './_classical_ciphers.js';
 
-module('Playfair Decode', 'Decodes a Playfair cipher (filler letters are left in place).',
+module('Playfair Decode', 'Decodes classic Playfair ciphertext. I/J remain combined and filler letters are deliberately left in the plaintext because they cannot be removed unambiguously.',
   [A.string('Keyword', '')],
-  (t, key) => {
-    const letters = [...t.toUpperCase().replace(/J/g, 'I')].filter(c => /[A-Z]/.test(c)).join('');
-    return crypt(letters, key, -1);
-  }, { text: true });
+  (t, key) => playfairTransform(t, key, true), { text: true });
