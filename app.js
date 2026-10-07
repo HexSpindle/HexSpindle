@@ -201,14 +201,82 @@ function showTip(e, name) {
 function hideTip() { tipEl?.remove(); tipEl = null; }
 
 function opRow(name, hl) {
-  const star = el('span', { class: 'star' + (S.fav.has(name) ? ' on' : ''), title: 'Favourite', onclick: e => { e.stopPropagation(); toggleFav(name); } }, icon('star'));
+  const m = S.mods[name];
+  const star = el('span', {
+    class: 'star' + (S.fav.has(name) ? ' on' : ''),
+    title: 'Favourite',
+    onclick: e => {
+      e.stopPropagation();
+      toggleFav(name);
+    }
+  }, icon('star'));
+
   let label = name;
-  if (hl) { const i = name.toLowerCase().indexOf(hl); if (i >= 0) label = [name.slice(0, i), el('mark', {}, name.slice(i, i + hl.length)), name.slice(i + hl.length)]; }
-  const row = el('div', { class: 'op', draggable: 'true', ondblclick: () => addOp(name), onmouseenter: e => showTip(e, name), onmouseleave: hideTip,
-    ondragstart: e => { hideTip(); e.dataTransfer.setData('text/df-op', name); e.dataTransfer.effectAllowed = 'copy'; } },
-    el('span', { style: `width:6px;height:6px;border-radius:50%;background:hsl(${hue(name)} 90% 60%);flex:none` }), el('span', { class: 'nm' }, label), hl ? el('span', { class: 'cat-tag' }, S.mods[name].categoryLabel) : null,
-    star, el('span', { class: 'add', title: 'Add to recipe', onclick: e => { e.stopPropagation(); addOp(name); } }, icon('plus')));
-  return row;
+  if (hl) {
+    const i = name.toLowerCase().indexOf(hl);
+    if (i >= 0) {
+      label = [
+        name.slice(0, i),
+        el('mark', {}, name.slice(i, i + hl.length)),
+        name.slice(i + hl.length)
+      ];
+    }
+  }
+
+  const groupingIcon = m.parallelSafe
+    ? el(
+        'span',
+        {
+          class: 'op-grouping',
+          title: 'Supports parallel grouping',
+          'aria-label': 'Supports parallel grouping'
+        },
+        icon('parallel')
+      )
+    : null;
+
+  return el(
+    'div',
+    {
+      class: 'op',
+      draggable: 'true',
+      ondblclick: () => addOp(name),
+      onmouseenter: e => showTip(e, name),
+      onmouseleave: hideTip,
+      ondragstart: e => {
+        hideTip();
+        e.dataTransfer.setData('text/df-op', name);
+        e.dataTransfer.effectAllowed = 'copy';
+      }
+    },
+
+    el('span', {
+      style: `width:6px;height:6px;border-radius:50%;background:hsl(${hue(name)} 90% 60%);flex:none`
+    }),
+
+    el('span', { class: 'nm' }, label),
+
+    groupingIcon,
+
+    hl
+      ? el('span', { class: 'cat-tag' }, m.categoryLabel)
+      : null,
+
+    star,
+
+    el(
+      'span',
+      {
+        class: 'add',
+        title: 'Add to recipe',
+        onclick: e => {
+          e.stopPropagation();
+          addOp(name);
+        }
+      },
+      icon('plus')
+    )
+  );
 }
 function toggleFav(n) { S.fav.has(n) ? S.fav.delete(n) : S.fav.add(n); LS.set('fav', [...S.fav]); renderOps(); }
 

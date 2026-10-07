@@ -272,6 +272,26 @@ iframe.render { background: #0a1020; color-scheme: dark; }
   .connection-row input[type="password"] { flex-basis: 100%; }
 }
 
+.op .op-grouping {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 17px;
+  height: 17px;
+  color: var(--accent);
+  opacity: .7;
+}
+
+.op .op-grouping .ico {
+  width: 14px;
+  height: 14px;
+}
+
+.op:hover .op-grouping {
+  opacity: 1;
+  filter: drop-shadow(0 0 4px rgba(var(--accent-rgb), .45));
+}
 
 /* status bar */
 .status { display: flex; align-items: center; gap: 10px; padding: 0 14px; border-top: 1px solid var(--line); font: 11px var(--mono); color: var(--muted); backdrop-filter: blur(8px); } .grow { flex: 1; }
