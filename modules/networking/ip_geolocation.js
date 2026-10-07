@@ -3,11 +3,6 @@ import { A, StructuredResult } from '../../core/registry.js';
 import { getGeoIpBundle } from './_geoip_store.js';
 import { isIp } from './_mmdb.js';
 import { normalizeGeoIpRecord, extractIpTokens } from './_geoip_normalize.js';
-import './virustotal_ip.js';
-import './apivoid_ip.js';
-import './abuseipdb.js';
-import './arin_rdap.js';
-import './sans_isc_ip.js';
 
 /* normalization lives in _geoip_normalize.js so it can be tested independently */
 function mergeNormalized(dst, src) {

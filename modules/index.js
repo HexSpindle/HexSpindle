@@ -471,6 +471,8 @@ import './networking/strip_ipv4_header.js';
 import './networking/strip_tcp_header.js';
 import './networking/strip_udp_header.js';
 import './networking/subnet_calculator.js';
+import './networking/arin_rdap.js';
+import './networking/sans_isc_ip.js';
 import './other/bson_deserialise.js';
 import './other/bson_serialise.js';
 import './other/convert_coordinate_format.js';

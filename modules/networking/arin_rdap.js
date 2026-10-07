@@ -2,7 +2,7 @@ import { module } from './_cat.js';
 import { A } from '../../core/registry.js';
 import { OUTPUT_FORMATS, enrichmentResult, fetchJson, mapIps, parallelIpOptions, publicConnection } from './_ip_enrichment.js';
 
-const API = 'https://rdap.arin.net/bootstrap';
+const API = 'https://rdap-bootstrap.arin.net/bootstrap';
 const HEADERS = { Accept: 'application/rdap+json, application/json' };
 
 async function testConnection() {
