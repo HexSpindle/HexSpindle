@@ -105,7 +105,7 @@ export async function fetchJson(url, options = {}, timeoutMs = 20000, allowStatu
   const text = await response.text();
   if (text) {
     try { data = JSON.parse(text); }
-    catch { data = { raw: text.slice(0, 2000) }; }
+    catch { data = { raw: text.replace(/\s+/g, ' ').trim().slice(0, 280) }; }
   }
 
   if (!response.ok && !allowStatuses.includes(response.status)) {

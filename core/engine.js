@@ -72,6 +72,41 @@ function parallelCompatible(left, right) {
   return !!left?.parallelSafe && !!right?.parallelSafe && !!left.parallelGroup && left.parallelGroup === right.parallelGroup;
 }
 
+function abortError(signal) {
+  const reason = signal?.reason;
+  if (reason instanceof Error) return reason;
+  const error = new Error(reason ? String(reason) : 'Recipe run cancelled');
+  error.name = 'AbortError';
+  return error;
+}
+
+function checkAbort(ctx) {
+  if (ctx?.signal?.aborted) throw abortError(ctx.signal);
+}
+
+function hashBytes(data) {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < data.length; i++) {
+    h ^= data[i];
+    h = Math.imul(h, 0x01000193) >>> 0;
+  }
+  return h.toString(16).padStart(8, '0');
+}
+
+function parallelBranchCacheKey(item, data, sourceHash) {
+  let args;
+  try { args = JSON.stringify(item.op.args || []); }
+  catch { args = String(item.op.args || ''); }
+  return `par|${item.gi}|${item.op.module}|${args}|${data.length}:${sourceHash}`;
+}
+
+function sequentialStepCacheKey(op, gi, data, sourceHash) {
+  let args;
+  try { args = JSON.stringify(op.args || []); }
+  catch { args = String(op.args || ''); }
+  return `seq|${gi}|${op.module}|${args}|${data.length}:${sourceHash}`;
+}
+
 function pruneEmpty(value) {
   if (value === null || value === undefined) return undefined;
   if (typeof value === 'number' && Number.isNaN(value)) return undefined;
@@ -152,9 +187,11 @@ function preview(data, n = 240) {
 }
 
 class Ctx {
-  constructor(upto) {
+  constructor(upto, options = {}) {
     this.regs = new Map(); this.numRegs = 0; this.steps = {}; this.html = false;
     this.upto = upto; this.pausedAt = null; this.error = null; this.last = null;
+    this.signal = options.signal || null;
+    this.parallelCache = options.parallelCache instanceof Map ? options.parallelCache : null;
   }
 }
 
@@ -168,33 +205,55 @@ async function runParallelGroup(data, ops, start, end, ctx, offset, top) {
   if (!active.length) return data;
 
   // Every branch receives the exact same immutable upstream byte snapshot.
-  // Branch failures are isolated so one blocked/rate-limited provider does not
-  // throw away successful enrichment returned by its siblings.
+  // In Step mode, completed branches can be supplied through ctx.parallelCache.
+  // That prevents earlier network providers from being called again every time
+  // the user advances one more operation inside the same parallel stage.
+  checkAbort(ctx);
+  const sourceHash = ctx.parallelCache ? hashBytes(data) : '';
   const results = await Promise.all(active.map(async item => {
+    checkAbort(ctx);
+    const cacheKey = ctx.parallelCache ? parallelBranchCacheKey(item, data, sourceHash) : null;
+    if (cacheKey && ctx.parallelCache.has(cacheKey)) {
+      const cached = ctx.parallelCache.get(cacheKey);
+      return { ...item, ...cached, gi: item.gi, op: item.op, mod: item.mod, ms: 0, cached: true };
+    }
+
     const t0 = performance.now();
+    let result;
     try {
       const args = resolveArgs(item.mod, item.op.args, ctx.regs);
       const [bytes, html, mergeData] = await callModule(item.mod, data, args);
+      checkAbort(ctx);
       if (!mergeData || mergeData.type !== 'ip-enrichment' || !mergeData.provider || !Array.isArray(mergeData.rows))
         throw new Error(`Operation '${item.op.module}' did not return merge-compatible IP enrichment data`);
-      return { ...item, bytes, html, mergeData, ms: +(performance.now() - t0).toFixed(2), error: null };
+      result = { ...item, bytes, html, mergeData, ms: +(performance.now() - t0).toFixed(2), error: null, cached: false };
     } catch (error) {
-      return { ...item, bytes: null, html: false, mergeData: null,
-        ms: +(performance.now() - t0).toFixed(2), error };
+      if (error?.name === 'AbortError' || ctx.signal?.aborted) throw abortError(ctx.signal);
+      result = { ...item, bytes: null, html: false, mergeData: null,
+        ms: +(performance.now() - t0).toFixed(2), error, cached: false };
     }
+    if (cacheKey) {
+      // Cache both success and provider-level failure for the current Step session.
+      // A fresh Step sequence gets a fresh Map, so retrying from the beginning is fresh.
+      ctx.parallelCache.set(cacheKey, {
+        bytes: result.bytes, html: result.html, mergeData: result.mergeData,
+        error: result.error, cached: false,
+      });
+    }
+    return result;
   }));
 
   const successful = [];
   for (const result of results) {
     if (result.error) {
       const msg = result.error?.message ? `${result.error.name || 'Error'}: ${result.error.message}` : String(result.error);
-      if (top) ctx.steps[result.gi] = { error: msg, ms: result.ms, parallel: true };
+      if (top) ctx.steps[result.gi] = { error: msg, ms: result.ms, parallel: true, cached: !!result.cached };
       continue;
     }
     successful.push(result);
     if (top) ctx.steps[result.gi] = {
       ms: result.ms, size: result.bytes.length, preview: preview(result.bytes), parallel: true,
-      service: result.mergeData.provider,
+      service: result.mergeData.provider, cached: !!result.cached,
     };
   }
 
@@ -221,6 +280,7 @@ export async function runOps(data, ops, ctx, top = false, offset = 0) {
   let numJumps = 0;
   let i = 0;
   while (i < ops.length) {
+    checkAbort(ctx);
     const op = ops[i];
     const gi = offset + i;
     if (top && ctx.upto !== null && ctx.upto !== undefined && gi > ctx.upto) break;
@@ -311,13 +371,43 @@ export async function runOps(data, ops, ctx, top = false, offset = 0) {
       if (top) ctx.steps[gi] = { ms: 0, size: data.length, preview: preview(data), regs: m ? Object.fromEntries([...ctx.regs].map(([k, v]) => [`$R${k}`, v])) : { '': 'no match' } };
       i++; continue;
     }
+    const sourceData = data;
+    const seqCacheKey = ctx.parallelCache
+      ? sequentialStepCacheKey(op, gi, sourceData, hashBytes(sourceData))
+      : null;
+    if (seqCacheKey && ctx.parallelCache.has(seqCacheKey)) {
+      const cached = ctx.parallelCache.get(seqCacheKey);
+      data = cached.bytes;
+      ctx.html = !!cached.html;
+      if (top) {
+        ctx.steps[gi] = { ms: 0, size: data.length, preview: preview(data), cached: true };
+        ctx.last = data;
+      }
+      i++;
+      continue;
+    }
+
     try {
       const args = resolveArgs(mod, op.args, ctx.regs);
-      let html;
-      [data, html] = await callModule(mod, data, args);
+      let html, mergeData;
+      [data, html, mergeData] = await callModule(mod, data, args);
+      checkAbort(ctx);
       ctx.html = html;
+
+      // When Step stops on the first member of a configured parallel stage, that
+      // member is executed through the normal single-step path. Seed the same
+      // parallel cache here so the next Step click does not execute it again.
+      if (ctx.parallelCache && !op.parallel && ops[i + 1]?.parallel && mergeData?.type === 'ip-enrichment') {
+        const item = { op, gi, mod };
+        const key = parallelBranchCacheKey(item, sourceData, hashBytes(sourceData));
+        ctx.parallelCache.set(key, { bytes: data, html, mergeData, error: null, cached: false });
+      }
+      if (seqCacheKey) {
+        ctx.parallelCache.set(seqCacheKey, { bytes: data, html, mergeData, error: null, cached: false });
+      }
     } catch (e) {
       if (e instanceof ReturnSignal) throw e;
+      if (e?.name === 'AbortError' || ctx.signal?.aborted) throw abortError(ctx.signal);
       const msg = e.message ? `${e.name || 'Error'}: ${e.message}` : (e.name || 'Error');
       if (top) ctx.steps[gi] = { error: msg, ms: +(performance.now() - t0).toFixed(2) };
       ctx.error = { step: gi, module: name, message: msg };
@@ -369,13 +459,14 @@ async function runBlock(kind, data, sub, args, ctx, offset) {
   return concatBytes(out);
 }
 
-export async function bake(data, recipe, upto = null) {
-  const ctx = new Ctx(upto);
+export async function bake(data, recipe, upto = null, options = {}) {
+  const ctx = new Ctx(upto, options);
   const t0 = performance.now();
   let out = data, err = null;
   try {
     out = await runOps(data, recipe, ctx, true);
   } catch (e) {
+    if (e?.name === 'AbortError' || ctx.signal?.aborted) throw abortError(ctx.signal);
     if (e instanceof ReturnSignal) out = e.data;
     else if (e instanceof RecipeError) { err = ctx.error || { step: null, message: e.message }; out = ctx.last !== null ? ctx.last : data; }
     else throw e;

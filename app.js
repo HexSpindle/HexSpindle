@@ -513,7 +513,33 @@ function renderRecipe() {
     if (op.module === 'Merge') depth = Math.max(0, depth - 1);
     const info = el('div', { class: 'step-info' });
     const card = el('div', { class: 'step' + (op.disabled ? ' disabled' : '') + (m.flow ? ' flow' : '') + (op.collapsed ? ' collapsed' : '') + parallelClass(i), style: `--h:${hue(op.module)};margin-left:${depth * 14}px`, dataset: { i } },
-      el('div', { class: 'step-h', draggable: 'true', ondragstart: e => { e.dataTransfer.setData('text/df-step', String(i)); e.dataTransfer.effectAllowed = 'move'; } },
+      el('div', { class: 'step-h', draggable: 'true',
+        ondragstart: e => {
+          e.dataTransfer.setData('text/df-step', String(i));
+          e.dataTransfer.effectAllowed = 'move';
+          box._dragFrom = i;
+          box._dragSource = card;
+          card.classList.add('recipe-dragging');
+          card._dragCssText = card.style.cssText;
+          // Let the browser capture the normal card as the drag image first. On the
+          // next frame collapse its old slot; the placeholder below then makes the
+          // surrounding cards visibly move into their prospective positions.
+          requestAnimationFrame(() => {
+            card.classList.add('recipe-drag-source');
+            card.style.height = '0px';
+            card.style.minHeight = '0px';
+            card.style.marginTop = '-8px';
+            card.style.marginBottom = '0';
+            card.style.paddingTop = '0';
+            card.style.paddingBottom = '0';
+            card.style.borderWidth = '0';
+            card.style.opacity = '0';
+            card.style.overflow = 'hidden';
+            card.style.pointerEvents = 'none';
+          });
+        },
+        ondragend: () => clearRecipeDragPreview(box, card),
+      },
         el('span', { class: 'grip' }, icon('grip')), el('span', { class: 'idx' }, String(i + 1).padStart(2, '0')),
         el('span', { class: 'title', title: m.desc, onclick: () => { op.collapsed = !op.collapsed; card.classList.toggle('collapsed'); persist(); } }, op.module),
         m.parallelSafe ? el('button', {
@@ -536,15 +562,90 @@ function renderRecipe() {
 function move(from, to) {
   if (to < 0 || to > S.recipe.length) return; const [o] = S.recipe.splice(from, 1); S.recipe.splice(to > from ? to - 1 : to, 0, o); S.stepTo = null; commit();
 }
+function clearRecipeDragPreview(box = $('#recipeList'), source = box?._dragSource) {
+  box?.querySelector('.recipe-drop-slot')?.remove();
+  $$('.step', box || document).forEach(c => c.classList.remove('dragover'));
+  if (source) {
+    source.classList.remove('recipe-dragging', 'recipe-drag-source');
+    if (source._dragCssText != null) source.style.cssText = source._dragCssText;
+    delete source._dragCssText;
+  }
+  if (box) { box._dragFrom = null; box._dragSource = null; box._dropAt = null; }
+}
 function wireRecipeDnD() {
   const box = $('#recipeList');
-  const idxAt = y => { const cs = $$('.step', box); let i = 0; for (const c of cs) { const r = c.getBoundingClientRect(); if (y > r.top + r.height / 2) i++; } return i; };
-  box.addEventListener('dragover', e => { if ([...e.dataTransfer.types].some(t => t.startsWith('text/df-'))) { e.preventDefault(); const cs = $$('.step', box); cs.forEach(c => c.classList.remove('dragover')); const i = idxAt(e.clientY); cs[i]?.classList.add('dragover'); } });
-  box.addEventListener('dragleave', e => { if (!box.contains(e.relatedTarget)) $$('.step', box).forEach(c => c.classList.remove('dragover')); });
+  const idxAt = y => {
+    const cs = $$('.step', box).filter(c => c !== box._dragSource);
+    let i = 0;
+    for (const c of cs) { const r = c.getBoundingClientRect(); if (y > r.top + r.height / 2) i++; }
+    return i;
+  };
+  const animateReflow = (cards, before) => {
+    for (const c of cards) {
+      const oldTop = before.get(c); if (oldTop == null) continue;
+      const delta = oldTop - c.getBoundingClientRect().top;
+      if (Math.abs(delta) < 1) continue;
+      try { c.animate([{ transform: `translateY(${delta}px)` }, { transform: 'translateY(0)' }], { duration: 150, easing: 'ease-out' }); }
+      catch { /* Web Animations is cosmetic only */ }
+    }
+  };
+  const previewInternal = y => {
+    const from = Number(box._dragFrom);
+    if (!Number.isInteger(from) || from < 0) return null;
+    const source = box._dragSource;
+    const cards = $$('.step', box).filter(c => c !== source);
+    let reducedAt = cards.length;
+    for (let j = 0; j < cards.length; j++) {
+      const r = cards[j].getBoundingClientRect();
+      if (y < r.top + r.height / 2) { reducedAt = j; break; }
+    }
+    const originalAt = reducedAt > from ? reducedAt + 1 : reducedAt;
+    if (box._dropAt === originalAt && box.querySelector('.recipe-drop-slot')) return originalAt;
+
+    const before = new Map(cards.map(c => [c, c.getBoundingClientRect().top]));
+    let slot = box.querySelector('.recipe-drop-slot');
+    if (!slot) {
+      slot = el('div', {
+        class: 'recipe-drop-slot', 'aria-hidden': 'true',
+        style: 'display:grid;place-items:center;border:2px dashed var(--accent);border-radius:10px;background:rgba(var(--accent-rgb),.08);color:var(--accent);font:700 11px var(--mono);letter-spacing:.06em;box-shadow:inset 0 0 18px rgba(var(--accent-rgb),.06)'
+      }, el('span', {}, 'Drop here'));
+      const h = source?.getBoundingClientRect().height || 52;
+      slot.style.minHeight = `${Math.max(44, Math.min(120, h))}px`;
+    }
+    if (reducedAt < cards.length) box.insertBefore(slot, cards[reducedAt]); else box.append(slot);
+    box._dropAt = originalAt;
+    requestAnimationFrame(() => animateReflow(cards, before));
+    return originalAt;
+  };
+
+  box.addEventListener('dragover', e => {
+    if (![...e.dataTransfer.types].some(t => t.startsWith('text/df-'))) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    const internal = [...e.dataTransfer.types].includes('text/df-step') && Number.isInteger(Number(box._dragFrom));
+    if (internal) {
+      previewInternal(e.clientY);
+      const r = box.getBoundingClientRect();
+      if (e.clientY < r.top + 44) box.scrollTop -= 14;
+      else if (e.clientY > r.bottom - 44) box.scrollTop += 14;
+      return;
+    }
+    const cs = $$('.step', box); cs.forEach(c => c.classList.remove('dragover'));
+    const i = idxAt(e.clientY); cs[i]?.classList.add('dragover');
+  });
+  box.addEventListener('dragleave', e => {
+    if (!box.contains(e.relatedTarget) && box._dragFrom == null) $$('.step', box).forEach(c => c.classList.remove('dragover'));
+  });
   box.addEventListener('drop', e => {
-    e.preventDefault(); $$('.step', box).forEach(c => c.classList.remove('dragover')); const at = idxAt(e.clientY);
+    e.preventDefault();
     const name = e.dataTransfer.getData('text/df-op'), step = e.dataTransfer.getData('text/df-step');
-    if (name) addOp(name, null, at); else if (step !== '') move(+step, at);
+    if (name) {
+      const at = idxAt(e.clientY); clearRecipeDragPreview(box); addOp(name, null, at); return;
+    }
+    if (step !== '') {
+      const from = +step, at = Number.isInteger(box._dropAt) ? box._dropAt : idxAt(e.clientY);
+      clearRecipeDragPreview(box); move(from, at);
+    } else clearRecipeDragPreview(box);
   });
 }
 // dragging a recipe step onto the operations panel removes it ("drag to delete")
@@ -564,28 +665,80 @@ function wireOpsPaneDnD() {
 }
 
 // ---------------------------------------------------------------- baking
-let bakeTimer;
+let bakeTimer, activeBake = null, stepParallelCache = new Map();
 function setStatus(kind, text) { $('#statusDot').className = 'dot' + (kind ? ' ' + kind : ''); $('#statusText').textContent = text; }
+function combinedAbortSignal(a, b) {
+  if (!a) return b; if (!b) return a;
+  if (typeof AbortSignal !== 'undefined' && typeof AbortSignal.any === 'function') return AbortSignal.any([a, b]);
+  const c = new AbortController();
+  const relay = signal => {
+    const stop = () => { if (!c.signal.aborted) c.abort(signal.reason); };
+    if (signal.aborted) stop(); else signal.addEventListener('abort', stop, { once: true });
+  };
+  relay(a); relay(b); return c.signal;
+}
+function setCancelEnabled(enabled) {
+  const button = $('#btnCancelBake');
+  if (!button) return;
+  button.disabled = !enabled;
+  button.style.opacity = enabled ? '1' : '.42';
+  button.style.cursor = enabled ? 'pointer' : 'not-allowed';
+}
+function cancelBake(silent = false) {
+  const run = activeBake;
+  if (!run) return false;
+  run.cancelled = true;
+  if (globalThis.fetch === run.fetchWrapper) globalThis.fetch = run.originalFetch;
+  try { run.controller.abort(new DOMException('Recipe run cancelled', 'AbortError')); }
+  catch { run.controller.abort(); }
+  if (activeBake === run) activeBake = null;
+  S.seq++; // invalidate any late result from work that cannot be interrupted synchronously
+  $('#btnBake')?.classList.remove('busy');
+  $('#progress').hidden = true;
+  setCancelEnabled(false);
+  if (!silent) { showBanner('', ''); setStatus('', 'Cancelled'); }
+  return true;
+}
 const hasNet = () => S.recipe.some(o => !o.disabled && S.mods[o.module]?.net);
 function scheduleBake(now) { S.outputDirty = true; if (!S.auto && !now) return; if (hasNet() && now !== 'manual') { setStatus('', 'Network operation in the recipe: press BAKE to run it'); return; } clearTimeout(bakeTimer); bakeTimer = setTimeout(bake, now ? 0 : 220); }
-// Runs entirely in this tab via core/engine.js - no network round trip, so there's no server job to
-// poll progress from or cancel; a stale result is simply dropped via the seq guard below if a newer
-// bake started while an older one was still running (e.g. a slow RSA key generation).
+// Main BAKE runs in this tab. While it is active, fetch() calls made by recipe operations are
+// wrapped with one run-level AbortController. Cancel therefore stops pending HTTP requests
+// immediately and invalidates late results. Pure synchronous CPU work can only observe the
+// cancellation after it yields back to the browser event loop.
 async function bake(opts = {}) {
+  if (activeBake) cancelBake(true);
   clearTimeout(bakeTimer); const seq = ++S.seq;
   const upto = opts.upto ?? S.stepTo ?? S.inspect; const inp = cur();
+  const controller = new AbortController();
+  const originalFetch = globalThis.fetch;
+  const run = { seq, controller, originalFetch, fetchWrapper: null, cancelled: false };
+  run.fetchWrapper = (resource, init = {}) => originalFetch(resource, { ...init, signal: combinedAbortSignal(init?.signal, controller.signal) });
+  globalThis.fetch = run.fetchWrapper;
+  activeBake = run;
+
   setStatus('busy', 'Baking…'); $('#btnBake').classList.add('busy'); $('#progress').hidden = false; $('#progress').classList.remove('det');
+  setCancelEnabled(true);
   try {
-    const j = await engineBake(inp.bytes, serialRecipe(), upto ?? null);
-    if (seq !== S.seq) return;
+    const j = await engineBake(inp.bytes, serialRecipe(), upto ?? null, { signal: controller.signal, parallelCache: opts.parallelCache || null });
+    if (run.cancelled || controller.signal.aborted || seq !== S.seq) return;
     S.res = j; S.out = j.output; S.outputTab = S.tab; S.outputDirty = false; S.viewLimit = VIEW_STEP; inp.out = { bytes: S.out, html: j.html };
     paintSteps(); renderOutput(); if (!$('#findbar').hidden) findRun();
     persist(); // Preserve the displayed result, including binary output, across refreshes.
     $('#outTime').textContent = `${j.ms} ms`;
     setStatus(j.error ? 'err' : '', j.error ? `Error in step ${j.error.step + 1}` : j.pausedAt != null ? `Paused before step ${j.pausedAt + 1}` : 'Ready');
     $('#statusRight').textContent = `IN ${fmtBytes(inp.bytes.length)} → OUT ${fmtBytes(S.out.length)} · ${j.ms} ms`;
-  } catch (e) { setStatus('err', 'Error'); showBanner('err', e.message); }
-  finally { if (seq === S.seq) { $('#btnBake').classList.remove('busy'); $('#progress').hidden = true; } }
+  } catch (e) {
+    if (run.cancelled || controller.signal.aborted) {
+      if (seq === S.seq) { showBanner('', ''); setStatus('', 'Cancelled'); }
+    } else { setStatus('err', 'Error'); showBanner('err', e.message); }
+  } finally {
+    if (globalThis.fetch === run.fetchWrapper) globalThis.fetch = originalFetch;
+    if (activeBake === run) activeBake = null;
+    if (seq === S.seq) {
+      $('#btnBake').classList.remove('busy'); $('#progress').hidden = true;
+      setCancelEnabled(false);
+    }
+  }
 }
 function paintSteps() {
   const res = S.res; if (!res) return;
@@ -593,8 +746,12 @@ function paintSteps() {
     if (!card) return; const st = res.steps[i]; const info = card._info; info.replaceChildren(); card.classList.remove('err', 'paused');
     if (!st) return;
     if (st.skipped) { info.append('skipped'); return; }
-    if (st.cached) { info.append(el('span', { class: 'chip', title: 'Served from the step cache (unchanged prefix) instead of re-running' }, '⚡ cached')); return; }
-    if (st.error) { card.classList.add('err'); info.append(el('span', { class: 'errmsg' }, st.error)); return; }
+    if (st.error) {
+      card.classList.add('err');
+      if (st.cached) info.append(el('span', { class: 'chip', title: 'This provider result was already attempted in the current Step sequence' }, '⚡ cached'));
+      info.append(el('span', { class: 'errmsg' }, st.error)); return;
+    }
+    if (st.cached) { info.append(el('span', { class: 'chip', title: 'Already completed in the current Step sequence; not run again' }, '⚡ cached')); return; }
     if (st.inblock) { info.append('inside Fork/Subsection'); return; }
     if (st.regs) { Object.entries(st.regs).forEach(([k, v]) => info.append(el('div', { class: 'step-prev', style: 'width:100%' }, k ? `${k} = ${v}` : v))); }
     if (st.size != null) {
@@ -610,8 +767,14 @@ function showBanner(kind, msg, btn) {
 function inspect(i) { S.inspect = i; S.stepTo = null; bake({ upto: i }); }
 function step() {
   const n = S.recipe.length; if (!n) return;
-  if (S.res?.pausedAt != null && S.stepTo == null) S.stepTo = S.res.pausedAt; else S.stepTo = S.stepTo == null ? 0 : Math.min(S.stepTo + 1, n - 1);
-  S.inspect = null; bake({ upto: S.stepTo });
+  // A new Step sequence gets a fresh parallel branch cache. While advancing through
+  // one configured parallel stage, completed providers are reused instead of being
+  // called again. The next click therefore runs only the newly reached provider.
+  if (S.stepTo == null) stepParallelCache = new Map();
+  if (S.res?.pausedAt != null && S.stepTo == null) S.stepTo = S.res.pausedAt;
+  else S.stepTo = S.stepTo == null ? 0 : Math.min(S.stepTo + 1, n - 1);
+  S.inspect = null;
+  bake({ upto: S.stepTo, parallelCache: stepParallelCache });
 }
 
 
@@ -1920,6 +2083,12 @@ function ensureIntelChrome() {
     const redoBtn = el('button', { class: 'icon-btn', id: 'btnRedo', title: 'Redo (Ctrl+Shift+Z / Ctrl+Y)', disabled: true }, icon('redo'));
     undoBtn.after(redoBtn);
   }
+  const bakeBtn = $('#btnBake');
+  if (bakeBtn && !$('#btnCancelBake')) {
+    const cancelBtn = el('button', { class: 'btn cancel-bake', id: 'btnCancelBake', title: 'Cancel the current recipe run', disabled: true }, icon('x'), 'Cancel');
+    bakeBtn.before(cancelBtn);
+    setCancelEnabled(false);
+  }
 }
 
 // ---------------------------------------------------------------- init
@@ -1991,7 +2160,8 @@ async function init() {
   $$('#mtabs button').forEach(b => b.onclick = () => setPane(b.dataset.p));
   setPane(LS.get('pane', 'recipe')); applyWrap();
   addEventListener('resize', () => setPane(document.body.dataset.pane));
-  $('#btnBake').onclick = () => { S.stepTo = null; S.inspect = null; if (narrow()) setPane('io'); bake(); };
+  $('#btnBake').onclick = () => { S.stepTo = null; S.inspect = null; stepParallelCache = new Map(); if (narrow()) setPane('io'); bake(); };
+  $('#btnCancelBake').onclick = () => cancelBake(false);
   $('#btnStep').onclick = () => { if (narrow()) setPane('io'); step(); };
   $('#autoBake').onchange = e => { S.auto = e.target.checked; persist(); if (S.auto) scheduleBake(true); };
   $('#btnClearRecipe').onclick = () => { S.recipe = []; S.stepTo = S.inspect = null; commit(); };
@@ -2034,7 +2204,7 @@ async function init() {
   addEventListener('keydown', e => {
     const mod = e.ctrlKey || e.metaKey;
     if (e.key === 'Escape') closeModal();
-    else if (mod && e.key === 'Enter') { e.preventDefault(); S.stepTo = S.inspect = null; bake(); }
+    else if (mod && e.key === 'Enter') { e.preventDefault(); S.stepTo = S.inspect = null; stepParallelCache = new Map(); bake(); }
     else if (mod && e.key.toLowerCase() === 'k') { e.preventDefault(); palette(); }
     else if (mod && e.key.toLowerCase() === 's') { e.preventDefault(); recipeIO(); }
     else if (mod && e.key.toLowerCase() === 'f' && !/INPUT|TEXTAREA/.test(document.activeElement?.tagName)) { e.preventDefault(); findOpen(); }
