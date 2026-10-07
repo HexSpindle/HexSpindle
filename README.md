@@ -41,14 +41,14 @@ The **Magic** decoder uses the same registry when evaluating candidate transform
 
 | Category | Operations |
 |---|---:|
-| Encryption / Encoding | 116 |
+| Encryption / Encoding | 146 |
 | Data Format | 78 |
 | Hashing | 66 |
 | Utils | 61 |
 | Public Key | 49 |
 | Multimedia | 41 |
 | Networking | 51 |
-| Compression | 32 |
+| Compression | 34 |
 | Other | 32 |
 | Arithmetic / Logic | 31 |
 | Code Tidy | 16 |
@@ -57,7 +57,7 @@ The **Magic** decoder uses the same registry when evaluating candidate transform
 | Date / Time | 11 |
 | Flow Control | 9 |
 | Language | 6 |
-| **Total** | **626** |
+| **Total** | **658** |
 
 ## Architecture
 
