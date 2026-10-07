@@ -72,6 +72,25 @@ function parallelCompatible(left, right) {
   return !!left?.parallelSafe && !!right?.parallelSafe && !!left.parallelGroup && left.parallelGroup === right.parallelGroup;
 }
 
+function pruneEmpty(value) {
+  if (value === null || value === undefined) return undefined;
+  if (typeof value === 'number' && Number.isNaN(value)) return undefined;
+  if (typeof value === 'string') return value.trim() === '' ? undefined : value;
+  if (Array.isArray(value)) {
+    const cleaned = value.map(pruneEmpty).filter(v => v !== undefined);
+    return cleaned.length ? cleaned : undefined;
+  }
+  if (typeof value === 'object') {
+    const out = {};
+    for (const [key, child] of Object.entries(value)) {
+      const cleaned = pruneEmpty(child);
+      if (cleaned !== undefined) out[key] = cleaned;
+    }
+    return Object.keys(out).length ? out : undefined;
+  }
+  return value;
+}
+
 function mergeIpEnrichment(branches) {
   const records = new Map();
   // First merge every provider that returned structured indicator rows.
@@ -86,9 +105,14 @@ function mergeIpEnrichment(branches) {
       if (!ip) continue;
       if (!records.has(ip)) records.set(ip, { ip, enrichment: {} });
       const { ip: _ip, error, ...data } = row;
-      records.get(ip).enrichment[merge.provider] = error
-        ? { status: 'error', error: String(error) }
-        : { status: 'success', data };
+      if (error) {
+        records.get(ip).enrichment[merge.provider] = { status: 'error', error: String(error) };
+      } else {
+        const cleaned = pruneEmpty(data);
+        records.get(ip).enrichment[merge.provider] = cleaned === undefined
+          ? { status: 'success' }
+          : { status: 'success', data: cleaned };
+      }
     }
   }
 
@@ -103,7 +127,7 @@ function mergeIpEnrichment(branches) {
     }
   }
 
-  const rows = [...records.values()];
+  const rows = [...records.values()].map(row => pruneEmpty(row)).filter(Boolean);
   return encodeUtf8(JSON.stringify(rows.length === 1 ? rows[0] : rows, null, 2));
 }
 

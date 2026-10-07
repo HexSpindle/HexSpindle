@@ -20,29 +20,31 @@ export async function testSANSISCConnection() {
   }
 }
 
+const numeric = value => value === null || value === undefined || value === '' ? undefined : Number(value);
+
 function parse(payload) {
   const data = payload && typeof payload === 'object' ? (payload.ip || payload) : {};
   const feeds = data?.threatfeeds;
   const feedNames = feeds && typeof feeds === 'object' && !Array.isArray(feeds) ? Object.keys(feeds) : [];
   return {
-    number: data?.number || '',
-    country: String(data?.country || '').trim(),
-    count: Number(data?.count || 0),
-    attacks: Number(data?.attacks || 0),
-    maxdate: data?.maxdate || '',
-    mindate: data?.mindate || '',
-    updated: data?.updated || '',
-    comment: data?.comment || '',
-    maxrisk: data?.maxrisk ?? '',
-    abuse_contact: data?.abusecontact || data?.asabusecontact || '',
-    asn: String(data?.as || '').trim(),
-    as_name: String(data?.asname || '').trim(),
-    as_country: String(data?.ascountry || '').trim(),
-    as_size: data?.assize || '',
-    network: String(data?.network || '').trim(),
-    threatfeed_count: feedNames.length,
+    number: data?.number,
+    country: data?.country,
+    count: numeric(data?.count),
+    attacks: numeric(data?.attacks),
+    maxdate: data?.maxdate,
+    mindate: data?.mindate,
+    updated: data?.updated,
+    comment: data?.comment,
+    maxrisk: data?.maxrisk,
+    abuse_contact: data?.abusecontact || data?.asabusecontact,
+    asn: data?.as,
+    as_name: data?.asname,
+    as_country: data?.ascountry,
+    as_size: data?.assize,
+    network: data?.network,
+    threatfeed_count: feeds == null ? undefined : feedNames.length,
     threatfeed_names: feedNames,
-    threatfeeds: feeds || {},
+    threatfeeds: feeds,
   };
 }
 

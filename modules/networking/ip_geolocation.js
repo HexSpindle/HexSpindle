@@ -3,6 +3,7 @@ import { A, StructuredResult } from '../../core/registry.js';
 import { getGeoIpBundle } from './_geoip_store.js';
 import { isIp } from './_mmdb.js';
 import { normalizeGeoIpRecord, extractIpTokens } from './_geoip_normalize.js';
+import { pruneEmpty } from './_ip_enrichment.js';
 
 /* normalization lives in _geoip_normalize.js so it can be tested independently */
 function mergeNormalized(dst, src) {
@@ -61,7 +62,7 @@ module(
       row.sources = matches;
       row.found = matches.some(m => !m.error);
       if (includeRaw) row.raw = raw;
-      return row;
+      return pruneEmpty(row) || { ip };
     });
     const rendered = output === 'CSV' ? toCsv(rows)
       : output === 'JSON Lines' ? rows.map(r => JSON.stringify(r)).join('\n')
