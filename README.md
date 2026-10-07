@@ -47,7 +47,7 @@ The **Magic** decoder uses the same registry when evaluating candidate transform
 | Utils | 61 |
 | Public Key | 49 |
 | Multimedia | 41 |
-| Networking | 40 |
+| Networking | 51 |
 | Compression | 32 |
 | Other | 32 |
 | Arithmetic / Logic | 31 |
@@ -57,7 +57,7 @@ The **Magic** decoder uses the same registry when evaluating candidate transform
 | Date / Time | 11 |
 | Flow Control | 9 |
 | Language | 6 |
-| **Total** | **615** |
+| **Total** | **626** |
 
 ## Architecture
 
