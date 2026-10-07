@@ -148,6 +148,131 @@ iframe.render { background: #0a1020; color-scheme: dark; }
 .bake-bar { display: flex; align-items: center; gap: 8px; padding: 10px; border-top: 1px solid var(--line); justify-content: flex-end; } .bake-bar .switch { margin-right: auto; }
 .step.flow { border-style: dashed; }
 
+/* HexSpindle IP-intelligence / parallel-recipe UI additions. */
+.icon-btn:disabled, .btn:disabled {
+  opacity: .28;
+  cursor: not-allowed;
+  transform: none !important;
+  box-shadow: none !important;
+}
+
+.parallel-btn { position: relative; }
+.parallel-btn.on {
+  color: var(--accent);
+  border-color: var(--accent);
+  background: rgba(var(--accent-rgb), .14);
+  box-shadow: 0 0 12px rgba(var(--accent-rgb), .18);
+}
+.parallel-btn:disabled { color: var(--dim); }
+
+/* A linked row means "run this operation from the same upstream snapshot as the
+   compatible operation immediately above". These borders make the contiguous
+   rows read as one parallel stage without introducing a second recipe layout. */
+.step.parallel-member {
+  border-right-color: rgba(var(--accent-rgb), .42);
+  box-shadow: inset -2px 0 0 rgba(var(--accent-rgb), .16);
+}
+.step.parallel-member::after {
+  content: "";
+  position: absolute;
+  left: -7px;
+  top: -9px;
+  bottom: -9px;
+  width: 3px;
+  border-radius: 3px;
+  background: rgba(var(--accent-rgb), .55);
+  box-shadow: 0 0 9px rgba(var(--accent-rgb), .26);
+  pointer-events: none;
+}
+.step.parallel-first::before {
+  content: "PARALLEL";
+  position: absolute;
+  z-index: 2;
+  right: 9px;
+  top: -7px;
+  padding: 0 6px;
+  border: 1px solid rgba(var(--accent-rgb), .45);
+  border-radius: 99px;
+  background: var(--panel-solid);
+  color: var(--accent);
+  font: 700 9px/15px var(--mono);
+  letter-spacing: .08em;
+  pointer-events: none;
+}
+.step.parallel-first::after { top: 14px; }
+.step.parallel-last::after { bottom: 14px; }
+
+.connection-box {
+  display: grid;
+  gap: 7px;
+  padding: 9px 10px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: rgba(127, 147, 182, .045);
+  transition: border-color .18s, box-shadow .18s, background .18s;
+}
+.connection-title {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 650;
+  letter-spacing: .04em;
+}
+.connection-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.connection-row input[type="password"] {
+  flex: 1 1 190px;
+  min-width: 0;
+  width: 100%;
+  padding: 6px 9px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  outline: none;
+  background: var(--input);
+  color: var(--text);
+  font: 12px var(--mono);
+}
+.connection-row input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(var(--accent-rgb), .14);
+}
+.connection-row .btn { padding: 5px 9px; font-size: 11px; }
+.connection-state {
+  min-height: 16px;
+  overflow-wrap: anywhere;
+  font: 11px/1.45 var(--mono);
+  color: var(--muted);
+}
+.connection-help {
+  color: var(--dim);
+  font-size: 10.5px;
+  line-height: 1.45;
+}
+.connection-box.conn-ok {
+  border-color: color-mix(in srgb, var(--ok) 62%, transparent);
+  background: color-mix(in srgb, var(--ok) 5%, var(--input));
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--ok) 18%, transparent), 0 0 16px color-mix(in srgb, var(--ok) 13%, transparent);
+}
+.connection-state.ok { color: var(--ok); text-shadow: 0 0 8px color-mix(in srgb, var(--ok) 45%, transparent); }
+.connection-box.conn-bad {
+  border-color: color-mix(in srgb, var(--err) 65%, transparent);
+  background: color-mix(in srgb, var(--err) 5%, var(--input));
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--err) 14%, transparent), 0 0 13px color-mix(in srgb, var(--err) 10%, transparent);
+}
+.connection-state.bad { color: var(--err); }
+.connection-box.conn-checking { border-color: var(--accent); box-shadow: var(--glow); }
+.connection-state.checking { color: var(--accent); }
+.connection-state.muted { color: var(--muted); }
+
+@media (max-width: 760px) {
+  .connection-row { align-items: stretch; }
+  .connection-row input[type="password"] { flex-basis: 100%; }
+}
+
+
 /* status bar */
 .status { display: flex; align-items: center; gap: 10px; padding: 0 14px; border-top: 1px solid var(--line); font: 11px var(--mono); color: var(--muted); backdrop-filter: blur(8px); } .grow { flex: 1; }
 .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--ok); box-shadow: 0 0 8px var(--ok); } .dot.busy { background: var(--warn); box-shadow: 0 0 8px var(--warn); animation: pulse 1s infinite; } .dot.err { background: var(--err); box-shadow: 0 0 8px var(--err); }
