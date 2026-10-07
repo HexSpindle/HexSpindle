@@ -713,7 +713,7 @@ async function bake(opts = {}) {
   globalThis.fetch = run.fetchWrapper;
   activeBake = run;
 
-  setStatus('busy', 'Baking…'); $('#btnBake').classList.add('busy'); $('#progress').hidden = false; $('#progress').classList.remove('det');
+  setStatus('busy', 'Spinning…'); $('#btnBake').classList.add('busy'); $('#progress').hidden = false; $('#progress').classList.remove('det');
   setCancelEnabled(true);
   try {
     const j = await engineBake(inp.bytes, serialRecipe(), upto ?? null, { signal: controller.signal, parallelCache: opts.parallelCache || null });
