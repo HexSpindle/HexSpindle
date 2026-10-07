@@ -145,7 +145,91 @@ iframe.render { background: #0a1020; color-scheme: dark; }
 .switch i::after { content: ""; position: absolute; top: 2px; left: 2px; width: 13px; height: 13px; border-radius: 50%; background: var(--muted); transition: .2s; } .switch input:checked + i { background: rgba(var(--accent-rgb), .35); } .switch input:checked + i::after { left: 15px; background: var(--accent); box-shadow: 0 0 8px var(--accent); }
 .desc { font-size: 11.5px; color: var(--muted); } .step-info { display: flex; gap: 8px; align-items: center; font: 11px var(--mono); color: var(--dim); flex-wrap: wrap; } .step-info .chip { padding: 1px 7px; border-radius: 99px; background: rgba(var(--accent-rgb), .1); color: var(--accent); cursor: pointer; } .step-info .errmsg { color: var(--err); }
 .step-prev { font: 11px var(--mono); padding: 6px 8px; border-radius: 6px; background: rgba(0, 0, 0, .25); max-height: 90px; overflow: auto; white-space: pre-wrap; word-break: break-all; color: var(--muted); }
-.bake-bar { display: flex; align-items: center; gap: 8px; padding: 10px; border-top: 1px solid var(--line); justify-content: flex-end; } .bake-bar .switch { margin-right: auto; }
+/* Responsive recipe action bar.
+   Keep all controls visible as the Recipe pane is resized. */
+#recipePane { container-type: inline-size; }
+
+.bake-bar {
+  display: flex;
+  align-items: center;
+  gap: clamp(4px, 1.4cqw, 8px);
+  padding: 10px;
+  border-top: 1px solid var(--line);
+  justify-content: flex-end;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.bake-bar .switch {
+  margin-right: auto;
+  flex: 0 1 auto;
+  min-width: 0;
+  white-space: nowrap;
+}
+
+/* Sequential / Cancel / Spin share the remaining width instead of
+   retaining fixed button widths and disappearing outside the pane. */
+.bake-bar > .btn {
+  flex: 1 1 0;
+  min-width: 0;
+  width: auto;
+  max-width: 118px;
+  justify-content: center;
+  padding-left: clamp(6px, 2.2cqw, 14px);
+  padding-right: clamp(6px, 2.2cqw, 14px);
+  gap: clamp(3px, 1.2cqw, 7px);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.bake-bar > .btn.primary {
+  padding-left: clamp(8px, 2.8cqw, 22px);
+  padding-right: clamp(8px, 2.8cqw, 22px);
+}
+
+/* Tight recipe panes: reduce nonessential spacing before allowing clipping. */
+@container (max-width: 390px) {
+  .bake-bar {
+    gap: 4px;
+    padding-left: 7px;
+    padding-right: 7px;
+  }
+
+  .bake-bar .switch {
+    font-size: 11px;
+    gap: 5px;
+  }
+
+  .bake-bar > .btn {
+    font-size: 11px;
+    padding-left: 5px;
+    padding-right: 5px;
+  }
+
+  .bake-bar > .btn .ico {
+    width: 14px;
+    height: 14px;
+  }
+}
+
+/* Extremely narrow recipe panes: keep every action reachable by wrapping
+   the action buttons onto a second row rather than letting them disappear. */
+@container (max-width: 300px) {
+  .bake-bar {
+    flex-wrap: wrap;
+    overflow: visible;
+  }
+
+  .bake-bar .switch {
+    flex: 1 1 100%;
+    margin-right: 0;
+  }
+
+  .bake-bar > .btn {
+    flex: 1 1 0;
+    max-width: none;
+  }
+}
 .step.flow { border-style: dashed; }
 
 /* HexSpindle IP-intelligence / parallel-recipe UI additions. */
