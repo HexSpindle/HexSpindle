@@ -1914,11 +1914,7 @@ function setAccent(a) { document.documentElement.dataset.accent = a; LS.set('acc
 
 // ---------------------------------------------------------------- feature chrome
 function ensureIntelChrome() {
-  if (!document.querySelector('link[data-hexspindle-intel]')) {
-    const css = document.createElement('link');
-    css.rel = 'stylesheet'; css.href = './ip-intel.css'; css.dataset.hexspindleIntel = '1';
-    document.head.append(css);
-  }
+  // Intel/parallel UI styles now live in app.css. Do not load a second stylesheet.
   const undoBtn = $('#btnUndo');
   if (undoBtn && !$('#btnRedo')) {
     const redoBtn = el('button', { class: 'icon-btn', id: 'btnRedo', title: 'Redo (Ctrl+Shift+Z / Ctrl+Y)', disabled: true }, icon('redo'));
