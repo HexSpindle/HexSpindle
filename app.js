@@ -700,11 +700,8 @@ function cancelBake(silent = false) {
   return true;
 }
 const hasNet = () => S.recipe.some(o => !o.disabled && S.mods[o.module]?.net);
-function scheduleBake(now) { S.outputDirty = true; if (!S.auto && !now) return; if (hasNet() && now !== 'manual') { setStatus('', 'Network operation in the recipe: press BAKE to run it'); return; } clearTimeout(bakeTimer); bakeTimer = setTimeout(bake, now ? 0 : 220); }
-// Main BAKE runs in this tab. While it is active, fetch() calls made by recipe operations are
-// wrapped with one run-level AbortController. Cancel therefore stops pending HTTP requests
-// immediately and invalidates late results. Pure synchronous CPU work can only observe the
-// cancellation after it yields back to the browser event loop.
+function scheduleBake(now) { S.outputDirty = true; if (!S.auto && !now) return; if (hasNet() && now !== 'manual') { setStatus('', 'Network operation in the recipe: press SPIN to run it'); return; } clearTimeout(bakeTimer); bakeTimer = setTimeout(bake, now ? 0 : 220); }
+
 async function bake(opts = {}) {
   if (activeBake) cancelBake(true);
   clearTimeout(bakeTimer); const seq = ++S.seq;
