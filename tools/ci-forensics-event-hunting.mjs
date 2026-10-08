@@ -59,5 +59,5 @@ test('native PE user string operation reports explicit not-applicable',()=>asser
 test('managed PE CLR directory detected',()=>assert.equal(JSON.parse(peClrInspector(managed)).managed,true));
 test('managed PE metadata streams parsed',()=>assert.ok(JSON.parse(dotnetMetadata(managed)).streams.some(x=>x.name==='#Strings')));
 test('managed PE #US UTF16 string extracted',()=>assert.equal(JSON.parse(dotnetUserStrings(managed))[0].value,'Hi'));
-test('96 evidence guidance entries complete',()=>{assert.equal(Object.keys(FORENSICS_EVIDENCE_GUIDE).length,96);for(const [k,v]of Object.entries(FORENSICS_EVIDENCE_GUIDE))assert.ok(v.input&&v.source&&v.acquire&&v.note,k);});
+test('100 evidence guidance entries complete',()=>{assert.equal(Object.keys(FORENSICS_EVIDENCE_GUIDE).length,100);for(const [k,v]of Object.entries(FORENSICS_EVIDENCE_GUIDE))assert.ok(v.input&&v.source&&v.acquire&&v.note,k);});
 console.log(`PASS ${passed} native EVTX / Windows event / CLR reference checks`);

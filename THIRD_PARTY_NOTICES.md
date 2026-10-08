@@ -286,6 +286,10 @@ Common license conditions appear in [`licenses/`](licenses/): [`MIT.txt`](licens
 
 The 68 newly added JavaScript operation wrappers and their shared DFIR parsers under `modules/forensics/` are contributed as original HexSpindle code under the repository MIT license. **No additional third-party JavaScript bundle or binary dependency is included with this expansion.** This section is an internal licensing clarification, not an additional third-party attribution and not an independent verification of the implementation's originality. Existing third-party code and the unresolved notice-verification items in this document remain subject to their own licenses.
 
+## Forensic regression fixture provenance (v7)
+
+The optional test fixture `tools/fixtures/forensics/setuptools-cli-64.exe` is a Windows native PE launcher from the open-source [setuptools](https://github.com/pypa/setuptools) distribution, distributed only as a regression specimen for PE Authenticode image hashing. It is **not run** by CI or the browser. The upstream setuptools project uses the **MIT license**; see `tools/fixtures/forensics/LICENSE.SETUPTOOLS.txt` and the upstream license. All synthetic binary fixtures in this release were generated for the HexSpindle test suite. The published Windows Prefetch samples are **not bundled**; the optional test harness checks their public Git blob hashes before parsing.
+
 ## Additional components and data provenance to verify
 
 These files contain substantial standards-derived tables or algorithms. They are **not** designated third-party works solely because an implementation of the standard exists elsewhere; verify their generation or original source before making any third-party ownership claim:

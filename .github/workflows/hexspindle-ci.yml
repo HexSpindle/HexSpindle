@@ -42,6 +42,8 @@ jobs:
         run: node ci-forensics-evidence.mjs
       - name: Validate SQLite WAL committed-snapshot reconstruction
         run: node ci-forensics-wal.mjs
+      - name: Validate deep registry / SQLite / EVTX / PE / Prefetch forensic invariants
+        run: node ci-forensics-deep.mjs
       - name: Validate NTFS MFT record frames and torn-write detection
         run: node ci-forensics-mft.mjs
       - name: Validate USN journal V2/V3/V4 and corruption behavior

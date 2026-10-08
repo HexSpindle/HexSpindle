@@ -125,6 +125,11 @@ function normalize(tree,meta){const root=tree.find(x=>typeof x!=='string'&&x.nam
 /** Converts raw EVTX bytes to an XML fragment sequence or an analyzer-friendly JSON array.
  * By design this does not discard events that cannot be decoded silently.
  */
+function findFramedRecord(data,start,end){
+ for(let p=(start+7)&~7;p+28<=end;p+=8){if(data[p]!==42||data[p+1]!==42||data[p+2]!==0||data[p+3]!==0)continue;
+  const size=u32(data,p+4,end);if(size>=28&&p+size<=end&&u32(data,p+size-4,end)===size)return p;
+ }return -1;
+}
 export function convertEvtx(data,format='json',maxRecords=1000,skipErrors=false){
  if(!(data instanceof Uint8Array))BAD('expected raw Uint8Array');
  check(data,0,4096);if(String.fromCharCode(...data.subarray(0,7))!=='ElfFile'||data[7]!==0)BAD('not a native .evtx file (missing ElfFile signature)');
@@ -147,8 +152,17 @@ export function convertEvtx(data,format='json',maxRecords=1000,skipErrors=false)
   const free=Math.min(chunkEnd,chunk+Math.max(512,u32(data,chunk+48,chunkEnd)));
   let p=chunk+512;
   while(p+28<=free&&out.length<max){
-   if(u32(data,p,free)!==0x2a2a)break;
-   const size=u32(data,p+4,free);if(size<28||p+size>free||u32(data,p+size-4,free)!==size){issues.push(`Chunk ${i} record at 0x${p.toString(16)}: invalid frame`);break;}
+   if(u32(data,p,free)!==0x2a2a){
+    if(!skipErrors)break;
+    const resume=findFramedRecord(data,p+8,free);
+    if(resume<0){if(data.subarray(p,free).some(b=>b!==0))issues.push(`Chunk ${i} undecoded trailing bytes from 0x${p.toString(16)}`);break;}
+    issues.push(`Chunk ${i}: resynchronized record stream, skipped bytes from 0x${p.toString(16)} to 0x${resume.toString(16)}`);p=resume;continue;
+   }
+   const size=u32(data,p+4,free);if(size<28||p+size>free||u32(data,p+size-4,free)!==size){
+    issues.push(`Chunk ${i} record at 0x${p.toString(16)}: invalid frame`);
+    if(!skipErrors)break;
+    const resume=findFramedRecord(data,p+8,free);if(resume<0)break;p=resume;continue;
+   }
    found++;const recordId=u64(data,p+8,free).toString(),writtenUtc=timeFromFiletime(u64(data,p+16,free));
    try {
     const ctx={data,chunk};const recordEnd=p+size-4;
@@ -165,7 +179,8 @@ export function convertEvtx(data,format='json',maxRecords=1000,skipErrors=false)
    p+=size;
   }
  }
- if(!out.length)throw new Error('No EVTX events decoded. '+(issues[0]||'File contains no records.'));
- if(issues.length)throw new Error(`${out.length} events decoded but ${issues.length} records/chunks failed. Refusing to silently return incomplete forensic evidence. First failure: ${issues[0]}`);
+ if(!out.length&&!skipErrors)throw new Error('No EVTX events decoded. '+(issues[0]||'File contains no records.'));
+ if(issues.length&&!skipErrors)throw new Error(`${out.length} events decoded but ${issues.length} records/chunks failed. Refusing to silently return incomplete forensic evidence. First failure: ${issues[0]}`);
+ if(skipErrors)return JSON.stringify({partial:issues.length>0||out.length>=max,decodedCount:out.length,issues,reportingLimit:max,events:out,note:'Salvage candidates only. Damaged spans may contain unrecovered records; no event should be regarded as complete without independent verification.'},null,2);
  return format==='xml'?'<?xml version="1.0" encoding="UTF-8"?>\n<Events>\n'+out.join('\n')+'\n</Events>':JSON.stringify(out,null,2);
 }

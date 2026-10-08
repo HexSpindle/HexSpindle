@@ -17,7 +17,7 @@ export function parsePrefetch(data) {
     need(data, 0, 8, 'compressed Prefetch MAM header');
     const compression = data[3], expected = u32le(data, 4);
     if (compression !== 4) throw new Error(`Unsupported Prefetch MAM compression type ${compression}; supported type is 4 (XPRESS-Huffman)`);
-    if (expected < 84 || expected > 64 * 1048576) throw new Error('Prefetch MAM decompressed size is invalid or exceeds the 64 MiB safety limit');
+    if (expected < 84 || expected > 32 * 1048576) throw new Error('Prefetch MAM decompressed size is invalid or exceeds the 32 MiB safety limit');
     let decompressed;
     try { decompressed = xpressDecompressHuffman(data.subarray(8), expected); }
     catch (error) { throw new Error(`MAM XPRESS-Huffman decompression failed: ${error.message}`); }
@@ -30,8 +30,10 @@ export function parsePrefetch(data) {
   need(data, 0, 84, 'Prefetch header');
   const version = u32le(data, 0), sig = fixedAscii(data, 4, 4);
   if (sig !== 'SCCA') throw new Error('Not an uncompressed Windows Prefetch file (missing SCCA signature)');
+  if (![17,23,26,30,31].includes(version)) throw new Error(`Unsupported Prefetch version ${version}; timestamp/run count offsets cannot be verified`);
   const executable = fixedUtf16(data, 16, 30).replace(/\0/g, '');
   const fileSize = u32le(data, 12); const hash = u32le(data, 76);
+  if (fileSize && fileSize !== data.length) throw new Error(`Prefetch header file size ${fileSize} does not match uncompressed evidence length ${data.length}`);
   const info = { version, executable, fileSize, compression: mamCompression || 'none', hash: '0x' + hash.toString(16).padStart(8, '0'), lastRuns: [], runCount: null, referencedFiles: [] };
   const timestampOffsets = version === 17 ? [0x78] : version === 23 ? [0x80] : (version >= 26 ? Array.from({length:8}, (_,i)=>0x80+i*8) : []);
   for (const off of timestampOffsets) if (has(data, off, 8)) { const iso = filetimeToIso(u64le(data, off)); if (iso) info.lastRuns.push(iso); }
@@ -39,6 +41,7 @@ export function parsePrefetch(data) {
   if (rcOff >= 0 && has(data, rcOff, 4)) info.runCount = u32le(data, rcOff);
   if (has(data, 84, 36)) {
     const filenamesOff = u32le(data, 100), filenamesSize = u32le(data, 104);
+    if (filenamesOff && filenamesSize && !has(data, filenamesOff, filenamesSize)) throw new Error('Prefetch referenced-filenames region lies outside evidence');
     if (filenamesOff && filenamesSize && has(data, filenamesOff, filenamesSize)) {
       info.referencedFiles = utf16(data.subarray(filenamesOff, filenamesOff + filenamesSize)).split('\0').map(x=>x.trim()).filter(Boolean).slice(0, 5000);
     }

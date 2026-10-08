@@ -69,110 +69,69 @@ export function xpressDecompress(input) {
   }
 }
 
+/** MS-XCA LZ77+Huffman decoder. Bit consumption/refill is interleaved with
+ * raw match-length bytes: refilling only before the next Huffman symbol is
+ * INCORRECT on actual Windows-compressed MAM04 Prefetch files. Keep the shared
+ * compressed byte cursor strictly in sync with the 16-bit lookahead buffer.
+ * Each Huffman table describes a maximum 64-KiB decompressed block.
+ */
 export function xpressDecompressHuffman(input, decompressedSize) {
-  if (decompressedSize <= 0 || decompressedSize > MAX_DECOMPRESSED) throw new Error('XPRESS: invalid decompressed size');
-  if (input.length < 256) throw new Error('XPRESS: truncated Huffman table');
-
-  const lens = new Array(512);
-  for (let l = 0; l < 256; l++) {
-    lens[l * 2] = input[l] & 0x0f;
-    lens[l * 2 + 1] = input[l] >>> 4;
+  if (!(input instanceof Uint8Array) || !Number.isInteger(decompressedSize) || decompressedSize <= 0 || decompressedSize > MAX_DECOMPRESSED) {
+    throw new Error('XPRESS: invalid decompressed size');
   }
-
-  const TABLE_BITS = 15;
-  const TABLE_SIZE = 1 << TABLE_BITS;
-  const table = new Array(TABLE_SIZE);
-  let e = 0;
-  for (let l = 1; l <= TABLE_BITS; l++) {
-    for (let s = 0; s < 512; s++) {
-      if (lens[s] === l) {
-        const n = 1 << (TABLE_BITS - l);
-        for (let k = 0; k < n; k++) table[e++] = s;
+  const out = new Uint8Array(decompressedSize);
+  let p = 0, written = 0;
+  const get16 = () => { if (p + 2 > input.length) throw new Error('XPRESS: truncated 16-bit bitstream word');
+    const v = input[p] | (input[p + 1] << 8); p += 2; return v; };
+  const get8 = () => { if (p >= input.length) throw new Error('XPRESS: truncated match length');return input[p++]; };
+  while (written < decompressedSize) {
+    if (p + 256 > input.length) throw new Error('XPRESS: truncated Huffman table');
+    const lens = new Uint8Array(512);
+    for (let k = 0; k < 256; k++) { lens[2*k] = input[p+k] & 15; lens[2*k+1] = input[p+k] >>> 4; }
+    p += 256;
+    const table = new Uint16Array(32768);
+    let ti = 0;
+    for (let len = 1; len <= 15; len++) {
+      for (let symbol = 0; symbol < 512; symbol++) if (lens[symbol] === len) {
+        const entries = 1 << (15 - len);
+        if (ti + entries > table.length) throw new Error('XPRESS: oversubscribed Huffman code lengths');
+        table.fill(symbol, ti, ti + entries);ti += entries;
       }
     }
-  }
-  if (e !== TABLE_SIZE) throw new Error('XPRESS: invalid Huffman code lengths');
-
-  let bits = 0;
-  let nbits = 0;
-  let i = 256;
-  while (nbits < 32) {
-    if (input.length - i < 2) throw new Error('XPRESS: truncated bit stream');
-    bits = ((bits >>> 0) | (input[i] | (input[i + 1] << 8)) << (16 - nbits)) >>> 0;
-    i += 2;
-    nbits += 16;
-  }
-
-  const out = [];
-  for (;;) {
-    while (nbits < 15) {
-      if (input.length - i < 2) throw new Error('XPRESS: truncated bit stream');
-      bits = ((bits >>> 0) | (input[i] | (input[i + 1] << 8)) << (16 - nbits)) >>> 0;
-      i += 2;
-      nbits += 16;
-    }
-    const sym = table[(bits >>> 17) & 0x7fff];
-    const clen = lens[sym];
-    bits = (bits >>> 0) << clen;
-    nbits -= clen;
-
-    if (sym < 256) {
-      out.push(sym);
-      if (out.length > decompressedSize) throw new Error('XPRESS: output exceeds declared size');
-      continue;
-    }
-
-    if (sym === 256) {
-      if (out.length === decompressedSize) break;
-      if (out.length === 0 || decompressedSize - out.length < 3) throw new Error('XPRESS: corrupt end-of-data marker');
-      const start = out.length - 1;
-      for (let j = 0; j < 3; j++) out.push(out[start + j]);
-      continue;
-    }
-
-    const hb = (sym - 256) >>> 4;
-    let mlen = (sym - 256) & 15;
-    if (mlen === 15) {
-      let v = 0;
-      if (i >= input.length) throw new Error('XPRESS: truncated raw length');
-      v = input[i++];
-      if (v === 255) {
-        if (input.length - i < 2) throw new Error('XPRESS: truncated raw length');
-        v = input[i] | (input[i + 1] << 8);
-        i += 2;
-        if (v === 0) {
-          if (input.length - i < 4) throw new Error('XPRESS: truncated raw length');
-          v = (input[i] | (input[i + 1] << 8) | (input[i + 2] << 16) | (input[i + 3] << 24)) >>> 0;
-          i += 4;
+    if (ti !== table.length) throw new Error('XPRESS: incomplete Huffman code lengths');
+    let bits = ((get16() << 16) | get16()) >>> 0;
+    let extra = 16;
+    const take = n => {if (!n) return 0;
+      const v = bits >>> (32 - n);
+      bits = (bits << n) >>> 0;extra -= n;
+      if (extra < 0) {bits = (bits | (get16() << -extra)) >>> 0;extra += 16;}
+      return v;
+    };
+    const blockEnd = Math.min(decompressedSize, written + 65536);
+    while (written < blockEnd) {
+      const sym = table[bits >>> 17], n = lens[sym];
+      if (!n) throw new Error('XPRESS: unexpected zero-length Huffman symbol');
+      take(n);
+      if (sym < 256) {out[written++] = sym;continue;}
+      const delta = sym - 256;
+      const log2Dist = delta >>> 4;
+      let matchLength = delta & 15;
+      if (matchLength === 15) {
+        matchLength = get8();
+        if (matchLength === 255) {
+          matchLength = get16();
+          if (matchLength < 15) throw new Error('XPRESS: invalid long match length');
+          matchLength -= 15;
         }
-        mlen = v + 3;
-      } else {
-        mlen = v + 18;
+        matchLength += 15;
       }
-    } else {
-      mlen += 3;
+      matchLength += 3;
+      const matchDistance = (1 << log2Dist) + take(log2Dist);
+      if (matchDistance > written || written + matchLength > blockEnd) {
+        throw new Error('XPRESS: back-reference distance or length exceeds decoded block');
+      }
+      for (let j = 0; j < matchLength; j++) {out[written] = out[written - matchDistance];written++;}
     }
-
-    while (nbits < hb) {
-      if (input.length - i < 2) throw new Error('XPRESS: truncated bit stream');
-      bits = ((bits >>> 0) | (input[i] | (input[i + 1] << 8)) << (16 - nbits)) >>> 0;
-      i += 2;
-      nbits += 16;
-    }
-    let moff = 0;
-    if (hb > 0) {
-      moff = (bits >>> (32 - hb)) & ((1 << hb) - 1);
-      bits = (bits >>> 0) << hb;
-      nbits -= hb;
-    }
-    moff += 1 << hb;
-
-    if (moff > out.length) throw new Error('XPRESS: match offset out of range');
-    if (out.length + mlen > MAX_DECOMPRESSED) throw new Error('XPRESS: decompression ratio too large');
-    if (out.length + mlen > decompressedSize) throw new Error('XPRESS: output exceeds declared size');
-
-    const start = out.length - moff;
-    for (let j = 0; j < mlen; j++) out.push(out[start + j]);
   }
-  return Uint8Array.from(out);
+  return out;
 }

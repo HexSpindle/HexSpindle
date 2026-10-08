@@ -65,25 +65,27 @@ export class SQLiteReader {
   }
   decodeRecord(payload) {
     let [headerSize, hs] = varint(payload, 0); headerSize = asNum(headerSize);
+    if (!Number.isSafeInteger(headerSize) || headerSize < hs || headerSize > payload.length) throw new Error('SQLite record header exceeds payload');
     let h = hs; const types = [];
-    while (h < headerSize) { const [t, n] = varint(payload, h); types.push(asNum(t)); h += n; }
+    while (h < headerSize) { const [t, n] = varint(payload, h); if (h+n>headerSize) throw new Error('SQLite serial-type varint crosses header boundary'); types.push(asNum(t)); h += n; }
     let p = headerSize; const row = [];
+    const read = len => { if (!Number.isSafeInteger(len) || len < 0 || p + len > payload.length) throw new Error('Truncated SQLite serial value'); const slice = payload.subarray(p,p+len); p += len; return slice; };
     for (const t of types) {
       if (t === 0) row.push(null);
-      else if (t === 1) { row.push(signedBig(payload.subarray(p, p + 1))); p += 1; }
-      else if (t === 2) { row.push(signedBig(payload.subarray(p, p + 2))); p += 2; }
-      else if (t === 3) { row.push(signedBig(payload.subarray(p, p + 3))); p += 3; }
-      else if (t === 4) { row.push(signedBig(payload.subarray(p, p + 4))); p += 4; }
-      else if (t === 5) { row.push(signedBig(payload.subarray(p, p + 6))); p += 6; }
-      else if (t === 6) { row.push(signedBig(payload.subarray(p, p + 8))); p += 8; }
-      else if (t === 7) { row.push(float64be(payload, p)); p += 8; }
+      else if (t === 1) { row.push(signedBig(read(1))); }
+      else if (t === 2) { row.push(signedBig(read(2))); }
+      else if (t === 3) { row.push(signedBig(read(3))); }
+      else if (t === 4) { row.push(signedBig(read(4))); }
+      else if (t === 5) { row.push(signedBig(read(6))); }
+      else if (t === 6) { row.push(signedBig(read(8))); }
+      else if (t === 7) { if (p + 8 > payload.length) throw new Error('Truncated SQLite float'); row.push(float64be(payload, p)); p += 8; }
       else if (t === 8) row.push(0);
       else if (t === 9) row.push(1);
       else if (t >= 12) {
         const len = Math.floor((t - (t % 2 === 0 ? 12 : 13)) / 2);
-        const v = payload.subarray(p, p + len); p += len;
+        const v = read(len);
         row.push(t % 2 === 0 ? v : this.decoder.decode(v));
-      } else row.push(null);
+      } else throw new Error(`Unsupported SQLite serial type ${t}`);
     }
     return row;
   }

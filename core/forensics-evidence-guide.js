@@ -578,4 +578,29 @@ export const FORENSICS_EVIDENCE_GUIDE = {
     "acquire": "Collect the raw executable using KAPE/FTK Imager, or copy from a forensic disk image. Examine its CLR directory; an .exe/.dll extension alone does not mean managed code.",
     "note": "Presence of a CLR directory is a structural indicator, not verification of loadability, signed code or security."
   },
+
+  "Registry Hive Transaction Replay (ZIP)": {
+    "input": "ZIP containing one native .hive / NTUSER.DAT / SYSTEM base and same-folder matching .LOG1/.LOG2 files",
+    "source": "Registry hive sets in C:\\Windows\\System32\\config, %USERPROFILE%\\NTUSER.DAT, %LOCALAPPDATA%\\Microsoft\\Windows\\UsrClass.dat and matching log files",
+    "acquire": "Collect base and both transaction logs from one coherent forensic snapshot; ZIP together without changing their relative names; pass derived hive to Registry Hive Inspector or Amcache/ShellBags/Run Key operations.",
+    "note": "Only modern Windows 8.1+ HvLE logs, complete checksum-valid consecutive sequence; old DIRT, invalid base block and unhandled recovery scenarios fail closed. Derived output not original evidence."
+  },
+  "SQLite Freelist Record Candidates": {
+    "input": "Raw SQLite main database, optionally after SQLite WAL Snapshot",
+    "source": "Chrome/Firefox profile SQLite DB and Windows ActivitiesCache.db; collect base, WAL, SHM together",
+    "acquire": "Preserve original database and sidecars; replay committed WAL snapshot (if present), then inspect freelist pages.",
+    "note": "Every extracted cell is an UNVERIFIED remnant candidate, not proof of record deletion or membership of a particular table; no carved freeblocks/slack."
+  },
+  "EVTX Salvage Report": {
+    "input": "Raw Windows .evtx binary (ElfFile header)",
+    "source": "C:\\Windows\\System32\\winevt\\Logs\\*.evtx",
+    "acquire": "Copy original EVTX from offline image or wevtutil export; compare counts/RecordIDs with EvtxECmd/libevtx.",
+    "note": "Partial salvage produces explicit gaps/issues, not complete XML/JSON event evidence. Frame recovery requires valid magic, lengths and trailer; templates may be missing."
+  },
+  "PE Authenticode Image Hash (SHA256)": {
+    "input": "Raw Windows PE executable, DLL or SYS file",
+    "source": "Executable collected from forensic disk or extracted PE sample",
+    "acquire": "Preserve original binary, compute independent signtool/osslsigncode image digest and compare.",
+    "note": "Only hashes the PE image excluding checksum and Authenticode certificate per format; does NOT verify CMS signature, certificate validity, revocation, trusted root, timestamp or Windows WinVerifyTrust policy."
+  },
 };
