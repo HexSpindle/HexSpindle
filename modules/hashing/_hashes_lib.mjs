@@ -1,5 +1,7 @@
 // Vendored hash primitives for SHA-224, SHA-512/t, RIPEMD-128/256/320, Whirlpool-0/T and GOST R 34.11-94:
 // crypto-api 0.8.5 (MIT, Copyright (c) nf404) and crypto-gost-js (MIT). Built with esbuild.
+// Full third-party license and attribution notices: /THIRD_PARTY_NOTICES.md
+
 var Hasher = class {
   /**
    * @param {Object} options
