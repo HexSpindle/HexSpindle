@@ -1,4 +1,13 @@
-// Ports of jimp 1.6 image primitives (MIT) and the parts of tinycolor2 (MIT) its colour actions use.
+/*!
+ * Portions ported from Jimp 1.6 and tinycolor2.
+ * Licenses: MIT
+ *
+ * Only the image primitives and colour-processing paths required by
+ * HexSpindle are included and have been adapted for browser-native buffers.
+ * Full copyright, license and attribution notices:
+ * /THIRD_PARTY_NOTICES.md
+ */
+
 export function bitmapFromImageData(img) {
   // Uint8Array, NOT Uint8ClampedArray: jimp stores pixels in a Buffer, so out-of-range writes wrap
   // (and floats truncate) instead of clamping. Matching that is the whole point of this module.
