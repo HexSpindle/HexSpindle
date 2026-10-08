@@ -8,6 +8,7 @@ permissions:
 jobs:
   browser-smoke-test:
     runs-on: ubuntu-latest
+    timeout-minutes: 25
     defaults:
       run:
         working-directory: tools
@@ -29,6 +30,8 @@ jobs:
         run: node check-readme-coverage.mjs
       - name: Check startup module size
         run: node check-startup-size.mjs
+      - name: Check production security invariants
+        run: node check-security-posture.mjs
       - name: Install dependencies
         run: npm ci
       - name: Install Chromium
@@ -44,6 +47,7 @@ jobs:
     needs: browser-smoke-test
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     concurrency:
       group: hexspindle-pages-deploy
       cancel-in-progress: true
