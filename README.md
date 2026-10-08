@@ -33,7 +33,7 @@ No server-side processing is required for normal operation.
 
 ## Operation Coverage
 
-HexSpindle currently implements **726 operations across all 16 supported categories**.
+HexSpindle currently implements **728 operations across all 16 supported categories**.
 
 Operations are added incrementally. Features that have not yet been ported are simply omitted from the operation registry, allowing the rest of the application to remain fully functional.
 
@@ -42,7 +42,7 @@ The **Magic** decoder uses the same registry when evaluating candidate transform
 | Category | Operations |
 |---|---:|
 | Encryption / Encoding | 146 |
-| Forensics | 84 |
+| Forensics | 86 |
 | Data Format | 78 |
 | Hashing | 66 |
 | Utils | 61 |
@@ -57,7 +57,7 @@ The **Magic** decoder uses the same registry when evaluating candidate transform
 | Extractors | 11 |
 | Flow Control | 9 |
 | Language | 6 |
-| **Total** | **726** |
+| **Total** | **728** |
 ## Architecture
 
 HexSpindle is organized around a modular operation registry and a client-side recipe execution engine.
@@ -106,6 +106,10 @@ Together, these files provide the browser UI and application shell, including:
 ## Forensics evidence and validation
 
 The Forensics category includes native-file readers and operations that require exported or normalized evidence. Their supported inputs differ. See the [84-operation acquisition and input guide](docs/FORENSICS_ARTIFACT_GUIDE.md) and the [validation report and known limitations](docs/FORENSICS_VALIDATION_REPORT.md). In particular, EVTX container metadata inspection supports raw `.evtx`, but event-level BinXML decoding is not yet supported; XML/JSON event analyzers require decoded exports. SQLite WAL and registry transaction-log replay are not implemented.
+
+### Native Windows Event Log conversion
+
+Use **EVTX to XML** or **EVTX to JSON** on a native `.evtx` file, then add event-focused Forensics operations in your recipe. Example: `EVTX to JSON` → `Windows Logon Analyzer`. The converter supports standard templates and common value types; see [Forensics artifact guide](docs/FORENSICS_ARTIFACT_GUIDE.md) for acquisition notes and limitations. It reports unsupported or corrupted BinXML rather than returning an empty result.
 
 ## Client-Side Processing
 

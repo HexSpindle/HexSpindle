@@ -30,6 +30,8 @@ jobs:
         run: node check-readme-coverage.mjs
       - name: Run DFIR forensic operation reference tests
         run: node ci-forensics.mjs
+      - name: Test EVTX binary-to-XML/JSON conversion and recipe chaining
+        run: node ci-forensics-evtx.mjs
       - name: Exercise complete DFIR operation registry
         run: node ci-forensics-full.mjs
       - name: Validate forensic artifact fixtures and native parsers

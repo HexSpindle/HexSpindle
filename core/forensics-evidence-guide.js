@@ -439,6 +439,18 @@ export const FORENSICS_EVIDENCE_GUIDE = {
     "acquire": "Copy IDs or list from events; Windows Event Viewer",
     "note": "Maps known IDs; not full event parser."
   },
+  "EVTX to JSON": {
+    "input": "Native Windows Event Log .evtx (raw ElfFile binary; no XML/JSON export needed)",
+    "source": "%SystemRoot%\\System32\\winevt\\Logs\\Security.evtx or Microsoft-Windows-<channel>%4<subchannel>.evtx; actual channel location may differ",
+    "acquire": "Export a native log with wevtutil epl Security C:\\Evidence\\Security.evtx; or export your channel with wevtutil epl \"Microsoft-Windows-SMBServer/Connectivity\" C:\\Evidence\\SMB.evtx; KAPE/FTK Imager also work",
+    "note": "Use first in a recipe, then Windows Logon Analyzer, Sysmon Event Normalizer, Kerberos Event Analyzer, etc. Produces an array of normalized events, not a raw .evtx file. Not all uncommon BinXML types or damaged records are supported; decoding failures are reported, not silently ignored. Default limit is 1,000 events."
+  },
+  "EVTX to XML": {
+    "input": "Native Windows Event Log .evtx (raw ElfFile binary, not EVTX exported as .xml)",
+    "source": "%SystemRoot%\\System32\\winevt\\Logs\\*.evtx; confirm with wevtutil gl <channel>",
+    "acquire": "wevtutil epl System C:\\Evidence\\System.evtx, or collect with KAPE / FTK Imager",
+    "note": "Place directly BEFORE an XML-aware event operation, e.g. Windows Logon Analyzer. Emits a well-formed <Events> XML document containing individual <Event> records. Not an exhaustive BinXML implementation; errors are explicit. Default maximum 1,000 events."
+  },
   "Windows EVTX Metadata Inspector": {
     "input": "Raw Windows .evtx binary (ElfFile signature)",
     "source": "%SystemRoot%\\System32\\winevt\\Logs\\*.evtx; examples: Security.evtx and Microsoft-Windows-SMBServer%4Connectivity.evtx (SMBServer/Connectivity)",

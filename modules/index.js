@@ -340,6 +340,8 @@ import './forensics/embed_lsb.js';
 import './forensics/entropy.js';
 import './forensics/extract_exif.js';
 import './forensics/extract_files.js';
+import './forensics/from_evtx_to_json.js';
+import './forensics/from_evtx_to_xml.js';
 import './forensics/extract_lsb.js';
 import './forensics/frequency_distribution.js';
 import './forensics/index_of_coincidence.js';
