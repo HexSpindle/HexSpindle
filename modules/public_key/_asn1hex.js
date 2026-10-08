@@ -1,4 +1,6 @@
 /** A port of jsrsasign's ASN1HEX helpers and OID/DN tables (MIT, Copyright (c) Kenji Urushima). */
+// Full third-party license and attribution notices: /THIRD_PARTY_NOTICES.md
+
 import { decodeUtf8, decodeLatin1 } from '../../core/util.js';
 import { decodeOid } from './_asn1.js';
 
