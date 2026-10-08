@@ -32,6 +32,8 @@ jobs:
         run: node check-startup-size.mjs
       - name: Check production security invariants
         run: node check-security-posture.mjs
+      - name: Check rendering isolation invariants
+        run: node check-rendering-boundaries.mjs
       - name: Install dependencies
         run: npm ci
       - name: Install Chromium
