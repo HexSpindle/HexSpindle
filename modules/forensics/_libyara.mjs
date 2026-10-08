@@ -14,6 +14,8 @@
 // module script) into a plain ES module export so it can be `import`ed directly with no bundler.
 // See yara_rules.js for the operation that uses it and for what it does/doesn't support.
 
+// Full third-party license and attribution notices: /THIRD_PARTY_NOTICES.md
+
 var Module = (() => {
   var _scriptDir = typeof document !== 'undefined' && document.currentScript ? document.currentScript.src : undefined;
   if (typeof __filename !== 'undefined') _scriptDir = _scriptDir || __filename;
