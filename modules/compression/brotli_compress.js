@@ -1,6 +1,15 @@
 import { module } from './_cat.js';
 import { A } from '../../core/registry.js';
-import { brotliCompress } from './_brotli.js';
+
+// Fetch the comparatively large Brotli codec only when a Brotli operation runs.
+// Keep one shared module-import promise, including for concurrent executions.
+let brotliLibraryPromise;
+function loadBrotli() {
+  return brotliLibraryPromise ??= import('./_brotli.js').catch(error => {
+    brotliLibraryPromise = null; // Allow a retry after a transient load failure.
+    throw error;
+  });
+}
 
 const MODES = ['Generic', 'Text', 'Font (WOFF2)'];
 const MODE_VALUES = Object.freeze({
@@ -17,9 +26,10 @@ module(
     A.select('Mode', MODES, 'Generic'),
     A.number('Window bits (lgwin)', 22, 10, 24, 1),
   ],
-  (data, quality, mode, lgwin) => {
+  async (data, quality, mode, lgwin) => {
     const modeValue = MODE_VALUES[mode];
     if (modeValue === undefined) throw new Error(`Unknown Brotli mode: ${mode}`);
+    const { brotliCompress } = await loadBrotli();
     return brotliCompress(data, quality, modeValue, lgwin);
   },
 );
