@@ -1,59 +1,9 @@
 #!/usr/bin/env node
-// Report-only CSP compatibility smoke test. Does NOT change production CSP.
-// The local test server sends a real HTTP Content-Security-Policy-Report-Only
-// response header, which GitHub Pages cannot be configured to send via _headers.
-import { createServer } from 'node:http';
-import { readFile } from 'node:fs/promises';
-import { resolve, extname, sep } from 'node:path';
-import { fileURLToPath } from 'node:url';
+// CI-only CSP browser checks. Shared policy/server: ci-csp-shared.mjs.
 import { createRequire } from 'node:module';
-
+import { POLICY, startCspServer } from './ci-csp-shared.mjs';
 const { chromium } = createRequire(import.meta.url)('playwright');
-const ROOT = resolve(fileURLToPath(new URL('..', import.meta.url)));
-const MIME = {
-  '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8',
-  '.mjs': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8',
-  '.json': 'application/json; charset=utf-8', '.svg': 'image/svg+xml',
-  '.wasm': 'application/wasm', '.png': 'image/png', '.jpg': 'image/jpeg',
-  '.woff2': 'font/woff2',
-};
-
-// Candidate policy, NOT a statement of compliance or proof of safety.
-// connect-src is deliberately broad to preserve user-specified HTTP URLs.
-// Avoid unsafe-eval; allow WebAssembly compilation where supported.
-const POLICY = [
-  "default-src 'self'",
-  "script-src 'self' blob: 'wasm-unsafe-eval'",
-  "style-src 'self' 'unsafe-inline'",
-  "img-src 'self' blob: data: https: http:",
-  "font-src 'self' data:",
-  "connect-src * data: blob:",
-  "worker-src 'self' blob:",
-  "frame-src 'self' blob: data:",
-  "media-src 'self' blob: data:",
-  "object-src 'none'",
-  "base-uri 'self'",
-  "form-action 'self'",
-].join('; ');
-
-const server = createServer(async (req, res) => {
-  try {
-    const pathname = decodeURIComponent(new URL(req.url, 'http://localhost').pathname);
-    const filename = pathname === '/' ? '/index.html' : pathname;
-    const full = resolve(ROOT, '.' + filename);
-    if (!full.startsWith(ROOT + sep)) {
-      res.writeHead(403).end('Forbidden'); return;
-    }
-    const bytes = await readFile(full);
-    const headers = { 'Content-Type': MIME[extname(full)] || 'application/octet-stream' };
-    if (filename === '/index.html') headers['Content-Security-Policy-Report-Only'] = POLICY;
-    res.writeHead(200, headers).end(bytes);
-  } catch {
-    res.writeHead(404).end('Not found');
-  }
-});
-await new Promise(done => server.listen(0, '127.0.0.1', done));
-
+const server = await startCspServer({ mode:'report-only' });
 let browser;
 try {
   browser = await chromium.launch();

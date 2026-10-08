@@ -1,43 +1,9 @@
 #!/usr/bin/env node
-// Patch 20: local-only enforced CSP compatibility and blocking checks.
-// All AI requests are mocked. No real keys, CDN assets, or external services.
-import { createServer } from 'node:http';
-import { readFile } from 'node:fs/promises';
-import { resolve, extname, sep } from 'node:path';
-import { fileURLToPath } from 'node:url';
+// CI-only CSP browser checks. Shared policy/server: ci-csp-shared.mjs.
 import { createRequire } from 'node:module';
-
+import { POLICY, startCspServer } from './ci-csp-shared.mjs';
 const { chromium } = createRequire(import.meta.url)('playwright');
-const ROOT = resolve(fileURLToPath(new URL('..', import.meta.url)));
-const POLICY = [
-  "default-src 'self'",
-  "script-src 'self' blob: 'wasm-unsafe-eval'",
-  "style-src 'self' 'unsafe-inline'",
-  "img-src 'self' blob: data: https: http:",
-  "font-src 'self' data:",
-  "connect-src * data: blob:",
-  "worker-src 'self' blob:",
-  "frame-src 'self' blob: data:",
-  "media-src 'self' blob: data:",
-  "object-src 'none'",
-  "base-uri 'self'",
-  "form-action 'self'",
-].join('; ');
-const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript',
-  '.mjs': 'text/javascript', '.css': 'text/css', '.json': 'application/json',
-  '.wasm': 'application/wasm', '.png': 'image/png', '.svg': 'image/svg+xml' };
-const server = createServer(async (req, res) => {
-  try {
-    const pathname = decodeURIComponent(new URL(req.url, 'http://localhost').pathname);
-    const full = resolve(ROOT, '.' + (pathname === '/' ? '/index.html' : pathname));
-    if (!full.startsWith(ROOT + sep)) { res.writeHead(403).end('Forbidden'); return; }
-    const bytes = await readFile(full);
-    const headers = { 'Content-Type': MIME[extname(full)] || 'application/octet-stream' };
-    if (pathname === '/') headers['Content-Security-Policy'] = POLICY;
-    res.writeHead(200, headers).end(bytes);
-  } catch { res.writeHead(404).end('Not found'); }
-});
-await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+const server = await startCspServer({});
 let browser;
 try {
   browser = await chromium.launch();
