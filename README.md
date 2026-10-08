@@ -60,9 +60,6 @@ The **Magic** decoder uses the same registry when evaluating candidate transform
 | **Total** | **742** |
 ## Architecture
 
-**DFIR validation status:** 100 Forensics operations are available, but **not all are certified for forensic completeness or correctness**. See the [v7 forensic conformance matrix](docs/FORENSICS_CONFORMANCE_V7.md) and [ongoing validation report](docs/FORENSICS_VALIDATION_REPORT.md) for confirmed tests, limitations, evidence gaps and reference-corpus instructions.
-
-
 HexSpindle is organized around a modular operation registry and a client-side recipe execution engine.
 
 ### Core
