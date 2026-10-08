@@ -1,5 +1,7 @@
 // Vendored bundle of terser 5.51.2 (BSD-2-Clause, https://github.com/terser/terser) with
 // @jridgewell/source-map 0.3.11 and related packages (MIT) and acorn (MIT). Built with esbuild.
+// Full third-party license and attribution notices: /THIRD_PARTY_NOTICES.md
+
 var __create = Object.create;
 var __defProp = Object.defineProperty;
 var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
