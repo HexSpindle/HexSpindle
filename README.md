@@ -42,6 +42,7 @@ The **Magic** decoder uses the same registry when evaluating candidate transform
 | Category | Operations |
 |---|---:|
 | Encryption / Encoding | 146 |
+| Forensics | 84 |
 | Data Format | 78 |
 | Hashing | 66 |
 | Utils | 61 |
@@ -52,16 +53,11 @@ The **Magic** decoder uses the same registry when evaluating candidate transform
 | Other | 32 |
 | Arithmetic / Logic | 31 |
 | Code Tidy | 16 |
-| Forensics | 84 |
 | Date / Time | 11 |
 | Extractors | 11 |
 | Flow Control | 9 |
 | Language | 6 |
 | **Total** | **726** |
-### DFIR operation coverage
-
-The Forensics category includes 68 additional DFIR operations, organized in the UI into Windows Artifacts & Execution History, Malware & Binary Analysis, Incident Response & Log Analysis, and Browser Activity & Persistence. These include metadata inspectors, text/JSON analyzers, and selected binary artifact parsers. Some formats are only partially supported: notably EVTX (metadata, not full BinXML reconstruction), Windows registry hives (no transaction-log replay), and browser SQLite databases (no WAL merging). Signing inspectors report structure/presence rather than verification of cryptographic trust. Validate findings with specialist forensic tooling and retain source evidence and hashes.
-
 ## Architecture
 
 HexSpindle is organized around a modular operation registry and a client-side recipe execution engine.
