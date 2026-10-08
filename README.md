@@ -33,7 +33,7 @@ No server-side processing is required for normal operation.
 
 ## Operation Coverage
 
-HexSpindle currently implements **613 operations across all 16 supported categories**.
+HexSpindle currently implements **658 operations across all 16 supported categories**.
 
 Operations are added incrementally. Features that have not yet been ported are simply omitted from the operation registry, allowing the rest of the application to remain fully functional.
 
