@@ -1,4 +1,6 @@
 /** A port of parts of jsrsasign's X509 / X509CRL / CSRUtil (MIT, Copyright (c) Kenji Urushima). */
+// Full third-party license and attribution notices: /THIRD_PARTY_NOTICES.md
+
 import {
   getChildIdx, getIdxbyList, getTLV, getTLVbyList, getV, getVbyList, getVidx,
   getIdxbyListEx, getX500Name, getTLVbyListEx, getVbyListEx, hextorstr, hextoutf8, hextoip, oid2name, oidname, oidHexToInt,
