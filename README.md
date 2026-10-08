@@ -103,18 +103,6 @@ Together, these files provide the browser UI and application shell, including:
 - Magic decoding
 - ZIP/archive browser
 
-## Forensics evidence and validation
-
-The Forensics category includes native-file readers and operations that require exported or normalized evidence. Their supported inputs differ. See the [100-operation acquisition and input guide](docs/FORENSICS_ARTIFACT_GUIDE.md) and the [validation report and known limitations](docs/FORENSICS_VALIDATION_REPORT.md). Raw `.evtx` conversion to event XML/JSON is available via `EVTX to XML` / `EVTX to JSON` before event-focused operations. The conversion is format-limited and must be cross-checked for evidentiary conclusions. SQLite committed WAL snapshots can be reconstructed from a ZIP containing the database and matching -wal file via `SQLite WAL Snapshot (ZIP)` before running browser parsers. Modern checksum-verified Registry HvLE replay is available via Registry Hive Transaction Replay (ZIP), but old DIRT logs and damaged-base recovery remain unsupported. The SQLite Freelist Record Candidates and EVTX Salvage Report operations are explicitly partial or unverified outputs; PE Authenticode Image Hash is NOT signature-trust verification.
-
-### Native Windows Event Log conversion
-
-Use **EVTX to XML** or **EVTX to JSON** on a native `.evtx` file, then add event-focused Forensics operations in your recipe. Example: `EVTX to JSON` → `Windows Logon Analyzer`. The converter supports standard templates and common value types; see [Forensics artifact guide](docs/FORENSICS_ARTIFACT_GUIDE.md) for acquisition notes and limitations. It ignores *wholly zero-filled, unpopulated capacity after the declared chunk range* but still flags structurally corrupt, nonzero chunks. It reports unsupported or corrupted BinXML rather than silently returning incomplete evidence.
-
-### Event hunting and managed-code triage
-
-Use `EVTX to JSON` → `Windows Event Log Summary` or `Windows Event Log Filter` followed by specialized account/group, audit-log integrity, Task Scheduler, process execution, Sysmon persistence, or SMB share analyzers. These operations match source providers as well as event IDs to avoid conflating unrelated channels. `PE CLR Managed Detector` distinguishes native PE files from managed .NET assemblies; an `.exe`/`.dll` extension is not proof of .NET metadata.
-
 ## Client-Side Processing
 
 HexSpindle is designed around local browser execution. Most data transformations are performed entirely in the browser using browser APIs and JavaScript implementations rather than being sent to a remote processing service.
