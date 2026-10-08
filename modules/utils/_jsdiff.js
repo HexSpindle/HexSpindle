@@ -1,4 +1,6 @@
 // Vendored jsdiff 9.0.0 (BSD-3-Clause, Copyright (c) 2009-2015 Kevin Decker). String diffs only.
+// Full third-party license and attribution notices: /THIRD_PARTY_NOTICES.md
+
 // ---- util/string.js
 export function longestCommonPrefix(str1, str2) {
     let i;
