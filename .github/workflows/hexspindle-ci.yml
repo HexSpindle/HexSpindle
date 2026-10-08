@@ -32,6 +32,8 @@ jobs:
         run: node ci-forensics.mjs
       - name: Test EVTX binary-to-XML/JSON conversion and recipe chaining
         run: node ci-forensics-evtx.mjs
+      - name: Test EVTX preallocation, event hunting and CLR operations
+        run: node ci-forensics-event-hunting.mjs
       - name: Exercise complete DFIR operation registry
         run: node ci-forensics-full.mjs
       - name: Validate forensic artifact fixtures and native parsers

@@ -130,10 +130,20 @@ export function convertEvtx(data,format='json',maxRecords=1000,skipErrors=false)
  check(data,0,4096);if(String.fromCharCode(...data.subarray(0,7))!=='ElfFile'||data[7]!==0)BAD('not a native .evtx file (missing ElfFile signature)');
  const out=[],issues=[],max=Math.floor(Math.min(50000,Math.max(1,Number(maxRecords)||1000)));
  const slots=Math.floor((data.length-4096)/65536);
+ const declared=u16(data,42,4096);
+ // EVTX files commonly allocate 64-KiB slots beyond the populated chunks.
+ // A fully zero-filled slot after the declared chunk range is unused capacity,
+ // NOT damaged evidence. Nonzero malformed slots remain hard failures.
  let found=0;
  for(let i=0;i<slots&&out.length<max;i++){
   const chunk=4096+i*65536,chunkEnd=chunk+65536;
-  if(String.fromCharCode(...data.subarray(chunk,chunk+7))!=='ElfChnk'||data[chunk+7]!==0){issues.push(`Chunk ${i}: invalid chunk signature`);continue;}
+  if(String.fromCharCode(...data.subarray(chunk,chunk+7))!=='ElfChnk'||data[chunk+7]!==0){
+   let nonzero=false;
+   for(let j=chunk;j<chunkEnd;j++)if(data[j]!==0){nonzero=true;break;}
+   if(!nonzero && i>=declared)continue;
+   issues.push(`Chunk ${i}: ${nonzero?'invalid chunk signature':'missing declared chunk (empty slot)'}`);
+   continue;
+  }
   const free=Math.min(chunkEnd,chunk+Math.max(512,u32(data,chunk+48,chunkEnd)));
   let p=chunk+512;
   while(p+28<=free&&out.length<max){

@@ -20,6 +20,8 @@ const serve=()=>new Promise(resolve=>{const server=createServer(async(req,res)=>
 });server.listen(0,'127.0.0.1',()=>resolve(server));});
 const cases=[
  {file:'evtx-binxml-two-events.evtx',name:'EVTX to JSON',check:x=>Array.isArray(x)&&x.length===2&&x[0]?.EventID===4624&&x[1]?.EventID===4625},
+ {file:'evtx-binxml-preallocated.evtx',name:'EVTX to JSON',check:x=>Array.isArray(x)&&x.length===2&&x[0]?.EventID===4624&&x[1]?.EventID===4625},
+ {file:'evtx-binxml-preallocated.evtx',name:'Windows EVTX Metadata Inspector',expect:{validRecordFrames:2,validChunks:1,unusedChunkSlots:3}},
  {file:'evtx-header-records-synthetic.evtx',name:'Windows EVTX Metadata Inspector',expect:{validRecordFrames:2,validChunks:1}},
  {file:'registry-value-synthetic.hiv',name:'Windows Registry Hive Inspector',check:x=>x[0]?.values?.some(v=>v.name==='Foo'&&v.value===42)},
  {file:'browser-sqlite-synthetic.db',name:'Chrome History Parser',check:x=>x.some(v=>v.url==='https://example.org/demo')},

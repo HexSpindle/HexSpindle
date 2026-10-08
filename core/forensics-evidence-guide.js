@@ -239,13 +239,13 @@ export const FORENSICS_EVIDENCE_GUIDE = {
     "input": "Raw managed .NET PE assembly (.exe/.dll) with CLR metadata (not any native PE)",
     "source": "Suspect executable from disk, memory dump extraction, quarantine or malware sample",
     "acquire": "FTK Imager, PE-sieve, Volatility extraction, or copy original sample",
-    "note": "Requires CLR metadata directory; native Windows EXEs are not valid .NET assemblies. Obfuscated/mixed-mode assemblies can require specialist tooling."
+    "note": "Run PE CLR Managed Detector first. If the input is a native PE without the CLR data directory, this operation reports managed:false, applicable:false (not a decoder failure). Managed/mixed-mode and obfuscated assemblies require reference-tool cross-check."
   },
   ".NET User String Extractor": {
     "input": "Raw managed .NET PE assembly (.exe/.dll) with CLR metadata (not any native PE)",
     "source": "Suspect executable from disk, memory dump extraction, quarantine or malware sample",
     "acquire": "FTK Imager, PE-sieve, Volatility extraction, or copy original sample",
-    "note": "Requires CLR metadata directory; native Windows EXEs are not valid .NET assemblies. Obfuscated/mixed-mode assemblies can require specialist tooling."
+    "note": "Run PE CLR Managed Detector first. If the input is a native PE without the CLR data directory, this operation reports managed:false, applicable:false (not a decoder failure). Managed/mixed-mode and obfuscated assemblies require reference-tool cross-check."
   },
   "NTFS Alternate Data Streams Analyzer": {
     "input": "Single raw 1024-byte (or native record-size) NTFS FILE record, NOT the entire $MFT file",
@@ -517,4 +517,59 @@ export const FORENSICS_EVIDENCE_GUIDE = {
     "acquire": "PowerShell: Get-Content -LiteralPath \"C:\\Evidence\\sample.exe\" -Stream Zone.Identifier; or ADS-aware forensic acquisition",
     "note": "Some downloads lack MOTW/Zone.Identifier; absence does not imply local provenance."
   }
+,
+  "Windows Event Log Summary": {
+    "input": "Decoded Windows event JSON array or XML document (use EVTX to JSON/XML before this operation)",
+    "source": "C:\\Windows\\System32\\winevt\\Logs\\; actual channel path may vary",
+    "acquire": "On evidence image collect the raw .evtx using KAPE/FTK Imager; or use wevtutil epl \"<channel>\" C:\\Evidence\\events.evtx; then EVTX to JSON/XML in recipe",
+    "note": "Summary over selected events; counts and time range do not certify acquisition completeness."
+  },
+  "Windows Event Log Filter": {
+    "input": "Decoded Windows event JSON array or XML document (use EVTX to JSON/XML before this operation)",
+    "source": "C:\\Windows\\System32\\winevt\\Logs\\; actual channel path may vary",
+    "acquire": "On evidence image collect the raw .evtx using KAPE/FTK Imager; or use wevtutil epl \"<channel>\" C:\\Evidence\\events.evtx; then EVTX to JSON/XML in recipe",
+    "note": "Enter comma-separated event IDs or a provider substring; works as JSON-to-JSON pipeline step after EVTX to JSON. Max output capped."
+  },
+  "Windows Event Log Integrity Analyzer": {
+    "input": "Decoded Windows event JSON array or XML document (use EVTX to JSON/XML before this operation)",
+    "source": "C:\\Windows\\System32\\winevt\\Logs\\Security.evtx and System.evtx",
+    "acquire": "On evidence image collect the raw .evtx using KAPE/FTK Imager; or use wevtutil epl \"<channel>\" C:\\Evidence\\events.evtx; then EVTX to JSON/XML in recipe",
+    "note": "Looks for cleared log/audit-policy event IDs 1102, 4719, etc.; EventLog provider 104. Empty output does not mean logs are intact."
+  },
+  "Windows Account & Group Changes": {
+    "input": "Decoded Windows event JSON array or XML document (use EVTX to JSON/XML before this operation)",
+    "source": "C:\\Windows\\System32\\winevt\\Logs\\Security.evtx on the relevant workstation or domain controller",
+    "acquire": "On evidence image collect the raw .evtx using KAPE/FTK Imager; or use wevtutil epl \"<channel>\" C:\\Evidence\\events.evtx; then EVTX to JSON/XML in recipe",
+    "note": "Security 4720-4757 subset. Account audit policies determine visibility."
+  },
+  "Windows Scheduled Task Event Analyzer": {
+    "input": "Decoded Windows event JSON array or XML document (use EVTX to JSON/XML before this operation)",
+    "source": "C:\\Windows\\System32\\winevt\\Logs\\Security.evtx and Microsoft-Windows-TaskScheduler%4Operational.evtx",
+    "acquire": "On evidence image collect the raw .evtx using KAPE/FTK Imager; or use wevtutil epl \"<channel>\" C:\\Evidence\\events.evtx; then EVTX to JSON/XML in recipe",
+    "note": "Security 4698-4702; Microsoft-Windows-TaskScheduler provider 106, 140, 141, 200, 201, 102. Requires relevant auditing."
+  },
+  "Windows Process Execution Events": {
+    "input": "Decoded Windows event JSON array or XML document (use EVTX to JSON/XML before this operation)",
+    "source": "C:\\Windows\\System32\\winevt\\Logs\\Security.evtx and Microsoft-Windows-Sysmon%4Operational.evtx",
+    "acquire": "On evidence image collect the raw .evtx using KAPE/FTK Imager; or use wevtutil epl \"<channel>\" C:\\Evidence\\events.evtx; then EVTX to JSON/XML in recipe",
+    "note": "Security 4688 and Sysmon 1/5 (when installed). 4688 command-line capture must be configured; process creation does not prove malicious activity."
+  },
+  "Sysmon Persistence Event Analyzer": {
+    "input": "Decoded Windows event JSON array or XML document (use EVTX to JSON/XML before this operation)",
+    "source": "C:\\Windows\\System32\\winevt\\Logs\\Microsoft-Windows-Sysmon%4Operational.evtx",
+    "acquire": "On evidence image collect the raw .evtx using KAPE/FTK Imager; or use wevtutil epl \"<channel>\" C:\\Evidence\\events.evtx; then EVTX to JSON/XML in recipe",
+    "note": "Sysmon 12–14 registry and 19–21 WMI; filters depend on Sysmon configuration. No verdict."
+  },
+  "Windows SMB Share Event Analyzer": {
+    "input": "Decoded Windows event JSON array or XML document (use EVTX to JSON/XML before this operation)",
+    "source": "C:\\Windows\\System32\\winevt\\Logs\\Security.evtx and Microsoft-Windows-SMBServer%4Connectivity.evtx",
+    "acquire": "On evidence image collect the raw .evtx using KAPE/FTK Imager; or use wevtutil epl \"<channel>\" C:\\Evidence\\events.evtx; then EVTX to JSON/XML in recipe",
+    "note": "Security 5140/5142–5145 and SMBServer provider events; SMBServer EventIDs have channel-specific meanings and opaque binary ClientAddress is not guessed as an IP."
+  },
+  "PE CLR Managed Detector": {
+    "input": "Raw Windows PE (.exe or .dll), managed or native",
+    "source": "Any collected Windows executable/DLL (Windows System32, user application directory, or forensic image)",
+    "acquire": "Collect the raw executable using KAPE/FTK Imager, or copy from a forensic disk image. Examine its CLR directory; an .exe/.dll extension alone does not mean managed code.",
+    "note": "Presence of a CLR directory is a structural indicator, not verification of loadability, signed code or security."
+  },
 };

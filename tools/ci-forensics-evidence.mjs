@@ -65,7 +65,7 @@ const sigmaRecords='\n---EVENTS---\n'+JSON.stringify([{Image:'C:\\Windows\\cmd.e
 check('Sigma and condition works without dynamic Function/eval (CSP-safe)',()=>assert.equal(parsed(evaluateSigmaSubset,enc(sigmaBase+'  condition: selection and other'+sigmaRecords)).matched,1));
 check('Sigma not/parenthesized expressions use correct precedence',()=>assert.equal(parsed(evaluateSigmaSubset,enc(sigmaBase+'  condition: selection and (not other)'+sigmaRecords)).matched,0));
 check('Sigma unsupported expression fails explicitly, not silent zero matches',()=>assert.throws(()=>evaluateSigmaSubset(enc(sigmaBase+'  condition: selection | other'+sigmaRecords)),/Unsupported Sigma/));
-check('86 operation acquisition guide entries, no missing source',()=>{assert.equal(Object.keys(FORENSICS_EVIDENCE_GUIDE).length,86);for(const [k,v] of Object.entries(FORENSICS_EVIDENCE_GUIDE))assert.ok(v.input&&v.source&&v.acquire&&v.note,k)});
+check('95 operation acquisition guide entries, no missing source',()=>{assert.equal(Object.keys(FORENSICS_EVIDENCE_GUIDE).length,95);for(const [k,v] of Object.entries(FORENSICS_EVIDENCE_GUIDE))assert.ok(v.input&&v.source&&v.acquire&&v.note,k)});
 check('GUI guidance distinguishes raw hives from derived exports',()=>{for(const name of ['Run Key Analyzer','Windows Services Registry Analyzer','OpenSave MRU Analyzer','RecentDocs Analyzer','ShimCache Parser'])assert.match(FORENSICS_EVIDENCE_GUIDE[name].input,/Raw/)});
 for (const [path, expectedName, bytes, predicate] of [
   ['../modules/forensics/windows_evtx_metadata_inspector.js','Windows EVTX Metadata Inspector',evtx, x => x.validRecordFrames === 2],

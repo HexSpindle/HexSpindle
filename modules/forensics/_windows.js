@@ -76,12 +76,16 @@ export function parseEvtx(data) {
   if (data.length < 4096) throw new Error('Truncated EVTX file header (expected 4096 bytes)');
   const chunks = [], records = [], anomalies = [];
   const maxChunksToReport = 128, maxRecordsToReport = 5000;
-  let validChunks = 0, validRecords = 0, malformedRecords = 0;
+  let validChunks = 0, validRecords = 0, malformedRecords = 0, unusedChunkSlots = 0;
   const physicalChunks = Math.floor((data.length - 4096) / 65536);
   for (let index = 0; index < physicalChunks; index++) {
     const off = 4096 + index * 65536;
     if (fixedAscii(data, off, 8) !== 'ElfChnk' || data[off + 7] !== 0) {
-      if (anomalies.length < 128) anomalies.push({chunkIndex:index, offset:off, issue:'Missing ElfChnk signature'});
+      let nonzero = false;
+      for (let j = off; j < off + 65536; j++) if (data[j]) { nonzero = true; break; }
+      if (!nonzero && index >= header.chunkCount) { unusedChunkSlots++; continue; }
+      if (anomalies.length < 128) anomalies.push({chunkIndex:index, offset:off,
+        issue: nonzero ? 'Invalid nonzero chunk (missing ElfChnk signature)' : 'Empty chunk slot within declared populated range'});
       continue;
     }
     validChunks++;
@@ -115,15 +119,17 @@ export function parseEvtx(data) {
     }
     if (chunks.length < maxChunksToReport) chunks.push(chunk);
   }
-  if (physicalChunks !== header.chunkCount && anomalies.length < 128) {
-    anomalies.push({issue:'Header chunk count differs from physical chunk slots',headerCount:header.chunkCount,physicalChunks});
+  // The allocated EVTX size may exceed the populated header chunk count.
+  // Report unused preallocation as capacity, never as evidence corruption.
+  if (physicalChunks !== header.chunkCount && physicalChunks - unusedChunkSlots !== header.chunkCount && anomalies.length < 128) {
+    anomalies.push({issue:'Declared chunk count does not match nonempty physical chunks; may reflect dirty/circular evidence',headerCount:header.chunkCount,nonemptyChunkSlots:physicalChunks-unusedChunkSlots});
   }
   const textSampleMax = 2 * 1048576;
   const sample = data.subarray(0, Math.min(data.length, textSampleMax));
   const strings = printableUtf16Strings(sample, 4).filter(x => /[A-Za-z]/.test(x.text)).slice(0, 300);
   return safeJson({
     ...header, fileSizeBytes:data.length, physicalChunkSlots:physicalChunks,
-    validChunks, validRecordFrames:validRecords, malformedRecordFrames:malformedRecords,
+    validChunks, unusedChunkSlots, validRecordFrames:validRecords, malformedRecordFrames:malformedRecords,
     chunks, records, anomalies,
     reportingLimits:{chunkMetadata:maxChunksToReport,recordMetadata:maxRecordsToReport,utf16ScannedBytes:sample.length},
     decodingScope:'Native EVTX header, chunk frames, record IDs and written timestamps only. BinXML event content (EventID, Provider, EventData) is NOT decoded. Do not use this inspector as a substitute for a full EVTX parser.',
