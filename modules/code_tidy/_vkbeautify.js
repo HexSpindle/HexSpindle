@@ -1,3 +1,12 @@
+/*!
+ * Portions derived from vkBeautify.
+ * Copyright (c) 2012 Vadim Kiryukhin.
+ * License: MIT
+ *
+ * Adapted for HexSpindle.
+ * Full license and attribution notices: /THIRD_PARTY_NOTICES.md
+ */
+
 export function createShiftArr(step) {
   let space = '    ';
   if (isNaN(parseInt(step))) space = step;
