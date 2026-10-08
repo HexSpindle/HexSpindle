@@ -45,20 +45,19 @@ The **Magic** decoder uses the same registry when evaluating candidate transform
 | Data Format | 78 |
 | Hashing | 66 |
 | Utils | 61 |
+| Networking | 51 |
 | Public Key | 49 |
 | Multimedia | 41 |
-| Networking | 51 |
 | Compression | 34 |
 | Other | 32 |
 | Arithmetic / Logic | 31 |
 | Code Tidy | 16 |
 | Forensics | 16 |
-| Extractors | 11 |
 | Date / Time | 11 |
+| Extractors | 11 |
 | Flow Control | 9 |
 | Language | 6 |
 | **Total** | **658** |
-
 ## Architecture
 
 HexSpindle is organized around a modular operation registry and a client-side recipe execution engine.
@@ -110,12 +109,12 @@ HexSpindle is designed around local browser execution. Most data transformations
 
 Some operations are intentionally network-enabled. For example, HTTP requests and DNS-over-HTTPS operations contact destinations selected by the user.
 
-The optional **Suggest** feature also connects directly to the Anthropic API when explicitly invoked and requires the user to provide their own API key.
+The optional **Suggest** feature connects directly to Anthropic or OpenAI only when explicitly invoked and requires a user-supplied API key. AI keys are kept in page memory, not persisted by the AI module; reloading the page clears them. When enabled by the user, input or output samples are sent to the selected provider.
 
 Network access is not required for normal local transformation workflows.
 
 ## License
 
-HexSpindle is released under the **MIT License**.
+HexSpindle's original code is released under the **MIT License**. Vendored third-party components retain their respective licenses.
 
-See [LICENSE](LICENSE) for details.
+See [LICENSE](LICENSE) and [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for details.
