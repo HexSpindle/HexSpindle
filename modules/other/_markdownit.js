@@ -1,4 +1,6 @@
 // Vendored markdown-it 14.3.2 (MIT, Copyright (c) 2014 Vitaly Puzrin, Alex Kocharin). UMD bundle wrapped as an ES module.
+// Full third-party license and attribution notices: /THIRD_PARTY_NOTICES.md
+
 const _m = { exports: {} };
 (function (module, exports) {
 /*! markdown-it 14.3.2 https://github.com/markdown-it/markdown-it @license MIT */
