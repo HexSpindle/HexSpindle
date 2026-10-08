@@ -4,6 +4,8 @@
 // this header comment.
 // Some numerical data is initialized as -1 even when it doesn't need initialization to help the JIT infer types
 // aliases for shorter compressed code (most minifers don't do this)
+// Full third-party license and attribution notices: /THIRD_PARTY_NOTICES.md
+
 var ab = ArrayBuffer, u8 = Uint8Array, u16 = Uint16Array, i16 = Int16Array, u32 = Uint32Array, i32 = Int32Array;
 var slc = function (v, s, e) {
     if (u8.prototype.slice)
