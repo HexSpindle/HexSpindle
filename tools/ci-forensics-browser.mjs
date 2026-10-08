@@ -44,7 +44,39 @@ let server,browser;try{
    assert.equal(await autoBake.isChecked(), false, 'Auto-Spin should be disabled');
    const bytes=readFileSync(new URL('./fixtures/forensics/'+t.file,import.meta.url));
    await page.locator('#fileInput').setInputFiles({name:t.file,mimeType:'application/octet-stream',buffer:bytes});
-   await page.waitForFunction(sz=>(document.querySelector('#inStats')?.textContent||'').includes(sz),bytes.length.toLocaleString('en-US'),{timeout:10000});
+   // Assert that the application actually finished loading the selected binary
+   // and retained its complete byte count. Do not rely on locale-dependent
+   // thousands separators: Node and Chromium can format the same count differently.
+   // Larger binary fixtures can also take longer on shared CI runners.
+   try {
+     await page.waitForFunction(({name, size}) => {
+       const tab = document.querySelector('#inTabs .tab.on');
+       const stats = document.querySelector('#inStats')?.textContent || '';
+       const match = stats.match(/([\d,.\u00a0\u202f]+)\s+bytes\b/i);
+       const count = match ? Number(match[1].replace(/\D/g, '')) : NaN;
+       return tab?.textContent?.includes(name) && count === size;
+     }, { name: t.file, size: bytes.length }, {timeout:30000, polling:250});
+   } catch (error) {
+     const details = await Promise.race([
+       page.evaluate(() => ({
+         activeTab: document.querySelector('#inTabs .tab.on')?.textContent || '',
+         inputStats: document.querySelector('#inStats')?.textContent || '',
+         fileInputCount: document.querySelector('#fileInput')?.files?.length ?? null,
+         inputPreview: document.querySelector('#input')?.value?.slice(0, 220) || '',
+         status: document.querySelector('#statusText')?.textContent || '',
+         notices: document.querySelector('#toasts')?.textContent?.slice(0, 300) || ''
+       })).catch(e => ({diagnosticError:String(e)})),
+       new Promise(resolve => setTimeout(() => resolve({diagnosticTimeout:true}), 2500))
+     ]);
+     throw new Error(`Native upload failed to reach the expected UI state: ${t.file} (${bytes.length} bytes). ` +
+       `Page: ${JSON.stringify(details)}; JS errors: ${jsErrors.join(' | ') || '(none)'}`, {cause:error});
+   }
+   // Preallocated EVTX files are mostly null bytes. Rendering the entire
+   // buffer as control-picture characters can stall Chromium on CI runners.
+   if (t.file === 'evtx-binxml-preallocated.evtx') {
+     assert.match(await page.locator('#input').inputValue(), /of binary data/i,
+       'Large binary evidence should use the bounded preview; recipe input must remain complete');
+   }
    await page.locator('#opSearch').fill(t.name);
    await page.locator('.op').filter({hasText:t.name}).first().waitFor({timeout:10000});
    await page.locator('.op').filter({hasText:t.name}).first().dblclick();
@@ -54,11 +86,12 @@ let server,browser;try{
    await page.waitForFunction(() => {
      const done = document.querySelector('#progress')?.hidden;
      const status = document.querySelector('#statusText')?.textContent?.trim();
-     return done && (status === 'Ready' || /^Error/.test(status || ''));
+     const output = document.querySelector('#output')?.value || '';
+     return done && (/^Error/.test(status || '') || (status === 'Ready' && output.length > 0));
    }, null, { timeout: 15000 });
    const status = (await page.locator('#statusText').textContent())?.trim();
    const banner = (await page.locator('#banner').textContent())?.trim();
-   assert.equal(status, 'Ready', `${t.name}: recipe failed: ${banner || status}`);
+   assert.equal(status, 'Ready', `${t.name} (${t.file}): recipe failed: ${banner || status}`);
    const outputText = await page.locator('#output').inputValue();
    let report;
    try { report = JSON.parse(outputText); }

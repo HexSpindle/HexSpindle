@@ -1130,7 +1130,15 @@ function renderTabs() {
 }
 function closeTab(i) { S.inputs.splice(i, 1); S.tab = Math.min(S.tab, S.inputs.length - 1); renderInput(); persist(); scheduleBake(true); }
 function setInputBytes(u8, name, enc) {
-  const inp = cur(); inp.bytes = u8; if (name) inp.name = name; inp.big = u8.length > (1 << 20);
+  const inp = cur(); inp.bytes = u8; if (name) inp.name = name;
+  // Large binary artifacts should use the bounded preview instead of rendering
+  // hundreds of thousands of control pictures in the textarea. Keep the full
+  // Uint8Array available to the recipe engine for forensic processing.
+  const probe = u8.subarray(0, Math.min(u8.length, 4096));
+  let controls = 0;
+  for (const b of probe) if (b < 9 || (b > 13 && b < 32) || b === 127) controls++;
+  inp.big = u8.length > (1 << 20) ||
+    (u8.length > (256 << 10) && controls > probe.length * 0.05);
   if (enc) inp.enc = enc; renderInput(); S.inspect = null; scheduleBake(true); persist();
 }
 async function loadFiles(files) {
