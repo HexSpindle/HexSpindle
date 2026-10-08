@@ -484,13 +484,13 @@ function connectionControl(mod) {
       testing = false; testBtn.disabled = false; if (clearBtn) clearBtn.disabled = false;
     }
   };
-  const testBtn = el('button', { type: 'button', class: 'btn connection-test', onclick: test }, cfg.type === 'none' ? 'Test connection' : 'Save & Test');
+  const testBtn = el('button', { type: 'button', class: 'btn connection-test', onclick: test }, cfg.type === 'none' ? 'Test connection' : 'Connect & Test');
   const clearBtn = input ? el('button', { type: 'button', class: 'btn ghost', onclick: () => {
     clearServiceCredential(cfg.id); saved = ''; input.value = ''; input.placeholder = cfg.placeholder || cfg.label || 'Credential';
     apply(cfg.required ? 'bad' : 'muted', cfg.required ? `${cfg.label || 'Credential'} required` : 'Cleared');
   } }, 'Clear') : null;
   if (input) {
-    input.addEventListener('input', () => apply('bad', input.value.trim() ? 'Not verified · Save & Test' : (saved ? 'Saved value unchanged · Test to verify' : `${cfg.label || 'Credential'} required`)));
+    input.addEventListener('input', () => apply('bad', input.value.trim() ? 'Not verified · Connect & Test' : (saved ? 'Saved value unchanged · Test to verify' : `${cfg.label || 'Credential'} required`)));
     input.addEventListener('change', () => { if (input.value.trim()) test(); });
   }
   box.append(
@@ -1822,8 +1822,8 @@ async function magic() {
 }
 
 // ---- Suggest: an opt-in, local-first interface to either AI provider.
-// Keys are held in per-origin IndexedDB (not a secure key vault). No keys are
-// embedded in source code or sent to HexSpindle. Only provider requests receive
+// Keys are held only in this page's memory. No keys are embedded
+// in source code or sent to HexSpindle. Only provider requests receive
 // them; optionally selected input samples are sent to the chosen provider.
 function renderAIRecipeSuggestion(result, destination, sourceRecipe) {
   destination.replaceChildren();
@@ -1873,7 +1873,7 @@ async function suggestRecipe() {
   const includeOutput = el('input', { type: 'checkbox', checked: false });
   const includeRecipe = el('input', { type: 'checkbox', checked: true });
   const feedback = el('div', { class: 'ai-suggest-feedback', role: 'status', 'aria-live': 'polite' },
-    'Choose a provider, save a personal API key, and describe the result you want.');
+    'Choose a provider, enter an API key for this page session, and describe the result you want.');
   const suggestions = el('div', { class: 'ai-suggest-results' });
   const providerCards = el('div', { class: 'ai-provider-cards' });
   const rows = {};
@@ -1895,11 +1895,11 @@ async function suggestRecipe() {
     const value = rows[id].model.value.trim();
     models[id] = value || AI_PROVIDERS[id].model;
     verified[id] = false;
-    status(id, keys[id] ? `${maskAIKey(keys[id])} · Model changed — Save & Test` : 'No API key saved', 'muted');
+    status(id, keys[id] ? `${maskAIKey(keys[id])} · Model changed — Connect & Test` : 'No API key in memory', 'muted');
   };
 
   async function check(id) {
-    if (!keys[id]) { verified[id] = false; status(id, 'No API key saved', 'muted'); return false; }
+    if (!keys[id]) { verified[id] = false; status(id, 'No API key in memory', 'muted'); return false; }
     const key = keys[id]; const model = models[id];
     verified[id] = false;
     status(id, `${maskAIKey(key)} · Checking connection…`, 'checking');
@@ -1930,10 +1930,10 @@ async function suggestRecipe() {
       models[id] = newRecord.model;
       verified[id] = false;
       row.key.value = '';
-      row.key.placeholder = maskAIKey(keys[id]) + ' (saved; paste a new key to replace)';
+      row.key.placeholder = maskAIKey(keys[id]) + ' (in memory; paste a new key to replace)';
       const good = await check(id);
       message(good ? `${AI_PROVIDERS[id].label} is connected and ready.` :
-        `${AI_PROVIDERS[id].label} key is saved locally, but the connection or model is not verified.`, good ? 'ok' : 'bad');
+        `${AI_PROVIDERS[id].label} key is in memory, but the connection or model is not verified.`, good ? 'ok' : 'bad');
     } catch (e) { status(id, 'Save failed: ' + e.message, 'bad'); }
     finally { row.save.disabled = false; }
   }
@@ -1946,7 +1946,7 @@ async function suggestRecipe() {
       keys[id] = ''; verified[id] = false;
       rows[id].key.value = '';
       rows[id].key.placeholder = AI_PROVIDERS[id].placeholder;
-      status(id, 'Key cleared from this browser', 'muted');
+      status(id, 'Key cleared from memory', 'muted');
       message(`${AI_PROVIDERS[id].label} key cleared.`);
     } catch (e) { status(id, `Could not clear key: ${e.message}`, 'bad'); }
   }
@@ -1957,8 +1957,8 @@ async function suggestRecipe() {
       'aria-label': `${p.label} API key` });
     const model = el('input', { type: 'text', value: p.model, spellcheck: 'false',
       autocomplete: 'off', class: 'ai-model-input', 'aria-label': `${p.label} model ID` });
-    const connect = el('div', { class: 'ai-connection-status muted', role: 'status' }, 'Loading saved key…');
-    const save = el('button', { class: 'btn', type: 'button', onclick: () => storeAndTest(id) }, 'Save & Test');
+    const connect = el('div', { class: 'ai-connection-status muted', role: 'status' }, 'Checking this page’s memory…');
+    const save = el('button', { class: 'btn', type: 'button', onclick: () => storeAndTest(id) }, 'Connect & Test');
     const clear = el('button', { class: 'btn ghost', type: 'button', onclick: () => forgetKey(id) }, 'Clear');
     const card = el('section', { class: 'ai-provider-card', 'data-provider': id },
       el('div', { class: 'ai-provider-heading' }, el('b', {}, p.label),
@@ -1971,7 +1971,7 @@ async function suggestRecipe() {
     keys[id] = ''; models[id] = p.model; verified[id] = false;
     key.addEventListener('input', () => {
       verified[id] = false;
-      status(id, 'Unsaved key entered · Save & Test to connect', 'muted');
+      status(id, 'New key entered · Connect & Test to connect', 'muted');
     });
     model.addEventListener('input', () => setModel(id));
   }
@@ -1981,7 +1981,7 @@ async function suggestRecipe() {
     LS.set('aiProvider', id); // Saves only a provider ID; never a key.
     Object.entries(rows).forEach(([rowId, row]) => row.card.classList.toggle('active', rowId === id));
     suggestions.replaceChildren();
-    message(`Using ${AI_PROVIDERS[id].label}. ${verified[id] ? 'Connection is ready.' : 'Save & Test the key to verify access.'}`);
+    message(`Using ${AI_PROVIDERS[id].label}. ${verified[id] ? 'Connection is ready.' : 'Connect & Test the key to verify access.'}`);
   }
   provider.addEventListener('change', updateActive);
   const run = el('button', { class: 'btn primary', type: 'button', onclick: generate }, 'Suggest Recipe');
@@ -1990,8 +1990,8 @@ async function suggestRecipe() {
     if (generating) return;
     const id = provider.value; const goal = description.value.trim();
     if (!goal) { message('Describe what you want the recipe to do.', 'bad'); description.focus(); return; }
-    if (rows[id].key.value.trim()) { message('You entered a new key. Click Save & Test first.', 'bad'); return; }
-    if (!keys[id]) { message(`Enter a ${AI_PROVIDERS[id].label} API key and click Save & Test.`, 'bad'); return; }
+    if (rows[id].key.value.trim()) { message('You entered a new key. Click Connect & Test first.', 'bad'); return; }
+    if (!keys[id]) { message(`Enter a ${AI_PROVIDERS[id].label} API key and click Connect & Test.`, 'bad'); return; }
     generating = true; run.disabled = true;
     suggestions.replaceChildren();
     try {
@@ -2032,7 +2032,7 @@ async function suggestRecipe() {
     el('div', { class: 'desc' }, 'AI suggestions are experimental. The provider receives your goal and a shortlist of HexSpindle operations, followed by exact argument specifications for chosen steps. Two API requests are used per suggestion. Results are validated locally before applying.'),
     el('label', { class: 'ai-main-label' }, 'Provider', provider),
     providerCards,
-    el('div', { class: 'ai-suggest-privacy' }, 'Keys remain in this browser’s IndexedDB, not an account or secure vault. Browser extensions and scripts on this origin can access them. Provider requests may be blocked by browser CORS rules. For production, use a backend proxy.'),
+    el('div', { class: 'ai-suggest-privacy' }, 'API keys are kept only in this page’s memory and are cleared on reload or closing the tab. They are not saved to browser storage or a HexSpindle server. Malicious scripts or browser extensions could still access them while the page is open. Requests are sent directly to your chosen AI provider and may be blocked by browser CORS rules.'),
     el('label', { class: 'ai-main-label' }, 'What do you want to do?', description),
     el('label', { class: 'switch ai-sample-toggle', title: 'Share current recipe names and disabled status, but never argument values or keys' },
       includeRecipe, el('i'), el('span', {}, 'Include current recipe steps (names only; no keys or arguments)')),
@@ -2048,16 +2048,16 @@ async function suggestRecipe() {
   // Do not clear current UI state while loading. Errors stay visible per provider.
   try {
     await migrateLegacyAnthropicKey();
-  } catch (e) { status('anthropic', 'Old key could not migrate to IndexedDB: ' + e.message, 'bad'); }
+  } catch (e) { status('anthropic', 'Could not clear legacy key storage: ' + e.message, 'bad'); }
   await Promise.all(Object.keys(AI_PROVIDERS).map(async id => {
     try {
       const record = await loadAISetting(id);
-      if (!record) { status(id, 'No API key saved', 'muted'); return; }
+      if (!record) { status(id, 'No API key in memory', 'muted'); return; }
       keys[id] = record.key; models[id] = record.model || AI_PROVIDERS[id].model;
       rows[id].model.value = models[id];
-      rows[id].key.placeholder = maskAIKey(record.key) + ' (saved; paste a new key to replace)';
+      rows[id].key.placeholder = maskAIKey(record.key) + ' (in memory; paste a new key to replace)';
       await check(id);
-    } catch (e) { status(id, 'Could not read IndexedDB: ' + e.message, 'bad'); }
+    } catch (e) { status(id, 'Could not read in-memory key: ' + e.message, 'bad'); }
   }));
 }
 async function bakeRaw(bytes, recipe) {
