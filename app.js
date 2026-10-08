@@ -4,6 +4,7 @@
  * network calls are limited to explicit user actions: Suggest, network-enabled recipe operations,
  * and their connection tests. API credentials are user supplied and are never embedded in HexSpindle. */
 import { MODULES, describe, CATEGORY_LABELS } from './core/registry.js';
+import { FORENSICS_EVIDENCE_GUIDE } from './core/forensics-evidence-guide.js';
 import { bake as engineBake } from './core/engine.js';
 import { normaliseRecipe, parseRecipeText, exportRecipeText } from './core/recipe-interop-parallel.js';
 import { AI_PROVIDERS, loadAISetting, saveAISetting, deleteAISetting, migrateLegacyAnthropicKey,
@@ -200,7 +201,8 @@ const serialRecipe = () => S.recipe.map(o => ({ module: o.module, args: o.args, 
 let tipEl;
 function showTip(e, name) {
   const m = S.mods[name]; hideTip();
-  tipEl = el('div', { class: 'tip' }, el('b', {}, name), m.desc || '', el('br'), el('small', {}, m.categoryLabel + (m.args.length ? ` · ${m.args.length} argument${m.args.length > 1 ? 's' : ''}` : '')));
+  const guidance = FORENSICS_EVIDENCE_GUIDE[name];
+  tipEl = el('div', { class: 'tip' }, el('b', {}, name), m.desc || '', guidance ? el('div', { class: 'dfir-help-inline' }, el('b', {}, 'Import: '), guidance.input, el('br'), el('b', {}, 'Typical source: '), guidance.source) : null, el('br'), el('small', {}, m.categoryLabel + (m.args.length ? ` · ${m.args.length} argument${m.args.length > 1 ? 's' : ''}` : '')));
   document.body.append(tipEl);
   const r = e.currentTarget.getBoundingClientRect();
   tipEl.style.left = Math.min(r.right + 10, innerWidth - 340) + 'px'; tipEl.style.top = Math.min(r.top, innerHeight - tipEl.offsetHeight - 10) + 'px';
@@ -628,7 +630,7 @@ function renderRecipe() {
         el('button', { class: 'icon-btn', title: 'Move up', onclick: () => move(i, i - 1) }, icon('up')),
         el('button', { class: 'icon-btn', title: 'Move down', onclick: () => move(i, i + 2) }, icon('down')),
         el('button', { class: 'icon-btn', title: 'Remove', onclick: () => { S.recipe.splice(i, 1); S.stepTo = null; commit(); } }, icon('x'))),
-      el('div', { class: 'step-b' }, m.desc ? el('div', { class: 'desc' }, m.desc) : null, connectionControl(m), m.args.map((a, j) => argField(op, a, j)), info));
+      el('div', { class: 'step-b' }, m.desc ? el('div', { class: 'desc' }, m.desc) : null, (FORENSICS_EVIDENCE_GUIDE[op.module] ? el('div', { class: 'dfir-evidence' }, el('div', {}, el('b', {}, 'Input: '), FORENSICS_EVIDENCE_GUIDE[op.module].input), el('div', {}, el('b', {}, 'Typical location: '), FORENSICS_EVIDENCE_GUIDE[op.module].source), el('div', {}, el('b', {}, 'Acquisition: '), FORENSICS_EVIDENCE_GUIDE[op.module].acquire), FORENSICS_EVIDENCE_GUIDE[op.module].note ? el('div', {}, el('b', {}, 'Limitation: '), FORENSICS_EVIDENCE_GUIDE[op.module].note) : null) : null), connectionControl(m), m.args.map((a, j) => argField(op, a, j)), info));
     card._info = info; S.cards[i] = card; box.append(card);
     if (op.module === 'Fork' || op.module === 'Subsection') depth++;
   });

@@ -2663,3 +2663,9 @@ header.top .icon-btn:hover {
     margin-left: auto;
   }
 }
+
+/* Context-sensitive DFIR collection notes in operation cards. */
+.dfir-evidence { display:grid; gap:5px; padding:9px 10px; font:11px/1.55 var(--font); background:rgba(var(--accent-rgb), .045); border:1px solid var(--line); border-radius:8px; color:var(--muted); overflow-wrap:anywhere; }
+.dfir-evidence b { color:var(--text); font-weight:650; }
+.tip .dfir-help-inline { margin-top:6px; font-size:11px; color:var(--muted); overflow-wrap:anywhere; }
+.tip .dfir-help-inline b { color:var(--text); }
