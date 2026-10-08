@@ -2,6 +2,8 @@
 // BSD-3-Clause licensed (Copyright 2017 Mike Bostock; https://github.com/d3/d3-hexbin).
 // The UMD build is wrapped so it runs as an ES module without touching globals: `module` and
 // `exports` are local, so the UMD prologue takes its CommonJS branch.
+// Full third-party license and attribution notices: /THIRD_PARTY_NOTICES.md
+
 const module = { exports: {} };
 const exports = module.exports;
 
