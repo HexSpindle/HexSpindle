@@ -11,53 +11,40 @@ permissions:
 jobs:
   browser-smoke-test:
     runs-on: ubuntu-latest
-
     defaults:
       run:
         working-directory: tools
-
     steps:
       - name: Check out repository
         uses: actions/checkout@v7
         with:
           persist-credentials: false
-
       - name: Set up Node.js
         uses: actions/setup-node@v7
         with:
-          node-version: "24"
+          node-version: '24'
           package-manager-cache: false
-
       - name: Install dependencies
         run: npm ci
-
       - name: Install Chromium
         run: npx playwright install --with-deps chromium
-
       - name: Run browser smoke tests
         run: node ci-smoke.mjs
 
   deploy-pages:
     name: Deploy website
     needs: browser-smoke-test
-
-    # Only deploy successful pushes to main.
-    # Pull requests will run CI but will never receive the deployment key.
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-
     runs-on: ubuntu-latest
-
     concurrency:
       group: hexspindle-pages-deploy
       cancel-in-progress: true
-
     steps:
       - name: Check out HexSpindle source
         uses: actions/checkout@v7
         with:
           path: source
           persist-credentials: false
-
       - name: Check out Pages repository
         uses: actions/checkout@v7
         with:
@@ -65,29 +52,37 @@ jobs:
           ref: main
           path: site
           ssh-key: ${{ secrets.PAGES_DEPLOY_KEY }}
-
-      - name: Sync deployable application files
+      - name: Build allowlisted site artifact
+        shell: bash
         run: |
-          rsync -av --delete \
-            --exclude='.git/' \
-            --exclude='.github/' \
-            --exclude='tools/' \
-            --exclude='.gitignore' \
-            --exclude='README.md' \
-            source/ site/
-
+          set -euo pipefail
+          mkdir -p release
+          for file in index.html app.js app.css LICENSE THIRD_PARTY_NOTICES.md robots.txt sitemap.xml .nojekyll google8833fe62b3f6acca.html; do
+            test -f "source/$file" || { echo "Missing required release file: $file" >&2; exit 1; }
+            cp -- "source/$file" "release/$file"
+          done
+          for directory in assets core modules licenses; do
+            test -d "source/$directory" || { echo "Missing required release directory: $directory" >&2; exit 1; }
+            cp -a -- "source/$directory" "release/$directory"
+          done
+          if find release -type f \( -name '*.pem' -o -name '*.key' -o -name '*.env' -o -name '*.log' -o -name '*.map' -o -name '*.zip' \) -print -quit | grep -q .; then
+            echo 'Unexpected sensitive or development file in release artifact' >&2
+            exit 1
+          fi
+          echo "Prepared $(find release -type f | wc -l) deployment files"
+      - name: Synchronize release into Pages repository
+        run: rsync -av --delete --exclude='.git/' release/ site/
       - name: Commit and push deployment
         working-directory: site
+        shell: bash
         run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add -A
-
           if git diff --cached --quiet; then
-            echo "No website changes to deploy."
+            echo 'No website changes to deploy.'
             exit 0
           fi
-
           git commit -m "Deploy HexSpindle ${GITHUB_SHA:0:7}"
           git push origin main
