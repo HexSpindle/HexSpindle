@@ -1,5 +1,7 @@
 // Time-zone data from moment-timezone 0.6.4 (MIT, (c) JS Foundation and other contributors),
 // data/packed/latest.json, tzdb 2026d. Zones and links only. Loaded lazily by _momentfmt.js.
+// Full third-party license and attribution notices: /THIRD_PARTY_NOTICES.md
+
 export const version = "2026d";
 export const zones = [
 "Africa/Abidjan|LMT GMT|g.8 0|01|-2ldXH.Q",
