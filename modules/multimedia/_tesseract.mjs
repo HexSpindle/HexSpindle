@@ -1,15 +1,12 @@
-// Vendored from the `tesseract.js` npm package's ESM browser build
-// (dist/tesseract.esm.min.js), version 7.0.0, Apache-2.0 licensed
-// (https://github.com/naptha/tesseract.js). Unmodified apart from this header comment.
-//
-// This file is only the small (~60KB) worker-management glue - it is NOT a vendored OCR engine.
-// At runtime, calling its default-exported `createWorker()` fetches the much larger pieces
-// (a multi-megabyte WebAssembly Tesseract core, plus a 10MB+ trained-data file per language) from
-// the jsdelivr CDN on demand (its built-in default `corePath`/`workerPath`/`langPath`); those pieces
-// are not vendored here because they are large, numerous (one trained-data file per supported
-// language) and version-locked to this exact build, which would make straightforward offline
-// vendoring impractical for a single operation. See optical_character_recognition.js for the
-// operation that uses this and for what that means in practice (network access required).
+/*!
+ * Vendored from Tesseract.js 7.0.0 browser ESM distribution.
+ * License: Apache-2.0
+ *
+ * This copy has been integrated into HexSpindle as an ES module.
+ * The original bundled third-party notices and complete license terms
+ * are preserved in /THIRD_PARTY_NOTICES.md.
+ */
+
 /* eslint-disable */
 function getDefaultExportFromCjs (x) {
 	return x && x.__esModule && Object.prototype.hasOwnProperty.call(x, 'default') ? x['default'] : x;
