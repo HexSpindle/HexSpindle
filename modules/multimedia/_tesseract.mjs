@@ -1,10 +1,14 @@
 /*!
- * Vendored from Tesseract.js 7.0.0 browser ESM distribution.
+ * Tesseract.js v7.0.0
+ * Copyright Tesseract.js contributors.
  * License: Apache-2.0
  *
- * This copy has been integrated into HexSpindle as an ES module.
- * The original bundled third-party notices and complete license terms
- * are preserved in /THIRD_PARTY_NOTICES.md.
+ * Adapted for use as an ES module in HexSpindle.
+ *
+ * See /THIRD_PARTY_NOTICES.md for attribution,
+ * dependency notices, and outstanding verification items.
+ *
+ * See /licenses/Apache-2.0.txt for the main license.
  */
 
 /* eslint-disable */
