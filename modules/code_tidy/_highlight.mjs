@@ -1,5 +1,12 @@
-// Vendored bundle of highlight.js 11.12.0, full build (BSD-3-Clause, https://github.com/highlightjs/highlight.js).
-// Built with esbuild.
+/*!
+ * Vendored highlight.js 11.12.0.
+ * Copyright (c) 2006 Ivan Sagalaev.
+ * License: BSD-3-Clause
+ *
+ * Bundled for HexSpindle.
+ * Full license and attribution notices: /THIRD_PARTY_NOTICES.md
+ */
+
 var __create = Object.create;
 var __defProp = Object.defineProperty;
 var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
