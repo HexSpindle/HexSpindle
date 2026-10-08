@@ -1,4 +1,12 @@
-// XML serialiser following @xmldom/xmldom (MIT).
+/*!
+ * Portions derived from @xmldom/xmldom XML serialization logic.
+ * License: MIT
+ *
+ * Adapted for HexSpindle.
+ * Full copyright, license and attribution notices:
+ * /THIRD_PARTY_NOTICES.md
+ */
+
 const XMLNS = 'http://www.w3.org/2000/xmlns/';
 const XML_NS = 'http://www.w3.org/XML/1998/namespace';
 const XHTML = 'http://www.w3.org/1999/xhtml';
