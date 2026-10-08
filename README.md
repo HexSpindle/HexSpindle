@@ -33,7 +33,7 @@ No server-side processing is required for normal operation.
 
 ## Operation Coverage
 
-HexSpindle currently implements **737 operations across all 16 supported categories**.
+HexSpindle currently implements **738 operations across all 16 supported categories**.
 
 Operations are added incrementally. Features that have not yet been ported are simply omitted from the operation registry, allowing the rest of the application to remain fully functional.
 
@@ -42,7 +42,7 @@ The **Magic** decoder uses the same registry when evaluating candidate transform
 | Category | Operations |
 |---|---:|
 | Encryption / Encoding | 146 |
-| Forensics | 95 |
+| Forensics | 96 |
 | Data Format | 78 |
 | Hashing | 66 |
 | Utils | 61 |
@@ -57,7 +57,7 @@ The **Magic** decoder uses the same registry when evaluating candidate transform
 | Extractors | 11 |
 | Flow Control | 9 |
 | Language | 6 |
-| **Total** | **737** |
+| **Total** | **738** |
 ## Architecture
 
 HexSpindle is organized around a modular operation registry and a client-side recipe execution engine.
@@ -105,7 +105,7 @@ Together, these files provide the browser UI and application shell, including:
 
 ## Forensics evidence and validation
 
-The Forensics category includes native-file readers and operations that require exported or normalized evidence. Their supported inputs differ. See the [95-operation acquisition and input guide](docs/FORENSICS_ARTIFACT_GUIDE.md) and the [validation report and known limitations](docs/FORENSICS_VALIDATION_REPORT.md). Raw `.evtx` conversion to event XML/JSON is available via `EVTX to XML` / `EVTX to JSON` before event-focused operations. The conversion is format-limited and must be cross-checked for evidentiary conclusions. SQLite WAL and registry transaction-log replay remain unsupported.
+The Forensics category includes native-file readers and operations that require exported or normalized evidence. Their supported inputs differ. See the [96-operation acquisition and input guide](docs/FORENSICS_ARTIFACT_GUIDE.md) and the [validation report and known limitations](docs/FORENSICS_VALIDATION_REPORT.md). Raw `.evtx` conversion to event XML/JSON is available via `EVTX to XML` / `EVTX to JSON` before event-focused operations. The conversion is format-limited and must be cross-checked for evidentiary conclusions. SQLite committed WAL snapshots can be reconstructed from a ZIP containing the database and matching -wal file via `SQLite WAL Snapshot (ZIP)` before running browser parsers. Registry transaction-log replay remains unsupported.
 
 ### Native Windows Event Log conversion
 

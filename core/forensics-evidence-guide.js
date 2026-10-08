@@ -41,7 +41,7 @@ export const FORENSICS_EVIDENCE_GUIDE = {
     "input": "Raw SQLite Cookies (Chromium) or cookies.sqlite (Firefox), base database file",
     "source": "Chrome/Edge: C:\\Users\\<user>\\AppData\\Local\\<vendor>\\<browser>\\User Data\\<profile>\\Network\\Cookies; Firefox: %APPDATA%\\Mozilla\\Firefox\\Profiles\\<profile>\\cookies.sqlite",
     "acquire": "Collect profile database and WAL/SHM with KAPE, FTK Imager or snapshot; checkpoint only a COPY before importing",
-    "note": "Native SQLite reader, but no WAL replay: copy database together with -wal/-shm and make a safe checkpointed working copy before import. Browser/profile versions differ; no encrypted cookie decryption."
+    "note": "Native SQLite reader, but base DB only: for a -wal sidecar use SQLite WAL Snapshot (ZIP) first. Browser/profile versions differ; no encrypted cookie decryption."
   },
   "Chi Square": {
     "input": "Arbitrary raw file bytes",
@@ -49,17 +49,23 @@ export const FORENSICS_EVIDENCE_GUIDE = {
     "acquire": "Open file from HexSpindle input pane",
     "note": "Heuristics vary by data type; report offsets from original evidence."
   },
+  "SQLite WAL Snapshot (ZIP)": {
+    "input": "ZIP of SQLite database and matching -wal file (e.g. History plus History-wal); optional -shm is ignored",
+    "source": "Browser profile History, Network\\Cookies, Firefox places.sqlite or cookies.sqlite, or Windows ActivitiesCache.db and the matching -wal file",
+    "acquire": "Copy the main SQLite database and its -wal together from the same point-in-time VSS/forensic snapshot using FTK Imager or KAPE; place both at the same relative path within one ZIP archive; next run Chrome/Firefox/Timeline parser on the output",
+    "note": "Checks WAL magic, version, salts, header and frame checksums; replays only committed frames in memory. Does not recover deleted rows, uncommitted transactions, or free pages. 128 MiB safety limit. Output is a derived SQLite snapshot, never the original evidence."
+  },
   "Chrome History Parser": {
     "input": "Raw Chromium History SQLite database",
     "source": "Chrome: %LOCALAPPDATA%\\Google\\Chrome\\User Data\\<profile>\\History; Edge: %LOCALAPPDATA%\\Microsoft\\Edge\\User Data\\<profile>\\History",
-    "acquire": "Collect History and any -wal/-shm; merge/checkpoint working copy before import",
-    "note": "Native SQLite reader, but no WAL replay: copy database together with -wal/-shm and make a safe checkpointed working copy before import. Browser/profile versions differ; no encrypted cookie decryption."
+    "acquire": "Collect History and any -wal/-shm; use SQLite WAL Snapshot (ZIP) first if WAL is present; otherwise import base DB",
+    "note": "Native SQLite reader, but base DB only: for a -wal sidecar use SQLite WAL Snapshot (ZIP) first. Browser/profile versions differ; no encrypted cookie decryption."
   },
   "Chromium Downloads Parser": {
     "input": "Raw Chromium History SQLite database, not downloaded-file bytes",
     "source": "Chrome: %LOCALAPPDATA%\\Google\\Chrome\\User Data\\<profile>\\History; Edge: %LOCALAPPDATA%\\Microsoft\\Edge\\User Data\\<profile>\\History",
-    "acquire": "Collect History and any -wal/-shm; merge/checkpoint working copy before import",
-    "note": "Native SQLite reader, but no WAL replay: copy database together with -wal/-shm and make a safe checkpointed working copy before import. Browser/profile versions differ; no encrypted cookie decryption."
+    "acquire": "Collect History and any -wal/-shm; use SQLite WAL Snapshot (ZIP) first if WAL is present; otherwise import base DB",
+    "note": "Native SQLite reader, but base DB only: for a -wal sidecar use SQLite WAL Snapshot (ZIP) first. Browser/profile versions differ; no encrypted cookie decryption."
   },
   "Chromium Extension Manifest Analyzer": {
     "input": "Unpacked extension manifest.json",
@@ -149,7 +155,7 @@ export const FORENSICS_EVIDENCE_GUIDE = {
     "input": "Raw Firefox places.sqlite (SQLite database)",
     "source": "%APPDATA%\\Mozilla\\Firefox\\Profiles\\<profile>\\places.sqlite",
     "acquire": "Collect places.sqlite plus WAL/SHM, merge/checkpoint on copy before importing",
-    "note": "Native SQLite reader, but no WAL replay: copy database together with -wal/-shm and make a safe checkpointed working copy before import. Browser/profile versions differ; no encrypted cookie decryption."
+    "note": "Native SQLite reader, but base DB only: for a -wal sidecar use SQLite WAL Snapshot (ZIP) first. Browser/profile versions differ; no encrypted cookie decryption."
   },
   "Frequency distribution": {
     "input": "Arbitrary raw file bytes",
@@ -503,7 +509,7 @@ export const FORENSICS_EVIDENCE_GUIDE = {
     "input": "Raw SQLite ActivitiesCache.db (base DB only)",
     "source": "C:\\Users\\<user>\\AppData\\Local\\ConnectedDevicesPlatform\\<account-folder>\\ActivitiesCache.db",
     "acquire": "Collect database and -wal/-shm via forensic image; merge/checkpoint on a working copy before import if active WAL contains recent entries",
-    "note": "WAL replay is NOT implemented in the HexSpindle browser SQLite reader; input base DB alone can omit recent records."
+    "note": "The base-file SQLite reader does not automatically apply -wal sidecars; use SQLite WAL Snapshot (ZIP) first for a matching database and -wal acquired together."
   },
   "YARA Rules": {
     "input": "Raw input bytes to scan with a user-provided YARA rule argument",

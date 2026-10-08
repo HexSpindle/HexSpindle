@@ -25,6 +25,7 @@ const cases=[
  {file:'evtx-header-records-synthetic.evtx',name:'Windows EVTX Metadata Inspector',expect:{validRecordFrames:2,validChunks:1}},
  {file:'registry-value-synthetic.hiv',name:'Windows Registry Hive Inspector',check:x=>x[0]?.values?.some(v=>v.name==='Foo'&&v.value===42)},
  {file:'browser-sqlite-synthetic.db',name:'Chrome History Parser',check:x=>x.some(v=>v.url==='https://example.org/demo')},
+ {file:'sqlite-history-wal-evidence.zip',name:'SQLite WAL Snapshot (ZIP) → Chrome History Parser',recipe:['SQLite WAL Snapshot (ZIP)','Chrome History Parser'],check:x=>Array.isArray(x)&&x.length===2&&x.some(v=>v.url==='https://example.org/wal')},
 ];
 let server,browser;try{
  server=await serve();browser=await chromium.launch({headless:true});
@@ -77,9 +78,11 @@ let server,browser;try{
      assert.match(await page.locator('#input').inputValue(), /of binary data/i,
        'Large binary evidence should use the bounded preview; recipe input must remain complete');
    }
-   await page.locator('#opSearch').fill(t.name);
-   await page.locator('.op').filter({hasText:t.name}).first().waitFor({timeout:10000});
-   await page.locator('.op').filter({hasText:t.name}).first().dblclick();
+   for (const opName of (t.recipe || [t.name])) {
+     await page.locator('#opSearch').fill(opName);
+     await page.locator('.op').filter({hasText:opName}).first().waitFor({timeout:10000});
+     await page.locator('.op').filter({hasText:opName}).first().dblclick();
+   }
    await page.locator('#btnBake').click();
    // Fail promptly and meaningfully if a recipe reports an error. Do not confuse
    // a previous output with the result of this run.

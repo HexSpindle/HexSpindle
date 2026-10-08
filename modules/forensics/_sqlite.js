@@ -33,6 +33,9 @@ export class SQLiteReader {
     this.data = data;
     const rawPs = u16be(data, 16); this.pageSize = rawPs === 1 ? 65536 : rawPs;
     this.reserved = data[20]; this.usable = this.pageSize - this.reserved;
+    if (this.pageSize < 512 || this.pageSize > 65536 || (this.pageSize & (this.pageSize - 1)) || this.usable < 480 || data.length % this.pageSize !== 0 || data.length < this.pageSize) {
+      throw new Error('SQLite database has an invalid page size, reserved-space value, or truncated page');
+    }
     this.pages = Math.floor(data.length / this.pageSize);
     const enc = u32be(data, 56); this.encoding = enc === 2 ? 'utf-16le' : enc === 3 ? 'utf-16be' : 'utf-8';
     this.decoder = new TextDecoder(this.encoding, { fatal: false });
@@ -42,12 +45,15 @@ export class SQLiteReader {
     const off = (n - 1) * this.pageSize; return this.data.subarray(off, off + this.pageSize);
   }
   readOverflow(first, bytesNeeded) {
-    const parts = []; let p = first, remain = bytesNeeded, guard = 0;
+    const parts = []; let p = first, remain = bytesNeeded, guard = 0, seen = new Set();
     while (p && remain > 0 && guard++ < this.pages + 2) {
+      if (seen.has(p)) throw new Error('SQLite overflow page cycle');
+      seen.add(p);
       const pg = this.page(p); const next = u32be(pg, 0); const take = Math.min(remain, this.usable - 4);
       parts.push(pg.subarray(4, 4 + take)); remain -= take; p = next;
     }
-    const out = new Uint8Array(bytesNeeded - remain); let o = 0;
+    if (remain !== 0) throw new Error('SQLite overflow chain ends before record payload');
+    const out = new Uint8Array(bytesNeeded); let o = 0;
     for (const x of parts) { out.set(x, o); o += x.length; }
     return out;
   }
@@ -83,6 +89,7 @@ export class SQLiteReader {
   }
   cellPayload(pg, cellOff) {
     let [P, n1] = varint(pg, cellOff); P = asNum(P);
+    if (!Number.isSafeInteger(P) || P < 0 || P > 32 * 1048576) throw new Error('SQLite record payload exceeds 32 MiB safety limit or is malformed');
     const [rowid, n2] = varint(pg, cellOff + n1);
     const start = cellOff + n1 + n2; const local = this.localPayloadSize(P);
     if (start + local > pg.length) throw new Error('SQLite cell payload exceeds page');
@@ -133,7 +140,7 @@ export class SQLiteReader {
     const m = this.master().find(x => x.type === 'table' && x.name === name); if (!m) throw new Error(`SQLite table not found: ${name}`);
     const cols = this.columnsFor(name); const out = [];
     for (const r of this.walkTable(m.rootpage)) {
-      if (r.error) { out.push({ _rowid: r.rowid, _error: r.error }); continue; }
+      if (r.error) throw new Error(`SQLite table ${name} contains an unreadable cell (page ${r.page}, offset ${r.offset}): ${r.error}`);
       const obj = { _rowid: typeof r.rowid === 'bigint' ? r.rowid.toString() : r.rowid };
       r.values.forEach((v, i) => { const key = cols[i] || `col${i}`; obj[key] = v instanceof Uint8Array ? { hex: [...v.subarray(0, 64)].map(x=>x.toString(16).padStart(2,'0')).join(''), bytes: v.length } : (typeof v === 'bigint' ? v.toString() : v); });
       out.push(obj); if (out.length >= limit) break;

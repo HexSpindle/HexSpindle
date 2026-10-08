@@ -334,6 +334,7 @@ import './flow_control/merge.js';
 import './flow_control/register.js';
 import './flow_control/return_op.js';
 import './flow_control/subsection.js';
+import './forensics/sqlite_wal_snapshot_zip.js';
 import './forensics/chi_square.js';
 import './forensics/detect_file_type.js';
 import './forensics/embed_lsb.js';

@@ -40,6 +40,8 @@ jobs:
         run: node ci-forensics-full.mjs
       - name: Validate forensic artifact fixtures and native parsers
         run: node ci-forensics-evidence.mjs
+      - name: Validate SQLite WAL committed-snapshot reconstruction
+        run: node ci-forensics-wal.mjs
       - name: Check startup module size
         run: node check-startup-size.mjs
       - name: Check rendering isolation invariants

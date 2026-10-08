@@ -27,6 +27,8 @@ const reg=parsed(parseRegistryHive,hive);
 check('native regf registry key parsed',()=>assert.equal(reg[0].name,'ROOT'));
 check('native registry DWORD value recovered',()=>{assert.equal(reg[0].values[0].value,42);assert.equal(reg[0].values[0].name,'Foo')});
 check('invalid hive rejected',()=>assert.throws(()=>parseRegistryHive(new Uint8Array(100)),/registry hive/i));
+check('dirty registry hive requires transaction-log replay instead of silently omitting changes',()=>{const b=hive.slice();new DataView(b.buffer).setUint32(4,2,true);new DataView(b.buffer).setUint32(8,1,true);assert.throws(()=>parseRegistryHive(b),/Dirty registry hive.*LOG1/);});
+check('corrupt registry root is reported, not misrepresented as no keys',()=>{const b=hive.slice();const root=new DataView(b.buffer).getUint32(0x24,true);b[4096+root+4]=0;b[4096+root+5]=0;assert.throws(()=>parseRegistryHive(b),/key at offset/);});
 check('Chrome raw SQLite URL and title joined from two tables',()=>{const x=parsed(parseChromeHistory,sqlite);assert.equal(x[0].url,'https://example.org/demo');assert.equal(x[0].title,'Example page')});
 check('Firefox raw SQLite history time semantics',()=>{const x=parsed(parseFirefoxHistory,sqlite);assert.equal(x[0].url,'https://mozilla.org/');assert.equal(x[0].visitTime,'2023-11-14T22:13:20.000Z')});
 check('Chromium raw SQLite download URL-chain join',()=>{const x=parsed(parseChromiumDownloads,sqlite);assert.equal(x[0].urlChain[0],'https://example.org/evidence.zip')});
@@ -65,7 +67,7 @@ const sigmaRecords='\n---EVENTS---\n'+JSON.stringify([{Image:'C:\\Windows\\cmd.e
 check('Sigma and condition works without dynamic Function/eval (CSP-safe)',()=>assert.equal(parsed(evaluateSigmaSubset,enc(sigmaBase+'  condition: selection and other'+sigmaRecords)).matched,1));
 check('Sigma not/parenthesized expressions use correct precedence',()=>assert.equal(parsed(evaluateSigmaSubset,enc(sigmaBase+'  condition: selection and (not other)'+sigmaRecords)).matched,0));
 check('Sigma unsupported expression fails explicitly, not silent zero matches',()=>assert.throws(()=>evaluateSigmaSubset(enc(sigmaBase+'  condition: selection | other'+sigmaRecords)),/Unsupported Sigma/));
-check('95 operation acquisition guide entries, no missing source',()=>{assert.equal(Object.keys(FORENSICS_EVIDENCE_GUIDE).length,95);for(const [k,v] of Object.entries(FORENSICS_EVIDENCE_GUIDE))assert.ok(v.input&&v.source&&v.acquire&&v.note,k)});
+check('96 operation acquisition guide entries, no missing source',()=>{assert.equal(Object.keys(FORENSICS_EVIDENCE_GUIDE).length,96);for(const [k,v] of Object.entries(FORENSICS_EVIDENCE_GUIDE))assert.ok(v.input&&v.source&&v.acquire&&v.note,k)});
 check('GUI guidance distinguishes raw hives from derived exports',()=>{for(const name of ['Run Key Analyzer','Windows Services Registry Analyzer','OpenSave MRU Analyzer','RecentDocs Analyzer','ShimCache Parser'])assert.match(FORENSICS_EVIDENCE_GUIDE[name].input,/Raw/)});
 for (const [path, expectedName, bytes, predicate] of [
   ['../modules/forensics/windows_evtx_metadata_inspector.js','Windows EVTX Metadata Inspector',evtx, x => x.validRecordFrames === 2],
