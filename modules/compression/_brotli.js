@@ -8,6 +8,7 @@
  *
  * Brotli bitstream format: RFC 7932.
  */
+// Full third-party license and attribution notices: /THIRD_PARTY_NOTICES.md
 
 const __modules = Object.create(null);
 __modules["base64-js"] = function(module, exports, require) {
