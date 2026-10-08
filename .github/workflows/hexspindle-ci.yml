@@ -30,6 +30,8 @@ jobs:
         run: node check-readme-coverage.mjs
       - name: Run DFIR forensic operation reference tests
         run: node ci-forensics.mjs
+      - name: Validate comprehensive Windows event ID reference and inputs
+        run: node ci-windows-event-ids.mjs
       - name: Test EVTX binary-to-XML/JSON conversion and recipe chaining
         run: node ci-forensics-evtx.mjs
       - name: Test EVTX preallocation, event hunting and CLR operations
