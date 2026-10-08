@@ -32,7 +32,13 @@ let server,browser;try{
    await page.goto(`http://127.0.0.1:${server.address().port}/`,{waitUntil:'load'});
    await page.waitForFunction(()=>/\d/.test(document.querySelector('#opCount')?.textContent||''));
    // Disable speculative Auto-Spin before loading raw evidence.
-   if(await page.locator('#autoBake').isChecked())await page.locator('#autoBake').uncheck();
+   // The checkbox itself has display:none; Playwright cannot click/uncheck a hidden
+   // native control. Click its VISIBLE label, just as a real user would.
+   const autoBake = page.locator('#autoBake');
+   if (await autoBake.isChecked()) {
+     await page.locator('.bake-bar label.switch').click();
+   }
+   assert.equal(await autoBake.isChecked(), false, 'Auto-Spin should be disabled');
    const bytes=readFileSync(new URL('./fixtures/forensics/'+t.file,import.meta.url));
    await page.locator('#fileInput').setInputFiles({name:t.file,mimeType:'application/octet-stream',buffer:bytes});
    await page.waitForFunction(sz=>(document.querySelector('#inStats')?.textContent||'').includes(sz),bytes.length.toLocaleString('en-US'),{timeout:10000});
@@ -40,8 +46,21 @@ let server,browser;try{
    await page.locator('.op').filter({hasText:t.name}).first().waitFor({timeout:10000});
    await page.locator('.op').filter({hasText:t.name}).first().dblclick();
    await page.locator('#btnBake').click();
-   await page.waitForFunction(()=>{const s=document.querySelector('#output')?.value||'';try{return typeof JSON.parse(s)==='object'}catch{return false}},null,{timeout:12000});
-   const report=JSON.parse(await page.locator('#output').inputValue());
+   // Fail promptly and meaningfully if a recipe reports an error. Do not confuse
+   // a previous output with the result of this run.
+   await page.waitForFunction(() => {
+     const done = document.querySelector('#progress')?.hidden;
+     const status = document.querySelector('#statusText')?.textContent?.trim();
+     return done && (status === 'Ready' || /^Error/.test(status || ''));
+   }, null, { timeout: 15000 });
+   const status = (await page.locator('#statusText').textContent())?.trim();
+   const banner = (await page.locator('#banner').textContent())?.trim();
+   assert.equal(status, 'Ready', `${t.name}: recipe failed: ${banner || status}`);
+   const outputText = await page.locator('#output').inputValue();
+   let report;
+   try { report = JSON.parse(outputText); }
+   catch (e) { throw new Error(`${t.name}: expected JSON evidence output; got ${outputText.slice(0, 350)}`, { cause: e }); }
+   assert.ok(report !== null && typeof report === 'object', t.name + ' expected a JSON object or array');
    if(t.expect)for(const[k,v]of Object.entries(t.expect))assert.equal(report[k],v,`${t.name} / ${k}`);
    if(t.check)assert.ok(t.check(report),t.name+' expected evidence not found');
    assert.deepEqual(jsErrors,[],t.name+' JavaScript errors');
