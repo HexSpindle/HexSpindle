@@ -1,5 +1,7 @@
 // Vendored bundle of esprima 4.0.1 and escodegen 2.1.0 (BSD-2-Clause), with estraverse 5.3.0, esutils 2.0.3
 // (BSD-2-Clause) and source-map 0.6.1 (BSD-3-Clause). Built with esbuild.
+// Full third-party license and attribution notices: /THIRD_PARTY_NOTICES.md
+
 var __create = Object.create;
 var __defProp = Object.defineProperty;
 var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
