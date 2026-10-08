@@ -52,6 +52,8 @@ jobs:
         run: node ci-csp-operations.mjs
       - name: Test enforced CSP in local Chromium
         run: node ci-csp-enforced.mjs
+      - name: Test advanced CSP compatibility and blocking
+        run: node ci-csp-advanced.mjs
   deploy-pages:
     name: Deploy website
     needs: browser-smoke-test
