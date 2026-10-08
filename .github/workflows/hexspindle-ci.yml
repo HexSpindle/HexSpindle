@@ -42,6 +42,8 @@ jobs:
         run: node ci-forensics-evidence.mjs
       - name: Validate SQLite WAL committed-snapshot reconstruction
         run: node ci-forensics-wal.mjs
+      - name: Validate NTFS MFT record frames and torn-write detection
+        run: node ci-forensics-mft.mjs
       - name: Check startup module size
         run: node check-startup-size.mjs
       - name: Check rendering isolation invariants

@@ -138,15 +138,30 @@ export function parseEvtx(data) {
 }
 
 export function applyFileRecordFixup(record) {
+  // NTFS multi-sector update sequence array (USA): each sector trailer must
+  // equal the Update Sequence Number before it is replaced with its saved word.
+  // Do not silently return uncorrected records: that can turn torn writes into
+  // plausible but incorrect filenames, timestamps, or data runs.
+  need(record, 0, 48, 'NTFS FILE record header');
+  if (fixedAscii(record, 0, 4) !== 'FILE') throw new Error('Not an NTFS FILE record');
+  const usaOff = u16le(record, 4), usaCount = u16le(record, 6);
+  if (!usaOff || usaCount < 2 || usaOff % 2 || !has(record, usaOff, usaCount * 2)) {
+    throw new Error('Invalid NTFS FILE record update-sequence array');
+  }
+  const sectors = usaCount - 1;
+  if (record.length % sectors || record.length / sectors < 2 || record.length / sectors > 4096) {
+    throw new Error('NTFS record length does not match update-sequence sector count');
+  }
+  const sectorSize = record.length / sectors;
   const out = record.slice();
-  if (fixedAscii(out, 0, 4) !== 'FILE') return out;
-  const usaOff = u16le(out, 4), usaCount = u16le(out, 6); if (!usaOff || usaCount < 2 || !has(out, usaOff, usaCount * 2)) return out;
-  const sectorSize = Math.floor(out.length / (usaCount - 1)); if (!sectorSize) return out;
-  const seq0 = u16le(out, usaOff);
-  for (let i = 1; i < usaCount; i++) {
-    const tail = i * sectorSize - 2; if (!has(out, tail, 2)) break;
-    if (u16le(out, tail) !== seq0) throw new Error('MFT FILE record update-sequence-array check failed');
-    out[tail] = out[usaOff + i * 2]; out[tail + 1] = out[usaOff + i * 2 + 1];
+  const usn = u16le(out, usaOff);
+  for (let i = 1; i <= sectors; i++) {
+    const tail = i * sectorSize - 2;
+    if (u16le(out, tail) !== usn) {
+      throw new Error(`NTFS FILE record update-sequence-array mismatch at sector ${i} (possible torn write)`);
+    }
+    out[tail] = out[usaOff + i * 2];
+    out[tail + 1] = out[usaOff + i * 2 + 1];
   }
   return out;
 }
@@ -198,15 +213,25 @@ export function parseMftRecord(raw, recordIndex = null) {
 }
 const ATTR_TYPES={0x10:'$STANDARD_INFORMATION',0x20:'$ATTRIBUTE_LIST',0x30:'$FILE_NAME',0x40:'$OBJECT_ID',0x50:'$SECURITY_DESCRIPTOR',0x60:'$VOLUME_NAME',0x70:'$VOLUME_INFORMATION',0x80:'$DATA',0x90:'$INDEX_ROOT',0xa0:'$INDEX_ALLOCATION',0xb0:'$BITMAP',0xc0:'$REPARSE_POINT',0xd0:'$EA_INFORMATION',0xe0:'$EA',0x100:'$LOGGED_UTILITY_STREAM'};
 export function parseMft(data, recordSize = 1024, limit = 10000) {
-  const rows=[]; let off=0, idx=0;
-  while (off+48<=data.length && rows.length<limit) {
-    if (fixedAscii(data,off,4)==='FILE') {
-      const size = Math.min(recordSize, data.length-off); try { rows.push(parseMftRecord(data.subarray(off,off+size),idx)); } catch(e){ rows.push({recordNumber:idx,offset:off,error:String(e.message||e)}); }
-      off += recordSize; idx++; continue;
-    }
-    const next = latin1(data).indexOf('FILE',off+1); if(next<0) break; off=next;
+  if (!Number.isInteger(recordSize) || recordSize < 512 || recordSize > 65536 || recordSize % 512) {
+    throw new Error('MFT record size must be a 512-byte multiple between 512 and 65536');
   }
-  return safeJson({recordSize,records:rows});
+  if (!Number.isInteger(limit) || limit < 1 || limit > 100000) throw new Error('Invalid MFT record reporting limit');
+  const rows = [], totalSlots = Math.floor(data.length / recordSize), max = Math.min(totalSlots, limit);
+  let nonFileSlots = 0, corruptRecords = 0;
+  for (let idx = 0; idx < max; idx++) {
+    const off = idx * recordSize;
+    if (fixedAscii(data, off, 4) !== 'FILE') { nonFileSlots++; continue; }
+    try { rows.push(parseMftRecord(data.subarray(off, off + recordSize), idx)); }
+    catch (e) {
+      corruptRecords++;
+      rows.push({ recordNumber: idx, offset: off, error: String(e.message || e) });
+    }
+  }
+  return safeJson({ recordSize, totalSlots, checkedSlots: max, nonFileSlots, corruptRecords,
+    trailingBytes: data.length % recordSize, records: rows,
+    warning: corruptRecords || data.length % recordSize ?
+      'Some records are corrupt or the evidence stream is truncated; do not treat output as complete.' : null });
 }
 export function parseNtfsAttributes(data) { return safeJson(parseMftRecord(data)); }
 export function analyzeNtfsAds(data) { const r=parseMftRecord(data); return safeJson(r.attributes.filter(a=>a.typeName==='$DATA').map(a=>({name:a.name||'(default stream)',nonresident:a.nonresident,size:a.realSize??a.contentLength??null,runs:a.runs||[]}))); }
