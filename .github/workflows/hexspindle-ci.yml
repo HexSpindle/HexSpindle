@@ -30,13 +30,11 @@ jobs:
         run: node check-readme-coverage.mjs
       - name: Check startup module size
         run: node check-startup-size.mjs
-      - name: Check production security invariants
-        run: node check-security-posture.mjs
       - name: Check rendering isolation invariants
         run: node check-rendering-boundaries.mjs
       - name: Audit CSP compatibility (advisory)
         run: node audit-csp-compat.mjs
-      - name: Validate production release boundary
+      - name: Validate security posture and production release boundary
         run: node check-release-boundary.mjs
       - name: Install dependencies
         run: npm ci
