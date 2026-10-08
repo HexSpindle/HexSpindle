@@ -1,0 +1,24 @@
+// SPDX-License-Identifier: MIT
+import assert from 'node:assert/strict';
+import { parseUsn } from '../modules/forensics/_windows.js';
+const u16=(a,o,v)=>new DataView(a.buffer).setUint16(o,v,true);
+const u32=(a,o,v)=>new DataView(a.buffer).setUint32(o,v,true);
+const u64=(a,o,v)=>new DataView(a.buffer).setBigUint64(o,BigInt(v),true);
+const v2=new Uint8Array(72);u32(v2,0,72);u16(v2,4,2);u32(v2,40,0x100);u16(v2,56,8);u16(v2,58,60);v2.set(new TextEncoder().encode(''),0);for(let i=0;i<4;i++)u16(v2,60+i*2,'test'.charCodeAt(i));
+const v3=new Uint8Array(88);u32(v3,0,88);u16(v3,4,3);u16(v3,72,8);u16(v3,74,76);for(let i=0;i<4;i++)u16(v3,76+i*2,'next'.charCodeAt(i));
+const v4=new Uint8Array(80);u32(v4,0,80);u16(v4,4,4);u16(v4,60,1);u16(v4,62,16);u64(v4,64,4096);u64(v4,72,2048);
+const join=(...xx)=>{const a=new Uint8Array(xx.reduce((n,x)=>n+x.length,0));let p=0;for(const x of xx){a.set(x,p);p+=x.length;}return a;};
+let count=0;const check=(fn,label)=>{fn();count++;console.log(`PASS: ${label}`)};
+check(()=>assert.equal(JSON.parse(parseUsn(v2))[0].name,'test'),'USN v2 filename');
+check(()=>assert.equal(JSON.parse(parseUsn(v3))[0].name,'next'),'USN v3 128-bit record');
+check(()=>assert.equal(JSON.parse(parseUsn(v4))[0].extents[0].length,'2048'),'USN v4 range extent');
+check(()=>assert.equal(JSON.parse(parseUsn(join(v2,new Uint8Array(8),v3))).length,2),'zero padding is not another record');
+check(()=>assert.throws(()=>parseUsn(join(v2,Uint8Array.of(1,2,3,4,5,6,7,8))),/Malformed/),'nonzero trailing corruption rejected');
+check(()=>assert.throws(()=>parseUsn(join(v2,Uint8Array.of(1,2))),/Truncated/),'truncated trailing nonzero bytes rejected');
+check(()=>{const x=v2.slice();u16(x,58,1000);assert.throws(()=>parseUsn(x),/filename bounds/)},'filename out of range rejected');
+check(()=>{const x=v3.slice();u16(x,72,7);assert.throws(()=>parseUsn(x),/filename bounds/)},'odd UTF16 byte length rejected');
+check(()=>{const x=v4.slice();u16(x,60,2);assert.throws(()=>parseUsn(x),/extent array/)},'USN v4 invalid extent count rejected');
+check(()=>{const x=v2.slice();u16(x,4,9);assert.throws(()=>parseUsn(x),/Unsupported/)},'unknown version rejected');
+check(()=>assert.throws(()=>parseUsn(join(v2,v3),1),/output limit/),'partial result limit fails closed');
+check(()=>assert.equal(JSON.parse(parseUsn(new Uint8Array(4096))).length,0),'sparse USN padding accepted');
+console.log(`PASS: ${count} USN version and corruption assertions`);

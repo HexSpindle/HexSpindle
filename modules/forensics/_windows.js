@@ -236,14 +236,74 @@ export function parseMft(data, recordSize = 1024, limit = 10000) {
 export function parseNtfsAttributes(data) { return safeJson(parseMftRecord(data)); }
 export function analyzeNtfsAds(data) { const r=parseMftRecord(data); return safeJson(r.attributes.filter(a=>a.typeName==='$DATA').map(a=>({name:a.name||'(default stream)',nonresident:a.nonresident,size:a.realSize??a.contentLength??null,runs:a.runs||[]}))); }
 
-export function parseUsn(data, limit=20000) {
-  const out=[]; let off=0;
-  while(off+60<=data.length && out.length<limit){ const len=u32le(data,off); if(len<60 || off+len>data.length){ off+=8; continue; } const major=u16le(data,off+4); try {
-    if(major===2){ const nameLen=u16le(data,off+56), nameOff=u16le(data,off+58); out.push({offset:off,major,recordLength:len,fileReference:fileRef(u64le(data,off+8)),parentReference:fileRef(u64le(data,off+16)),usn:u64le(data,off+24).toString(),timestamp:filetimeToIso(u64le(data,off+32)),reason:decodeUsnReason(u32le(data,off+40)),sourceInfo:'0x'+u32le(data,off+44).toString(16),securityId:u32le(data,off+48),fileAttributes:'0x'+u32le(data,off+52).toString(16),name:has(data,off+nameOff,nameLen)?utf16(data.subarray(off+nameOff,off+nameOff+nameLen)):''}); }
-    else if(major===3 && len>=76){ const nameLen=u16le(data,off+72), nameOff=u16le(data,off+74); out.push({offset:off,major,recordLength:len,fileReference128:hex(data.subarray(off+8,off+24)),parentReference128:hex(data.subarray(off+24,off+40)),usn:u64le(data,off+40).toString(),timestamp:filetimeToIso(u64le(data,off+48)),reason:decodeUsnReason(u32le(data,off+56)),sourceInfo:'0x'+u32le(data,off+60).toString(16),securityId:u32le(data,off+64),fileAttributes:'0x'+u32le(data,off+68).toString(16),name:has(data,off+nameOff,nameLen)?utf16(data.subarray(off+nameOff,off+nameOff+nameLen)):''}); }
-  }catch(e){out.push({offset:off,error:String(e.message||e)});} off += (len+7)&~7; }
+export function parseUsn(data, limit = 20000) {
+  // The $J stream consists of variable-length USN_RECORD_V2/V3/V4 records.
+  // Treat zero-filled alignment as padding, but never silently skip nonzero
+  // corrupt bytes or unknown versions in a forensic evidence stream.
+  if (!Number.isInteger(limit) || limit < 1 || limit > 200000) throw new Error('USN record limit must be 1..200000');
+  const out = [];
+  let off = 0, skippedPadding = 0;
+  while (off < data.length && out.length < limit) {
+    if (off + 8 > data.length) {
+      const remaining = data.subarray(off);
+      if (remaining.every(b => b === 0)) break;
+      throw new Error(`Truncated USN record header at byte offset ${off}`);
+    }
+    const len = u32le(data, off);
+    if (len === 0 && data.subarray(off, Math.min(data.length, off + 8)).every(b => b === 0)) {
+      skippedPadding += 8; off += 8; continue;
+    }
+    if (len < 8 || len > data.length - off || (len & 7)) {
+      throw new Error(`Malformed USN record length ${len} at byte offset ${off}`);
+    }
+    const major = u16le(data, off + 4), minor = u16le(data, off + 6);
+    if (major !== 2 && major !== 3 && major !== 4) {
+      throw new Error(`Unsupported USN record version ${major}.${minor} at offset ${off}`);
+    }
+    if (major === 4) {
+      // USN_RECORD_V4 contains 128-bit references and range-tracking extents;
+      // it has no filename. Returning a blank V2-like filename would be false.
+      if (len < 64) throw new Error(`Truncated USN V4 record at offset ${off}`);
+      const extentCount = u16le(data, off + 60), extentSize = u16le(data, off + 62);
+      if (extentSize < 16 || extentCount > Math.floor((len - 64) / extentSize))
+        throw new Error(`Invalid USN V4 extent array at offset ${off}`);
+      out.push({offset: off, major, minor, recordLength: len,
+        fileReference128: hex(data.subarray(off + 8, off + 24)),
+        parentReference128: hex(data.subarray(off + 24, off + 40)),
+        usn: u64le(data, off + 40).toString(), reason: decodeUsnReason(u32le(data, off + 48)),
+        sourceInfo: '0x' + u32le(data, off + 52).toString(16),
+        remainingExtents: u32le(data, off + 56), extentCount, extentSize,
+        extents: Array.from({length: extentCount}, (_, i) => {
+          const at = off + 64 + i * extentSize;
+          return {offset: u64le(data, at).toString(), length: u64le(data, at + 8).toString()};
+        })});
+    } else {
+      const min = major === 2 ? 60 : 76;
+      if (len < min) throw new Error(`Truncated USN V${major} record at offset ${off}`);
+      const nameLen = u16le(data, off + (major === 2 ? 56 : 72));
+      const nameOff = u16le(data, off + (major === 2 ? 58 : 74));
+      if ((nameLen & 1) || nameOff < min || nameOff + nameLen > len)
+        throw new Error(`Malformed USN V${major} filename bounds at offset ${off}`);
+      if (major === 2) out.push({offset: off, major, minor, recordLength: len,
+        fileReference: fileRef(u64le(data, off + 8)), parentReference: fileRef(u64le(data, off + 16)),
+        usn: u64le(data, off + 24).toString(), timestamp: filetimeToIso(u64le(data, off + 32)),
+        reason: decodeUsnReason(u32le(data, off + 40)), sourceInfo: '0x' + u32le(data, off + 44).toString(16),
+        securityId: u32le(data, off + 48), fileAttributes: '0x' + u32le(data, off + 52).toString(16),
+        name: utf16(data.subarray(off + nameOff, off + nameOff + nameLen))});
+      else out.push({offset: off, major, minor, recordLength: len,
+        fileReference128: hex(data.subarray(off + 8, off + 24)), parentReference128: hex(data.subarray(off + 24, off + 40)),
+        usn: u64le(data, off + 40).toString(), timestamp: filetimeToIso(u64le(data, off + 48)),
+        reason: decodeUsnReason(u32le(data, off + 56)), sourceInfo: '0x' + u32le(data, off + 60).toString(16),
+        securityId: u32le(data, off + 64), fileAttributes: '0x' + u32le(data, off + 68).toString(16),
+        name: utf16(data.subarray(off + nameOff, off + nameOff + nameLen))});
+    }
+    off += len;
+  }
+  if (out.length === limit && data.subarray(off).some(b => b !== 0))
+    throw new Error(`USN output limit ${limit} reached before the evidence stream ended; increase the limit to avoid incomplete evidence`);
   return safeJson(out);
 }
+
 function decodeUsnReason(v){const m=[[0x1,'DATA_OVERWRITE'],[0x2,'DATA_EXTEND'],[0x4,'DATA_TRUNCATION'],[0x10,'NAMED_DATA_OVERWRITE'],[0x20,'NAMED_DATA_EXTEND'],[0x40,'NAMED_DATA_TRUNCATION'],[0x100,'FILE_CREATE'],[0x200,'FILE_DELETE'],[0x400,'EA_CHANGE'],[0x800,'SECURITY_CHANGE'],[0x1000,'RENAME_OLD_NAME'],[0x2000,'RENAME_NEW_NAME'],[0x4000,'INDEXABLE_CHANGE'],[0x8000,'BASIC_INFO_CHANGE'],[0x10000,'HARD_LINK_CHANGE'],[0x20000,'COMPRESSION_CHANGE'],[0x40000,'ENCRYPTION_CHANGE'],[0x80000,'OBJECT_ID_CHANGE'],[0x100000,'REPARSE_POINT_CHANGE'],[0x200000,'STREAM_CHANGE'],[0x80000000,'CLOSE']];return m.filter(([b])=>v&b).map(([,n])=>n);}
 
 class RegistryHive {

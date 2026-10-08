@@ -44,6 +44,8 @@ jobs:
         run: node ci-forensics-wal.mjs
       - name: Validate NTFS MFT record frames and torn-write detection
         run: node ci-forensics-mft.mjs
+      - name: Validate USN journal V2/V3/V4 and corruption behavior
+        run: node ci-forensics-usn.mjs
       - name: Check startup module size
         run: node check-startup-size.mjs
       - name: Check rendering isolation invariants
