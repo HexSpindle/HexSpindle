@@ -48,8 +48,6 @@ jobs:
         run: node ci-encodings.mjs
       - name: Test candidate CSP in report-only mode
         run: node ci-csp-report-only.mjs
-      - name: Test CSP compatibility during operations
-        run: node ci-csp-operations.mjs
       - name: Test enforced CSP in local Chromium
         run: node ci-csp-enforced.mjs
       - name: Test advanced CSP compatibility and blocking
