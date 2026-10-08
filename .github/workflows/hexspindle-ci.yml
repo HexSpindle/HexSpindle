@@ -1,13 +1,10 @@
 name: HexSpindle CI
-
 on:
   push:
     branches: [main]
   pull_request:
-
 permissions:
   contents: read
-
 jobs:
   browser-smoke-test:
     runs-on: ubuntu-latest
@@ -30,9 +27,7 @@ jobs:
         run: node check-vendor-notices.mjs
       - name: Validate README operation coverage
         run: node check-readme-coverage.mjs
-      - name: Audit static startup dependency size
-        env:
-          HEXSPINDLE_STARTUP_BUDGET_BYTES: '26214400'
+      - name: Check startup module size
         run: node check-startup-size.mjs
       - name: Install dependencies
         run: npm ci
@@ -42,7 +37,8 @@ jobs:
         run: node ci-smoke.mjs
       - name: Run engine regression tests
         run: node ci-regression.mjs
-
+      - name: Run encoding reference-vector tests
+        run: node ci-encodings.mjs
   deploy-pages:
     name: Deploy website
     needs: browser-smoke-test
