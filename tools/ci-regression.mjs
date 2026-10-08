@@ -69,7 +69,7 @@ async function main() {
       await check('Sequential upto stops at requested step', async () => {
         const ops = [op('To Hex'), op('From Hex'), op('To Base64')];
         const r0 = await run(input('Hi'), ops, 0);
-        equal(new TextDecoder().decode(r0.output).toLowerCase(), '4869', 'step 0');
+        equal(new TextDecoder().decode(r0.output).toLowerCase(), '48 69', 'step 0');
         const r1 = await run(input('Hi'), ops, 1);
         equal(new TextDecoder().decode(r1.output), 'Hi', 'step 1');
         const r2 = await run(input('Hi'), ops, 2);
