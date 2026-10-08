@@ -1,6 +1,17 @@
 import { module } from './_cat.js';
 import { A, Html } from '../../core/registry.js';
-import { diffChars, diffWords, diffWordsWithSpace, diffLines, diffTrimmedLines, diffSentences, diffCss, diffJson } from './_jsdiff.js';
+
+// Load jsdiff only when the Diff operation is executed.
+let jsdiffPromise;
+function loadJsdiff() {
+  if (!jsdiffPromise) {
+    jsdiffPromise = import('./_jsdiff.js').catch(error => {
+      jsdiffPromise = null;
+      throw error;
+    });
+  }
+  return jsdiffPromise;
+}
 
 const HTML_CHARS = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#x27;', '`': '&#x60;', '\u0000': '' };
 const escapeHtml = s => s.replace(/[&<>"'`\u0000]/g, c => HTML_CHARS[c]);
@@ -8,11 +19,12 @@ const escapeHtml = s => s.replace(/[&<>"'`\u0000]/g, c => HTML_CHARS[c]);
 module('Diff', 'Compares two samples (separated by the sample delimiter) and shows additions/removals.',
   [A.string('Sample delimiter', '\\n\\n'), A.select('Diff by', ['Character', 'Word', 'Line', 'Sentence', 'CSS', 'JSON']),
    A.boolean('Show added', true), A.boolean('Show removed', true), A.boolean('Show subtraction', false), A.boolean('Ignore whitespace', false)],
-  (t, sd, by, added, removed, subtraction, ignoreWs) => {
+  async (t, sd, by, added, removed, subtraction, ignoreWs) => {
     sd = sd.replace(/\\n/g, '\n').replace(/\\t/g, '\t').replace(/\\r/g, '\r');
     const samples = t.split(sd);
     if (samples.length !== 2) throw new Error('Incorrect number of samples, perhaps you need to modify the sample delimiter or add more samples?');
     const [a, b] = samples;
+    const { diffChars, diffWords, diffWordsWithSpace, diffLines, diffTrimmedLines, diffSentences, diffCss, diffJson } = await loadJsdiff();
     let diff;
     switch (by) {
       case 'Character': diff = diffChars(a, b); break;
