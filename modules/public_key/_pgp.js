@@ -1,6 +1,31 @@
-import * as openpgp from './_openpgp.mjs';
+// Shared OpenPGP helpers. The library is loaded on first PGP operation, not at app startup.
+// Keep the openpgp facade asynchronous: callers already await the library's methods.
+let openpgpPromise;
+function loadOpenPGP() {
+  if (!openpgpPromise) {
+    openpgpPromise = import('./_openpgp.mjs').catch(error => {
+      openpgpPromise = undefined; // permit retry after a failed module load
+      throw error;
+    });
+  }
+  return openpgpPromise;
+}
 
-export { openpgp };
+// All current PGP operations call async OpenPGP APIs (readKey, encrypt, etc.).
+// This facade retains their existing `openpgp.method(...)` call sites without
+// loading the OpenPGP bundle until an operation is actually executed.
+const API_METHODS = new Set([
+  'readKey', 'readPrivateKey', 'readMessage', 'readCleartextMessage',
+  'createMessage', 'createCleartextMessage', 'generateKey', 'decryptKey',
+  'encrypt', 'decrypt', 'sign', 'verify', 'reformatKey', 'readSignature',
+]);
+export const openpgp = Object.freeze(Object.fromEntries([...API_METHODS].map(name => [
+  name, async (...args) => {
+    const api = await loadOpenPGP();
+    if (typeof api[name] !== 'function') throw new Error(`OpenPGP method is unavailable: ${name}`);
+    return api[name](...args);
+  }
+])));
 
 export const PGP_KEY_TYPES = ['RSA-1024', 'RSA-2048', 'RSA-4096', 'ECC-256', 'ECC-384', 'ECC-521'];
 
@@ -84,13 +109,11 @@ export async function formatVerification(signatures, verificationKeys, data) {
     text += '\n';
   }
   text += [
-    // kbpgp's "short key id" is the last four bytes of the fingerprint; its fingerprint is lower case.
     `PGP key ID: ${signer.getFingerprint().slice(-8).toUpperCase()}`,
     `PGP fingerprint: ${signer.getFingerprint().toLowerCase()}`,
     `Signed on ${signedOn}`,
     '----------------------------------\n',
   ].join('\n');
   text += typeof data === 'string' ? data : '';
-
   return text.trim();
 }
