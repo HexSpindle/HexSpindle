@@ -1,5 +1,7 @@
 // Vendored geodesy 1.1.3 (MIT, Copyright (c) 2014 Chris Veness): dms.js, vector3d.js,
 // latlon-ellipsoidal.js, utm.js, mgrs.js and osgridref.js concatenated into one ES module.
+// Full third-party license and attribution notices: /THIRD_PARTY_NOTICES.md
+
 /* eslint-disable */
 
 // ---- dms.js ----
