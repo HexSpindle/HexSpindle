@@ -1,5 +1,16 @@
-// Magic detection engine (Apache-2.0, Crown Copyright 2016-2026) with chi-squared 1.1.0 and gamma 1.0.0
-// (MIT, James Halliday). Built with esbuild.
+/*!
+ * Portions adapted from GCHQ CyberChef's Magic, Stream,
+ * file-type and character-encoding components.
+ * Copyright Crown Copyright and respective CyberChef contributors.
+ * License: Apache-2.0
+ *
+ * Also contains gamma and chi-squared components licensed under MIT.
+ * Modified and bundled for HexSpindle.
+ *
+ * Full copyright, Apache-2.0, MIT and attribution notices:
+ * /THIRD_PARTY_NOTICES.md
+ */
+
 var __create = Object.create;
 var __defProp = Object.defineProperty;
 var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
