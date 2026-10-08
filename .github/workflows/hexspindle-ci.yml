@@ -32,6 +32,8 @@ jobs:
         run: node ci-forensics.mjs
       - name: Exercise complete DFIR operation registry
         run: node ci-forensics-full.mjs
+      - name: Validate forensic artifact fixtures and native parsers
+        run: node ci-forensics-evidence.mjs
       - name: Check startup module size
         run: node check-startup-size.mjs
       - name: Check rendering isolation invariants
@@ -46,6 +48,8 @@ jobs:
         run: npx playwright install --with-deps chromium
       - name: Run browser smoke tests
         run: node ci-smoke.mjs
+      - name: Test native forensic artifact upload and analysis in Chromium
+        run: node ci-forensics-browser.mjs
       - name: Run engine regression tests
         run: node ci-regression.mjs
       - name: Run encoding reference-vector tests

@@ -2,6 +2,8 @@ import { module } from './_cat.js';
 
 module('Parse UNIX file permissions', 'Explains an octal mode (e.g. 755) or a textual mode (e.g. drwxr-xr-x): textual and octal forms, file type, special bits and a permission matrix.', [],
   (input) => {
+    // The recipe engine passes bytes unless a module opts into text mode.
+    input = typeof input === 'string' ? input : new TextDecoder('utf-8').decode(input);
     const perms = {
       d:  false, // directory
       sl: false, // symbolic link

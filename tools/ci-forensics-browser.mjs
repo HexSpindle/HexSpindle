@@ -1,0 +1,52 @@
+#!/usr/bin/env node
+// SPDX-License-Identifier: MIT
+// Real Chromium UI regression: upload native bytes using the file picker,
+// select an operation and run the actual recipe through the application.
+import assert from 'node:assert/strict';
+import {createServer} from 'node:http';
+import {readFileSync} from 'node:fs';
+import {readFile as readFileAsync} from 'node:fs/promises';
+import {fileURLToPath} from 'node:url';
+import {extname,join,normalize,sep} from 'node:path';
+import {createRequire} from 'node:module';
+const {chromium}=createRequire(import.meta.url)('playwright');
+const ROOT=normalize(join(fileURLToPath(new URL('.',import.meta.url)),'..'));
+const MIME={'.html':'text/html','.js':'text/javascript','.mjs':'text/javascript','.css':'text/css','.json':'application/json','.wasm':'application/wasm'};
+const serve=()=>new Promise(resolve=>{const server=createServer(async(req,res)=>{
+  try {const path=decodeURIComponent((req.url||'/').split('?')[0]);const full=normalize(join(ROOT,path==='/'?'index.html':path.slice(1)));
+  if(full!==ROOT&&!full.startsWith(ROOT+sep)){res.writeHead(403).end();return;}
+  const body=await readFileAsync(full);res.writeHead(200,{'Content-Type':MIME[extname(full)]||'application/octet-stream'});res.end(body);
+  }catch{res.writeHead(404).end('not found');}
+});server.listen(0,'127.0.0.1',()=>resolve(server));});
+const cases=[
+ {file:'evtx-header-records-synthetic.evtx',name:'Windows EVTX Metadata Inspector',expect:{validRecordFrames:2,validChunks:1}},
+ {file:'registry-value-synthetic.hiv',name:'Windows Registry Hive Inspector',check:x=>x[0]?.values?.some(v=>v.name==='Foo'&&v.value===42)},
+ {file:'browser-sqlite-synthetic.db',name:'Chrome History Parser',check:x=>x.some(v=>v.url==='https://example.org/demo')},
+];
+let server,browser;try{
+ server=await serve();browser=await chromium.launch({headless:true});
+ for(const t of cases){
+  const context=await browser.newContext();const page=await context.newPage();const jsErrors=[];
+  page.on('pageerror',e=>jsErrors.push(e.message));
+  try {
+   await page.goto(`http://127.0.0.1:${server.address().port}/`,{waitUntil:'load'});
+   await page.waitForFunction(()=>/\d/.test(document.querySelector('#opCount')?.textContent||''));
+   // Disable speculative Auto-Spin before loading raw evidence.
+   if(await page.locator('#autoBake').isChecked())await page.locator('#autoBake').uncheck();
+   const bytes=readFileSync(new URL('./fixtures/forensics/'+t.file,import.meta.url));
+   await page.locator('#fileInput').setInputFiles({name:t.file,mimeType:'application/octet-stream',buffer:bytes});
+   await page.waitForFunction(sz=>(document.querySelector('#inStats')?.textContent||'').includes(sz),bytes.length.toLocaleString('en-US'),{timeout:10000});
+   await page.locator('#opSearch').fill(t.name);
+   await page.locator('.op').filter({hasText:t.name}).first().waitFor({timeout:10000});
+   await page.locator('.op').filter({hasText:t.name}).first().dblclick();
+   await page.locator('#btnBake').click();
+   await page.waitForFunction(()=>{const s=document.querySelector('#output')?.value||'';try{return typeof JSON.parse(s)==='object'}catch{return false}},null,{timeout:12000});
+   const report=JSON.parse(await page.locator('#output').inputValue());
+   if(t.expect)for(const[k,v]of Object.entries(t.expect))assert.equal(report[k],v,`${t.name} / ${k}`);
+   if(t.check)assert.ok(t.check(report),t.name+' expected evidence not found');
+   assert.deepEqual(jsErrors,[],t.name+' JavaScript errors');
+   console.log('PASS: Chromium native file upload → operation → recipe → decoded output: '+t.name);
+  }finally{await context.close();}
+ }
+ console.log('PASS: '+cases.length+' native artifact workflow integrations in Chromium.');
+}finally{await browser?.close();if(server)await new Promise(resolve=>server.close(resolve));}

@@ -103,6 +103,10 @@ Together, these files provide the browser UI and application shell, including:
 - Magic decoding
 - ZIP/archive browser
 
+## Forensics evidence and validation
+
+The Forensics category includes native-file readers and operations that require exported or normalized evidence. Their supported inputs differ. See the [84-operation acquisition and input guide](docs/FORENSICS_ARTIFACT_GUIDE.md) and the [validation report and known limitations](docs/FORENSICS_VALIDATION_REPORT.md). In particular, EVTX container metadata inspection supports raw `.evtx`, but event-level BinXML decoding is not yet supported; XML/JSON event analyzers require decoded exports. SQLite WAL and registry transaction-log replay are not implemented.
+
 ## Client-Side Processing
 
 HexSpindle is designed around local browser execution. Most data transformations are performed entirely in the browser using browser APIs and JavaScript implementations rather than being sent to a remote processing service.

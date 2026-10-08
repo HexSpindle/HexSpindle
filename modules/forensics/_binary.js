@@ -6,7 +6,7 @@ import { listZip, findZipEntry, zipEntryBytes } from './_zip.js';
 
 function md5hex(bytes){return [...md5(bytes)].map(b=>b.toString(16).padStart(2,'0')).join('');}
 function pe(data){
-  if(data[0]!==0x4d||data[1]!==0x5a)throw new Error('Not a PE file (MZ missing)'); const peOff=u32le(data,0x3c); need(data,peOff,24,'PE header'); if(fixedAscii(data,peOff,4)!=='PE\0\0')throw new Error('PE signature missing');
+  if(data[0]!==0x4d||data[1]!==0x5a)throw new Error('Not a PE file (MZ missing)'); const peOff=u32le(data,0x3c); need(data,peOff,24,'PE header'); if(data[peOff]!==0x50||data[peOff+1]!==0x45||data[peOff+2]!==0||data[peOff+3]!==0)throw new Error('PE signature missing');
   const nsec=u16le(data,peOff+6), optSize=u16le(data,peOff+20), opt=peOff+24, magic=u16le(data,opt), plus=magic===0x20b; if(!plus&&magic!==0x10b)throw new Error('Unsupported PE optional-header magic');
   const dd=opt+(plus?112:96), secOff=opt+optSize, dirs=[]; const dirCount=Math.min(u32le(data,opt+(plus?108:92)),16); for(let i=0;i<dirCount;i++)dirs.push({rva:u32le(data,dd+i*8),size:u32le(data,dd+i*8+4)});
   const sections=[]; for(let i=0;i<nsec;i++){const o=secOff+i*40;if(!has(data,o,40))break;sections.push({name:fixedAscii(data,o,8),virtualSize:u32le(data,o+8),virtualAddress:u32le(data,o+12),rawSize:u32le(data,o+16),rawPointer:u32le(data,o+20),characteristics:u32le(data,o+36)});}

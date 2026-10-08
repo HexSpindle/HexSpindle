@@ -4,19 +4,35 @@ import {
   text, latin1, utf16, hex, safeJson, has, need, u16le, u32le, i32le, u64le, filetimeToIso,
   fixedAscii, fixedUtf16, utf16z, asciiz, printableAsciiStrings, printableUtf16Strings, parseJsonish,
 } from './_common.js';
+import { xpressDecompressHuffman } from '../compression/_xpress.js';
 
 function rot13(s) { return s.replace(/[A-Za-z]/g, c => String.fromCharCode((c <= 'Z' ? 65 : 97) + (c.charCodeAt(0) - (c <= 'Z' ? 65 : 97) + 13) % 26)); }
 
 export function parsePrefetch(data) {
-  if (data.length >= 4 && latin1(data.subarray(0, 3)) === 'MAM') {
-    throw new Error('Compressed MAM Prefetch detected. Decompress it first with HexSpindle XPRESS Huffman Decompress, then run this parser.');
+  // Windows 10/11 Prefetch frequently uses the MAM wrapper (8-byte header,
+  // 4-byte little-endian uncompressed size, XPRESS-Huffman payload for type 4).
+  // Decode within strict bounds, then require the native SCCA signature.
+  let mamCompression = null;
+  if (data.length >= 4 && data[0] === 0x4d && data[1] === 0x41 && data[2] === 0x4d) {
+    need(data, 0, 8, 'compressed Prefetch MAM header');
+    const compression = data[3], expected = u32le(data, 4);
+    if (compression !== 4) throw new Error(`Unsupported Prefetch MAM compression type ${compression}; supported type is 4 (XPRESS-Huffman)`);
+    if (expected < 84 || expected > 64 * 1048576) throw new Error('Prefetch MAM decompressed size is invalid or exceeds the 64 MiB safety limit');
+    let decompressed;
+    try { decompressed = xpressDecompressHuffman(data.subarray(8), expected); }
+    catch (error) { throw new Error(`MAM XPRESS-Huffman decompression failed: ${error.message}`); }
+    if (decompressed.length !== expected || fixedAscii(decompressed, 4, 4) !== 'SCCA') {
+      throw new Error('MAM decompressed bytes failed Prefetch SCCA/length validation');
+    }
+    data = decompressed;
+    mamCompression = 'MAM04 XPRESS-Huffman';
   }
   need(data, 0, 84, 'Prefetch header');
   const version = u32le(data, 0), sig = fixedAscii(data, 4, 4);
   if (sig !== 'SCCA') throw new Error('Not an uncompressed Windows Prefetch file (missing SCCA signature)');
   const executable = fixedUtf16(data, 16, 30).replace(/\0/g, '');
   const fileSize = u32le(data, 12); const hash = u32le(data, 76);
-  const info = { version, executable, fileSize, hash: '0x' + hash.toString(16).padStart(8, '0'), lastRuns: [], runCount: null, referencedFiles: [] };
+  const info = { version, executable, fileSize, compression: mamCompression || 'none', hash: '0x' + hash.toString(16).padStart(8, '0'), lastRuns: [], runCount: null, referencedFiles: [] };
   const timestampOffsets = version === 17 ? [0x78] : version === 23 ? [0x80] : (version >= 26 ? Array.from({length:8}, (_,i)=>0x80+i*8) : []);
   for (const off of timestampOffsets) if (has(data, off, 8)) { const iso = filetimeToIso(u64le(data, off)); if (iso) info.lastRuns.push(iso); }
   const rcOff = version === 17 ? 0x90 : version === 23 ? 0x98 : version >= 26 ? 0xd0 : -1;
@@ -31,20 +47,88 @@ export function parsePrefetch(data) {
 }
 
 function evtxHeader(data) {
-  if (fixedAscii(data, 0, 8) !== 'ElfFile\0') throw new Error('Not an EVTX file (missing ElfFile signature)');
-  return { oldestChunk: Number(u64le(data, 8)), currentChunk: Number(u64le(data, 16)), nextRecordId: u64le(data, 24).toString(), headerSize: u32le(data, 32), minor: u16le(data, 36), major: u16le(data, 38), chunkCount: u16le(data, 42), flags: u32le(data, 120) };
-}
-export function parseEvtx(data) {
-  const h = evtxHeader(data); const chunks = [];
-  for (let off = 0x1000; off + 0x200 <= data.length; off += 0x10000) {
-    if (fixedAscii(data, off, 8) !== 'ElfChnk\0') continue;
-    const firstRecord = u64le(data, off + 8).toString(), lastRecord = u64le(data, off + 16).toString();
-    const firstId = u64le(data, off + 24).toString(), lastId = u64le(data, off + 32).toString();
-    const freeSpace = u32le(data, off + 48); chunks.push({ offset: off, firstRecord, lastRecord, firstId, lastId, freeSpace });
+  need(data, 0, 128, 'EVTX file header');
+  // fixedAscii intentionally strips trailing NUL padding. Do not compare it
+  // to "ElfFile\0"; verify the exact eight signature bytes instead.
+  if (fixedAscii(data, 0, 8) !== 'ElfFile' || data[7] !== 0) {
+    throw new Error('Not an EVTX file (expected 45 6c 66 46 69 6c 65 00 / ElfFile\\0)');
   }
-  // Full BinXML template expansion is intentionally not guessed. Surface recoverable literal strings as forensic context.
-  const strings = printableUtf16Strings(data, 4).filter(x => /[A-Za-z]/.test(x.text)).slice(0, 2000);
-  return safeJson({ ...h, chunks, note: 'EVTX container/chunk metadata parsed. Literal UTF-16 strings are surfaced; BinXML template expansion is not performed by this dependency-free parser.', strings });
+  const headerBlockSize = u16le(data, 40);
+  const chunkCount = u16le(data, 42);
+  return {
+    firstChunkNumber: u64le(data, 8).toString(),
+    lastChunkNumber: u64le(data, 16).toString(),
+    nextRecordId: u64le(data, 24).toString(),
+    headerSize: u32le(data, 32), minor: u16le(data, 36), major: u16le(data, 38),
+    headerBlockSize, chunkCount,
+    flags: u32le(data, 120), dirty: !!(u32le(data, 120) & 1), full: !!(u32le(data, 120) & 2),
+    storedHeaderChecksum: '0x' + u32le(data, 124).toString(16).padStart(8, '0'),
+  };
+}
+
+/**
+ * Container-level EVTX inspector. Record IDs and written FILETIMEs are read
+ * directly from valid record frames; embedded BinXML is NOT decoded.
+ * Limits avoid producing megabytes of UI output for multi-GB evidence.
+ */
+export function parseEvtx(data) {
+  const header = evtxHeader(data);
+  if (data.length < 4096) throw new Error('Truncated EVTX file header (expected 4096 bytes)');
+  const chunks = [], records = [], anomalies = [];
+  const maxChunksToReport = 128, maxRecordsToReport = 5000;
+  let validChunks = 0, validRecords = 0, malformedRecords = 0;
+  const physicalChunks = Math.floor((data.length - 4096) / 65536);
+  for (let index = 0; index < physicalChunks; index++) {
+    const off = 4096 + index * 65536;
+    if (fixedAscii(data, off, 8) !== 'ElfChnk' || data[off + 7] !== 0) {
+      if (anomalies.length < 128) anomalies.push({chunkIndex:index, offset:off, issue:'Missing ElfChnk signature'});
+      continue;
+    }
+    validChunks++;
+    const freeSpaceOffset = u32le(data, off + 48);
+    const lastRecordOffset = u32le(data, off + 44);
+    const end = off + Math.min(65536, Math.max(512, freeSpaceOffset || 65536));
+    const chunk = {
+      index, offset: off,
+      firstRecordNumber: u64le(data, off + 8).toString(),
+      lastRecordNumber: u64le(data, off + 16).toString(),
+      firstRecordId: u64le(data, off + 24).toString(),
+      lastRecordId: u64le(data, off + 32).toString(),
+      lastRecordOffset, freeSpaceOffset,
+      recordsFound: 0, malformedRecordFrames: 0,
+    };
+    // The first record begins after the 512-byte chunk header. Some chunks
+    // contain stale padding; stop at freeSpaceOffset or the next invalid frame.
+    let at = off + 512;
+    while (at + 28 <= end) {
+      if (u32le(data, at) !== 0x00002a2a) break;
+      const size = u32le(data, at + 4);
+      if (size < 28 || at + size > end || u32le(data, at + size - 4) !== size) {
+        malformedRecords++; chunk.malformedRecordFrames++;
+        if (anomalies.length < 128) anomalies.push({chunkIndex:index,offset:at,issue:'Invalid EVTX record frame or size trailer'});
+        break;
+      }
+      validRecords++; chunk.recordsFound++;
+      if (records.length < maxRecordsToReport) records.push({offset:at,size,
+        recordId:u64le(data,at+8).toString(),writtenUtc:filetimeToIso(u64le(data,at+16))});
+      at += size;
+    }
+    if (chunks.length < maxChunksToReport) chunks.push(chunk);
+  }
+  if (physicalChunks !== header.chunkCount && anomalies.length < 128) {
+    anomalies.push({issue:'Header chunk count differs from physical chunk slots',headerCount:header.chunkCount,physicalChunks});
+  }
+  const textSampleMax = 2 * 1048576;
+  const sample = data.subarray(0, Math.min(data.length, textSampleMax));
+  const strings = printableUtf16Strings(sample, 4).filter(x => /[A-Za-z]/.test(x.text)).slice(0, 300);
+  return safeJson({
+    ...header, fileSizeBytes:data.length, physicalChunkSlots:physicalChunks,
+    validChunks, validRecordFrames:validRecords, malformedRecordFrames:malformedRecords,
+    chunks, records, anomalies,
+    reportingLimits:{chunkMetadata:maxChunksToReport,recordMetadata:maxRecordsToReport,utf16ScannedBytes:sample.length},
+    decodingScope:'Native EVTX header, chunk frames, record IDs and written timestamps only. BinXML event content (EventID, Provider, EventData) is NOT decoded. Do not use this inspector as a substitute for a full EVTX parser.',
+    strings,
+  });
 }
 
 export function applyFileRecordFixup(record) {

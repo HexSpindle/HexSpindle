@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: MIT
-// Evidence acquisition guidance. Paths are illustrative, not access instructions.
+// Per-operation evidence acquisition, input-format and parser-scope guidance.
 export const FORENSICS_EVIDENCE_GUIDE = {
   "Amcache Parser": {
-    "input": "Amcache.hve binary hive",
+    "input": "Raw Amcache.hve registry hive (regf)",
     "source": "C:\\Windows\\AppCompat\\Programs\\Amcache.hve",
-    "acquire": "KAPE/FTK Imager or registry-aware forensic acquisition",
-    "note": "This is an inspector, not complete Amcache transaction-log replay."
+    "acquire": "Collect the raw hive and matching .LOG1/.LOG2 transaction logs using KAPE RegistryHives, FTK Imager, or a forensic image; the current parser reads only the supplied base hive (no transaction-log replay)",
+    "note": "Does not replay transaction logs; key schema differs by Windows version. Amcache entries are not definitive proof of execution."
   },
   "Android APK Manifest Analyzer": {
     "input": "Raw APK ZIP",
@@ -32,16 +32,16 @@ export const FORENSICS_EVIDENCE_GUIDE = {
     "note": "Sign-in visibility and retention depend on tenant/licensing."
   },
   "BAM/DAM Parser": {
-    "input": "Registry hive or exported BAM/DAM values",
-    "source": "SYSTEM: ControlSet00x\\Services\\bam\\State\\UserSettings; dam equivalent when present",
-    "acquire": "RECmd, KAPE or Registry Explorer",
-    "note": "Not every Windows build populates the same keys."
+    "input": "Raw SYSTEM registry hive (regf)",
+    "source": "C:\\Windows\\System32\\config\\SYSTEM: ControlSet00x\\Services\\bam\\State\\UserSettings\\<SID>",
+    "acquire": "Collect the raw hive and matching .LOG1/.LOG2 transaction logs using KAPE RegistryHives, FTK Imager, or a forensic image; the current parser reads only the supplied base hive (no transaction-log replay)",
+    "note": "Reads BAM/DAM named values; empty results can reflect absent data or version differences. Prefer not to claim direct proof of execution without corroboration."
   },
   "Browser Cookies Metadata Parser": {
-    "input": "Raw SQLite Cookies / cookies.sqlite (no decryption)",
-    "source": "Chrome/Edge profile Network\\Cookies; Firefox profile cookies.sqlite",
-    "acquire": "KAPE, FTK Imager, profile collection",
-    "note": "Encrypted cookie values are not automatically decrypted."
+    "input": "Raw SQLite Cookies (Chromium) or cookies.sqlite (Firefox), base database file",
+    "source": "Chrome/Edge: C:\\Users\\<user>\\AppData\\Local\\<vendor>\\<browser>\\User Data\\<profile>\\Network\\Cookies; Firefox: %APPDATA%\\Mozilla\\Firefox\\Profiles\\<profile>\\cookies.sqlite",
+    "acquire": "Collect profile database and WAL/SHM with KAPE, FTK Imager or snapshot; checkpoint only a COPY before importing",
+    "note": "Native SQLite reader, but no WAL replay: copy database together with -wal/-shm and make a safe checkpointed working copy before import. Browser/profile versions differ; no encrypted cookie decryption."
   },
   "Chi Square": {
     "input": "Arbitrary raw file bytes",
@@ -50,16 +50,16 @@ export const FORENSICS_EVIDENCE_GUIDE = {
     "note": "Heuristics vary by data type; report offsets from original evidence."
   },
   "Chrome History Parser": {
-    "input": "Raw SQLite History database",
-    "source": "Chrome: %LOCALAPPDATA%\\Google\\Chrome\\User Data\\Default\\History; Edge: %LOCALAPPDATA%\\Microsoft\\Edge\\User Data\\Default\\History",
-    "acquire": "KAPE, FTK Imager; copy History plus -wal / -shm",
-    "note": "Locked live SQLite databases should be acquired from shadow copy or offline image."
+    "input": "Raw Chromium History SQLite database",
+    "source": "Chrome: %LOCALAPPDATA%\\Google\\Chrome\\User Data\\<profile>\\History; Edge: %LOCALAPPDATA%\\Microsoft\\Edge\\User Data\\<profile>\\History",
+    "acquire": "Collect History and any -wal/-shm; merge/checkpoint working copy before import",
+    "note": "Native SQLite reader, but no WAL replay: copy database together with -wal/-shm and make a safe checkpointed working copy before import. Browser/profile versions differ; no encrypted cookie decryption."
   },
   "Chromium Downloads Parser": {
-    "input": "Raw SQLite History database",
-    "source": "Chrome: %LOCALAPPDATA%\\Google\\Chrome\\User Data\\Default\\History; Edge: %LOCALAPPDATA%\\Microsoft\\Edge\\User Data\\Default\\History",
-    "acquire": "KAPE, FTK Imager; copy History plus -wal / -shm",
-    "note": "Locked live SQLite databases should be acquired from shadow copy or offline image."
+    "input": "Raw Chromium History SQLite database, not downloaded-file bytes",
+    "source": "Chrome: %LOCALAPPDATA%\\Google\\Chrome\\User Data\\<profile>\\History; Edge: %LOCALAPPDATA%\\Microsoft\\Edge\\User Data\\<profile>\\History",
+    "acquire": "Collect History and any -wal/-shm; merge/checkpoint working copy before import",
+    "note": "Native SQLite reader, but no WAL replay: copy database together with -wal/-shm and make a safe checkpointed working copy before import. Browser/profile versions differ; no encrypted cookie decryption."
   },
   "Chromium Extension Manifest Analyzer": {
     "input": "Unpacked extension manifest.json",
@@ -74,10 +74,10 @@ export const FORENSICS_EVIDENCE_GUIDE = {
     "note": "Sensitive profile preferences should be processed offline."
   },
   "Defender Event Log Analyzer": {
-    "input": "Exported Windows event XML or normalized JSON/JSONL",
-    "source": "Security.evtx; Microsoft-Windows-Sysmon%4Operational.evtx; PowerShell/Operational; TerminalServices logs; Defender Operational",
-    "acquire": "wevtutil qe <channel> /f:xml; Get-WinEvent | ConvertTo-Json; hayabusa or Chainsaw for EVTX-to-JSON",
-    "note": "These analyzers are not binary EVTX decoders: export structured events first."
+    "input": "Exported Event XML (<Event>...), or event JSON array/JSONL; raw binary .evtx is NOT decoded",
+    "source": "%SystemRoot%\\System32\\winevt\\Logs\\Microsoft-Windows-Windows Defender%4Operational.evtx",
+    "acquire": "Collect the .evtx binary for chain of custody; for this analyzer, export individual XML events using Get-WinEvent -Path <file.evtx> | ForEach-Object { $_.ToXml() }; alternatively use evtx_dump/EvtxECmd then normalize output schema. Relevant channel: Microsoft-Windows-Windows Defender/Operational",
+    "note": "Known IDs: 1116/1117/5007. Current analyzer requires decoded events (XML/JSON), and explicitly rejects raw EVTX rather than silently returning empty results. Multi-Event XML and JSON schemas vary by exporter."
   },
   "Detect File Type": {
     "input": "Arbitrary raw file bytes",
@@ -140,16 +140,16 @@ export const FORENSICS_EVIDENCE_GUIDE = {
     "note": "Embedding changes content; always work on a copy."
   },
   "Firefox Extensions Analyzer": {
-    "input": "Firefox extensions.json / extension manifest.json",
+    "input": "Firefox profile extensions.json (JSON metadata file)",
     "source": "%APPDATA%\\Mozilla\\Firefox\\Profiles\\<profile>\\extensions.json",
-    "acquire": "KAPE / copy Firefox profile",
-    "note": "Verify parser input format (manifest versus extensions list)."
+    "acquire": "Copy extensions.json from Firefox profile; individual extensions are not the same input structure",
+    "note": "Expected top-level addons/extensions list. An individual WebExtension manifest.json is not accepted as equivalent without conversion."
   },
   "Firefox History Parser": {
-    "input": "Raw SQLite places.sqlite",
+    "input": "Raw Firefox places.sqlite (SQLite database)",
     "source": "%APPDATA%\\Mozilla\\Firefox\\Profiles\\<profile>\\places.sqlite",
-    "acquire": "KAPE, FTK Imager; preserve WAL files",
-    "note": "Profile name varies; choose the active profile."
+    "acquire": "Collect places.sqlite plus WAL/SHM, merge/checkpoint on copy before importing",
+    "note": "Native SQLite reader, but no WAL replay: copy database together with -wal/-shm and make a safe checkpointed working copy before import. Browser/profile versions differ; no encrypted cookie decryption."
   },
   "Frequency distribution": {
     "input": "Arbitrary raw file bytes",
@@ -188,22 +188,22 @@ export const FORENSICS_EVIDENCE_GUIDE = {
     "note": "ZIP payload may contain nested dependencies."
   },
   "Jump List Parser": {
-    "input": "Raw automaticDestinations-ms / customDestinations-ms",
-    "source": "%APPDATA%\\Microsoft\\Windows\\Recent\\AutomaticDestinations\\ and CustomDestinations\\",
-    "acquire": "KAPE or JLECmd",
-    "note": "Some Jump Lists contain OLE compound files; check parser limitations."
+    "input": "Raw .automaticDestinations-ms or .customDestinations-ms file",
+    "source": "C:\\Users\\<user>\\AppData\\Roaming\\Microsoft\\Windows\\Recent\\AutomaticDestinations\\ and CustomDestinations\\\\",
+    "acquire": "Collect via KAPE; use JLECmd for authoritative CFB/OLE + DestList interpretation",
+    "note": "Current implementation scans embedded LNK signature candidates, not full Compound File Binary/CustomDestinations or DestList parsing."
   },
   "Kerberos Event Analyzer": {
-    "input": "Exported Windows event XML or normalized JSON/JSONL",
-    "source": "Security.evtx; Microsoft-Windows-Sysmon%4Operational.evtx; PowerShell/Operational; TerminalServices logs; Defender Operational",
-    "acquire": "wevtutil qe <channel> /f:xml; Get-WinEvent | ConvertTo-Json; hayabusa or Chainsaw for EVTX-to-JSON",
-    "note": "These analyzers are not binary EVTX decoders: export structured events first."
+    "input": "Exported Event XML (<Event>...), or event JSON array/JSONL; raw binary .evtx is NOT decoded",
+    "source": "%SystemRoot%\\System32\\winevt\\Logs\\Security.evtx",
+    "acquire": "Collect the .evtx binary for chain of custody; for this analyzer, export individual XML events using Get-WinEvent -Path <file.evtx> | ForEach-Object { $_.ToXml() }; alternatively use evtx_dump/EvtxECmd then normalize output schema. Relevant channel: Security",
+    "note": "Known IDs: 4768/4769/4771. Current analyzer requires decoded events (XML/JSON), and explicitly rejects raw EVTX rather than silently returning empty results. Multi-Event XML and JSON schemas vary by exporter."
   },
   "Linux Auditd Parser": {
-    "input": "Text, JSON or raw evidence bytes as supported by the operation",
-    "source": "Consult the evidence source and operation-specific parser implementation",
-    "acquire": "Forensic imaging, KAPE, FTK Imager or source-native exporter",
-    "note": "Validate with a specialized tool before relying on output."
+    "input": "Plain-text Linux auditd record lines (not a binary data file)",
+    "source": "/var/log/audit/audit.log and rotated audit.log.*",
+    "acquire": "Collect auditd logs from disk image or auditctl/ausearch output preserving timestamps; report source host/timezone",
+    "note": "Analyzes text audit records; not a Linux filesystem journal or binary audit file."
   },
   "Linux Auth Log Analyzer": {
     "input": "Text sshd/auth log",
@@ -224,10 +224,10 @@ export const FORENSICS_EVIDENCE_GUIDE = {
     "note": "Inspecting signature blob is not complete code-signing verification."
   },
   "macOS Unified Log JSON Analyzer": {
-    "input": "Structured JSON export",
-    "source": "macOS unified logging datastore",
-    "acquire": "log show --style json --last 1h > unified.json (where supported)",
-    "note": "Requires JSON export; not a raw tracev3 parser."
+    "input": "macOS unified log structured JSON (not raw .tracev3)",
+    "source": "Unified logging data under /var/db/diagnostics and /var/db/uuidtext (system/version dependent)",
+    "acquire": "Use macOS log show --style json with an appropriate --archive/--last filter on an authorized system or compatible forensic exporter",
+    "note": "Direct raw .tracev3 chunk decoding is NOT supported in this operation."
   },
   "Microsoft 365 Audit Log Analyzer": {
     "input": "Unified Audit Log JSON/CSV export",
@@ -236,40 +236,40 @@ export const FORENSICS_EVIDENCE_GUIDE = {
     "note": "Permissions, retention and tenant settings affect available events."
   },
   ".NET Assembly Metadata Parser": {
-    "input": "Raw PE .exe, .dll or .sys bytes",
+    "input": "Raw managed .NET PE assembly (.exe/.dll) with CLR metadata (not any native PE)",
     "source": "Suspect executable from disk, memory dump extraction, quarantine or malware sample",
     "acquire": "FTK Imager, PE-sieve, Volatility extraction, or copy original sample",
-    "note": "Signature inspection is not cryptographic trust-chain validation. Use sigcheck/osslsigncode for independent comparison."
+    "note": "Requires CLR metadata directory; native Windows EXEs are not valid .NET assemblies. Obfuscated/mixed-mode assemblies can require specialist tooling."
   },
   ".NET User String Extractor": {
-    "input": "Raw PE .exe, .dll or .sys bytes",
+    "input": "Raw managed .NET PE assembly (.exe/.dll) with CLR metadata (not any native PE)",
     "source": "Suspect executable from disk, memory dump extraction, quarantine or malware sample",
     "acquire": "FTK Imager, PE-sieve, Volatility extraction, or copy original sample",
-    "note": "Signature inspection is not cryptographic trust-chain validation. Use sigcheck/osslsigncode for independent comparison."
+    "note": "Requires CLR metadata directory; native Windows EXEs are not valid .NET assemblies. Obfuscated/mixed-mode assemblies can require specialist tooling."
   },
   "NTFS Alternate Data Streams Analyzer": {
-    "input": "NTFS $MFT bytes or individual FILE record (inspect operation expectations)",
-    "source": "NTFS volume metadata file: C:\\$MFT",
-    "acquire": "Raw image, KAPE, FTK Imager or MFTECmd; volume acquisition with suitable forensic privileges",
-    "note": "Do not provide a regular file named MFT exported as CSV; parsers expect raw NTFS bytes."
+    "input": "Single raw 1024-byte (or native record-size) NTFS FILE record, NOT the entire $MFT file",
+    "source": "NTFS volume root: C:\\$MFT (individual FILE record must be carved out)",
+    "acquire": "Extract the target record bytes with an NTFS-aware tool (MFTECmd/forensic image hex extractor); do not feed an MFTECmd CSV file",
+    "note": "Reads the first FILE record in the buffer. The ADS operation reports named $DATA streams based on record attributes, not stream contents."
   },
   "NTFS Attribute Inspector": {
-    "input": "NTFS $MFT bytes or individual FILE record (inspect operation expectations)",
-    "source": "NTFS volume metadata file: C:\\$MFT",
-    "acquire": "Raw image, KAPE, FTK Imager or MFTECmd; volume acquisition with suitable forensic privileges",
-    "note": "Do not provide a regular file named MFT exported as CSV; parsers expect raw NTFS bytes."
+    "input": "Single raw 1024-byte (or native record-size) NTFS FILE record, NOT the entire $MFT file",
+    "source": "NTFS volume root: C:\\$MFT (individual FILE record must be carved out)",
+    "acquire": "Extract the target record bytes with an NTFS-aware tool (MFTECmd/forensic image hex extractor); do not feed an MFTECmd CSV file",
+    "note": "Reads the first FILE record in the buffer. The ADS operation reports named $DATA streams based on record attributes, not stream contents."
   },
   "NTFS MFT Parser": {
-    "input": "NTFS $MFT bytes or individual FILE record (inspect operation expectations)",
-    "source": "NTFS volume metadata file: C:\\$MFT",
-    "acquire": "Raw image, KAPE, FTK Imager or MFTECmd; volume acquisition with suitable forensic privileges",
-    "note": "Do not provide a regular file named MFT exported as CSV; parsers expect raw NTFS bytes."
+    "input": "Raw $MFT file or concatenated FILE records",
+    "source": "NTFS volume root metadata file: C:\\$MFT (normally inaccessible through standard File Explorer)",
+    "acquire": "Acquire raw NTFS metadata using KAPE/RawCopy, FTK Imager, or extract $MFT from a forensic volume image; MFTECmd produces a derived CSV, not the original bytes",
+    "note": "FILE records are decoded with record-size assumption; verify record size and USA fixups from volume geometry, and expect version-specific attributes."
   },
   "OpenSave MRU Analyzer": {
-    "input": "Exported registry data / values",
-    "source": "NTUSER.DAT: Explorer\\ComDlg32\\OpenSavePidlMRU; Explorer\\RecentDocs",
-    "acquire": "RECmd / Registry Explorer, or KAPE",
-    "note": "Confirm input format supported; this is not a full registry transaction-log parser."
+    "input": "Raw NTUSER.DAT registry hive (regf)",
+    "source": "C:\\Users\\<user>\\NTUSER.DAT: Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\ComDlg32\\OpenSavePidlMRU",
+    "acquire": "Collect the raw hive and matching .LOG1/.LOG2 transaction logs using KAPE RegistryHives, FTK Imager, or a forensic image; the current parser reads only the supplied base hive (no transaction-log replay)",
+    "note": "Forensic string candidates are extracted from PIDL data, not full PIDL path reconstruction; raw hive is preferred."
   },
   "Parse ELF Header": {
     "input": "Raw ELF binary (.so, executable, .o)",
@@ -296,10 +296,10 @@ export const FORENSICS_EVIDENCE_GUIDE = {
     "note": "Signature inspection is not cryptographic trust-chain validation. Use sigcheck/osslsigncode for independent comparison."
   },
   "PE Import Hash (imphash)": {
-    "input": "Raw PE .exe, .dll or .sys bytes",
-    "source": "Suspect executable from disk, memory dump extraction, quarantine or malware sample",
-    "acquire": "FTK Imager, PE-sieve, Volatility extraction, or copy original sample",
-    "note": "Signature inspection is not cryptographic trust-chain validation. Use sigcheck/osslsigncode for independent comparison."
+    "input": "Raw portable executable bytes (.exe/.dll/.sys), not a textual import listing",
+    "source": "Malware sample, installed executable, carved PE from image",
+    "acquire": "Acquire unchanged PE and cross-check imphash with pefile/Detect It Easy",
+    "note": "PE import table functions parsed from binary; ordinal-only imports and uncommon bound imports need independent comparison."
   },
   "PE Packer Heuristics": {
     "input": "Raw PE .exe, .dll or .sys bytes",
@@ -326,22 +326,22 @@ export const FORENSICS_EVIDENCE_GUIDE = {
     "note": "Signature inspection is not cryptographic trust-chain validation. Use sigcheck/osslsigncode for independent comparison."
   },
   "PowerShell Script Block Analyzer": {
-    "input": "Exported Windows event XML or normalized JSON/JSONL",
-    "source": "Security.evtx; Microsoft-Windows-Sysmon%4Operational.evtx; PowerShell/Operational; TerminalServices logs; Defender Operational",
-    "acquire": "wevtutil qe <channel> /f:xml; Get-WinEvent | ConvertTo-Json; hayabusa or Chainsaw for EVTX-to-JSON",
-    "note": "These analyzers are not binary EVTX decoders: export structured events first."
+    "input": "Exported Event XML (<Event>...), or event JSON array/JSONL; raw binary .evtx is NOT decoded",
+    "source": "%SystemRoot%\\System32\\winevt\\Logs\\Microsoft-Windows-PowerShell%4Operational.evtx",
+    "acquire": "Collect the .evtx binary for chain of custody; for this analyzer, export individual XML events using Get-WinEvent -Path <file.evtx> | ForEach-Object { $_.ToXml() }; alternatively use evtx_dump/EvtxECmd then normalize output schema. Relevant channel: Microsoft-Windows-PowerShell/Operational",
+    "note": "Known IDs: 4104. Current analyzer requires decoded events (XML/JSON), and explicitly rejects raw EVTX rather than silently returning empty results. Multi-Event XML and JSON schemas vary by exporter."
   },
   "RDP Activity Analyzer": {
-    "input": "Exported Windows event XML or normalized JSON/JSONL",
-    "source": "Security.evtx; Microsoft-Windows-Sysmon%4Operational.evtx; PowerShell/Operational; TerminalServices logs; Defender Operational",
-    "acquire": "wevtutil qe <channel> /f:xml; Get-WinEvent | ConvertTo-Json; hayabusa or Chainsaw for EVTX-to-JSON",
-    "note": "These analyzers are not binary EVTX decoders: export structured events first."
+    "input": "Exported Event XML (<Event>...), or event JSON array/JSONL; raw binary .evtx is NOT decoded",
+    "source": "%SystemRoot%\\System32\\winevt\\Logs\\Security.evtx; Microsoft-Windows-TerminalServices-RemoteConnectionManager%4Operational.evtx; Microsoft-Windows-TerminalServices-LocalSessionManager%4Operational.evtx",
+    "acquire": "Collect the .evtx binary for chain of custody; for this analyzer, export individual XML events using Get-WinEvent -Path <file.evtx> | ForEach-Object { $_.ToXml() }; alternatively use evtx_dump/EvtxECmd then normalize output schema. Relevant channel: Security",
+    "note": "Known IDs: 1149/21/22/24/25 and 4624 type 10. Current analyzer requires decoded events (XML/JSON), and explicitly rejects raw EVTX rather than silently returning empty results. Multi-Event XML and JSON schemas vary by exporter."
   },
   "RecentDocs Analyzer": {
-    "input": "Exported registry data / values",
-    "source": "NTUSER.DAT: Explorer\\ComDlg32\\OpenSavePidlMRU; Explorer\\RecentDocs",
-    "acquire": "RECmd / Registry Explorer, or KAPE",
-    "note": "Confirm input format supported; this is not a full registry transaction-log parser."
+    "input": "Raw NTUSER.DAT registry hive (regf)",
+    "source": "C:\\Users\\<user>\\NTUSER.DAT: Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\RecentDocs",
+    "acquire": "Collect the raw hive and matching .LOG1/.LOG2 transaction logs using KAPE RegistryHives, FTK Imager, or a forensic image; the current parser reads only the supplied base hive (no transaction-log replay)",
+    "note": "The implementation reads native registry key values; exported JSON or .reg are not supported."
   },
   "Remove EXIF": {
     "input": "JPEG with EXIF tags",
@@ -350,10 +350,10 @@ export const FORENSICS_EVIDENCE_GUIDE = {
     "note": "Removing EXIF is a transformation, not a forensic evidence-preservation action."
   },
   "Run Key Analyzer": {
-    "input": "Exported registry data JSON/text",
-    "source": "HKLM/HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run and RunOnce",
-    "acquire": "RECmd, reg query or Autoruns export",
-    "note": "Include hive origin and user SID when preserving evidence context."
+    "input": "Raw SOFTWARE hive (machine Run keys) OR raw NTUSER.DAT (per-user Run keys)",
+    "source": "C:\\Windows\\System32\\config\\SOFTWARE (HKLM); C:\\Users\\<user>\\NTUSER.DAT (HKCU)",
+    "acquire": "Collect the raw hive and matching .LOG1/.LOG2 transaction logs using KAPE RegistryHives, FTK Imager, or a forensic image; the current parser reads only the supplied base hive (no transaction-log replay)",
+    "note": "Reads Run/RunOnce values from a native regf hive. Text/JSON exports are NOT accepted by the current implementation; HKCU and HKLM need separate runs."
   },
   "Scan for Embedded Files": {
     "input": "Arbitrary raw file bytes",
@@ -368,16 +368,16 @@ export const FORENSICS_EVIDENCE_GUIDE = {
     "note": "Import XML content, not the running .exe."
   },
   "ShellBags Parser": {
-    "input": "Registry artifact (USRCLASS.DAT or compatible export)",
-    "source": "%LOCALAPPDATA%\\Microsoft\\Windows\\UsrClass.dat; NTUSER.DAT",
-    "acquire": "KAPE, SBECmd or Registry Explorer",
-    "note": "ShellBags reconstruction requires interpreting BagMRU/BagMRU recursively; partial support."
+    "input": "Raw UsrClass.dat registry hive (regf); older Windows may store comparable keys in NTUSER.DAT",
+    "source": "C:\\Users\\<user>\\AppData\\Local\\Microsoft\\Windows\\UsrClass.dat (Local Settings\\Software\\Microsoft\\Windows\\Shell\\BagMRU)",
+    "acquire": "Collect the raw hive and matching .LOG1/.LOG2 transaction logs using KAPE RegistryHives, FTK Imager, or a forensic image; the current parser reads only the supplied base hive (no transaction-log replay)",
+    "note": "Current output is recovered candidate strings, not a complete shell item ID-list decoder or definitive folder access timeline."
   },
   "ShimCache Parser": {
-    "input": "Text, JSON or raw evidence bytes as supported by the operation",
-    "source": "Consult the evidence source and operation-specific parser implementation",
-    "acquire": "Forensic imaging, KAPE, FTK Imager or source-native exporter",
-    "note": "Validate with a specialized tool before relying on output."
+    "input": "Raw SYSTEM registry hive (regf)",
+    "source": "C:\\Windows\\System32\\config\\SYSTEM: ControlSet00x\\Control\\Session Manager\\AppCompatCache",
+    "acquire": "Collect the raw hive and matching .LOG1/.LOG2 transaction logs using KAPE RegistryHives, FTK Imager, or a forensic image; the current parser reads only the supplied base hive (no transaction-log replay)",
+    "note": "ShimCache layout depends on OS version; parser currently extracts path-like strings, not fully decoded per-build entries or execution timestamps."
   },
   "Sigma Rule Evaluator (Subset)": {
     "input": "Sigma-like rule plus normalized events (see operation scope)",
@@ -410,10 +410,10 @@ export const FORENSICS_EVIDENCE_GUIDE = {
     "note": "Heuristic analysis, not evidence of execution or maliciousness."
   },
   "Sysmon Event Normalizer": {
-    "input": "Exported Windows event XML or normalized JSON/JSONL",
-    "source": "Security.evtx; Microsoft-Windows-Sysmon%4Operational.evtx; PowerShell/Operational; TerminalServices logs; Defender Operational",
-    "acquire": "wevtutil qe <channel> /f:xml; Get-WinEvent | ConvertTo-Json; hayabusa or Chainsaw for EVTX-to-JSON",
-    "note": "These analyzers are not binary EVTX decoders: export structured events first."
+    "input": "Exported Event XML (<Event>...), or event JSON array/JSONL; raw binary .evtx is NOT decoded",
+    "source": "%SystemRoot%\\System32\\winevt\\Logs\\Microsoft-Windows-Sysmon%4Operational.evtx",
+    "acquire": "Collect the .evtx binary for chain of custody; for this analyzer, export individual XML events using Get-WinEvent -Path <file.evtx> | ForEach-Object { $_.ToXml() }; alternatively use evtx_dump/EvtxECmd then normalize output schema. Relevant channel: Microsoft-Windows-Sysmon/Operational",
+    "note": "Known IDs: Sysmon 1,3,7,11,22, etc.. Current analyzer requires decoded events (XML/JSON), and explicitly rejects raw EVTX rather than silently returning empty results. Multi-Event XML and JSON schemas vary by exporter."
   },
   "Timeline Builder": {
     "input": "JSON / JSONL records with timestamps",
@@ -422,16 +422,16 @@ export const FORENSICS_EVIDENCE_GUIDE = {
     "note": "Record source and original time zone."
   },
   "UserAssist Decoder": {
-    "input": "Exported UserAssist ROT13 registry values / binary payload",
-    "source": "NTUSER.DAT: Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\UserAssist",
-    "acquire": "RECmd or Registry Explorer; collect NTUSER.DAT with KAPE",
-    "note": "Value interpretation varies with Windows generation."
+    "input": "Raw NTUSER.DAT hive (regf), or ROT13-encoded value-name text for a simple decode",
+    "source": "C:\\Users\\<user>\\NTUSER.DAT: Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\UserAssist\\{GUID}\\Count",
+    "acquire": "Collect the raw hive and matching .LOG1/.LOG2 transaction logs using KAPE RegistryHives, FTK Imager, or a forensic image; the current parser reads only the supplied base hive (no transaction-log replay)",
+    "note": "Full user history requires the user hive; a single ROT13 string only decodes the name, not run count or last run."
   },
   "USN Journal Parser": {
-    "input": "Raw USN_RECORD records; not ordinary Windows event logs",
-    "source": "NTFS metadata: C:\\$Extend\\$UsnJrnl:$J",
-    "acquire": "KAPE, RawCopy, NTFS image or fsutil usn readjournal (capture output as appropriate)",
-    "note": "Select $J data stream, not $Max."
+    "input": "Raw binary USN_RECORD_V2/V3 sequences (journal $J stream)",
+    "source": "NTFS alternate data stream C:\\$Extend\\$UsnJrnl:$J",
+    "acquire": "Extract the binary $J stream from an image or NTFS-aware forensic collection; do not import human-readable fsutil text or an exported CSV",
+    "note": "Supports V2/V3 structures with limited validation; $Max metadata stream is not the $J event stream."
   },
   "Windows Event ID Explainer": {
     "input": "Text containing Windows event IDs",
@@ -440,69 +440,69 @@ export const FORENSICS_EVIDENCE_GUIDE = {
     "note": "Maps known IDs; not full event parser."
   },
   "Windows EVTX Metadata Inspector": {
-    "input": "Raw .evtx file",
-    "source": "C:\\Windows\\System32\\winevt\\Logs\\*.evtx",
-    "acquire": "wevtutil epl Security Security.evtx; or KAPE/FTK Imager",
-    "note": "Only container/chunk metadata and strings; does not decode EVTX BinXML records. Export event XML/JSON for event analyzers."
+    "input": "Raw Windows .evtx binary (ElfFile signature)",
+    "source": "%SystemRoot%\\System32\\winevt\\Logs\\*.evtx; examples: Security.evtx and Microsoft-Windows-SMBServer%4Connectivity.evtx (SMBServer/Connectivity)",
+    "acquire": "Collect raw .evtx with KAPE/FTK Imager, or use wevtutil epl Security C:\\Evidence\\Security.evtx; for SMBServer use wevtutil epl \"Microsoft-Windows-SMBServer/Connectivity\" C:\\Evidence\\SMBServer-Connectivity.evtx; verify actual configured path with wevtutil gl <channel>",
+    "note": "Native header, chunk framing, record IDs and record timestamps ONLY. EventID, Provider, EventData and BinXML XML are NOT decoded; use a full parser for event-level analysis."
   },
   "Windows LNK Parser": {
-    "input": "Raw .lnk binary file",
-    "source": "%APPDATA%\\Microsoft\\Windows\\Recent\\*.lnk; Desktop and Startup folders",
-    "acquire": "KAPE, FTK Imager or copy a .lnk file",
-    "note": "Import the LNK bytes, not its target executable."
+    "input": "Raw Shell Link (.lnk) file bytes",
+    "source": "C:\\Users\\<user>\\AppData\\Roaming\\Microsoft\\Windows\\Recent\\*.lnk; desktop/startup folders",
+    "acquire": "Acquire the .lnk binary with KAPE or FTK Imager and compare with LECmd",
+    "note": "Reports main header, links and some string data; not every shell item or extradata block is decoded."
   },
   "Windows Logon Analyzer": {
-    "input": "Exported Windows event XML or normalized JSON/JSONL",
-    "source": "Security.evtx; Microsoft-Windows-Sysmon%4Operational.evtx; PowerShell/Operational; TerminalServices logs; Defender Operational",
-    "acquire": "wevtutil qe <channel> /f:xml; Get-WinEvent | ConvertTo-Json; hayabusa or Chainsaw for EVTX-to-JSON",
-    "note": "These analyzers are not binary EVTX decoders: export structured events first."
+    "input": "Exported Event XML (<Event>...), or event JSON array/JSONL; raw binary .evtx is NOT decoded",
+    "source": "%SystemRoot%\\System32\\winevt\\Logs\\Security.evtx",
+    "acquire": "Collect the .evtx binary for chain of custody; for this analyzer, export individual XML events using Get-WinEvent -Path <file.evtx> | ForEach-Object { $_.ToXml() }; alternatively use evtx_dump/EvtxECmd then normalize output schema. Relevant channel: Security",
+    "note": "Known IDs: 4624/4625/4634/4648/4776. Current analyzer requires decoded events (XML/JSON), and explicitly rejects raw EVTX rather than silently returning empty results. Multi-Event XML and JSON schemas vary by exporter."
   },
   "Windows Prefetch Parser": {
-    "input": "Raw .pf, uncompressed SCCA",
+    "input": "Raw Windows .pf file (uncompressed SCCA or compressed MAM04 XPRESS-Huffman)",
     "source": "C:\\Windows\\Prefetch\\*.pf",
-    "acquire": "KAPE or FTK Imager; copy with administrator/forensic privileges. Windows 10/11 Prefetch often uses MAM compression.",
-    "note": "If MAM compressed, decompress with the appropriate XPRESS Huffman implementation first; avoid modifying original evidence."
+    "acquire": "Use KAPE Prefetch target, FTK Imager, or an offline Windows image; cross-check with PECmd (Eric Zimmerman)",
+    "note": "MAM04 decoding is now attempted with strict SCCA/length validation but has not yet been independently validated on a real compressed Windows Prefetch corpus."
   },
   "Windows Recycle Bin Parser": {
-    "input": "Raw $I metadata companion file",
+    "input": "Raw $I metadata binary file (NOT its $R content companion)",
     "source": "C:\\$Recycle.Bin\\<SID>\\$I*",
-    "acquire": "KAPE/FTK Imager (preserve $I and $R pairs)",
-    "note": "Import $I metadata file rather than recycled $R content."
+    "acquire": "Collect $I and matching $R files using a forensic volume image, KAPE or FTK Imager",
+    "note": "Parses known $I format versions; a normal deleted-file $R is not an $I record."
   },
   "Windows Registry Hive Inspector": {
-    "input": "Raw binary registry hive",
-    "source": "C:\\Windows\\System32\\config\\SYSTEM, SOFTWARE, SAM, SECURITY; user NTUSER.DAT",
-    "acquire": "KAPE/FTK Imager; reg save HKLM\\SOFTWARE SOFTWARE.hiv on a live system",
-    "note": "Registry hives in use generally require shadow-copy or forensic acquisition; capture associated LOG1/LOG2."
+    "input": "Raw base registry hive (regf), not .reg text or individual exported keys",
+    "source": "C:\\Windows\\System32\\config\\SYSTEM, SOFTWARE, SAM, SECURITY; C:\\Users\\<user>\\NTUSER.DAT; ...\\UsrClass.dat",
+    "acquire": "Collect the raw hive and matching .LOG1/.LOG2 transaction logs using KAPE RegistryHives, FTK Imager, or a forensic image; the current parser reads only the supplied base hive (no transaction-log replay)",
+    "note": "Traversal of base hive only; deleted-cell recovery, transaction-log replay, and forensic key interpretation are out of scope."
   },
   "Windows Service Installation Detector": {
-    "input": "Exported Windows event XML or normalized JSON/JSONL",
-    "source": "Security.evtx; Microsoft-Windows-Sysmon%4Operational.evtx; PowerShell/Operational; TerminalServices logs; Defender Operational",
-    "acquire": "wevtutil qe <channel> /f:xml; Get-WinEvent | ConvertTo-Json; hayabusa or Chainsaw for EVTX-to-JSON",
-    "note": "These analyzers are not binary EVTX decoders: export structured events first."
+    "input": "Exported Event XML (<Event>...), or event JSON array/JSONL; raw binary .evtx is NOT decoded",
+    "source": "%SystemRoot%\\System32\\winevt\\Logs\\System.evtx and Security.evtx",
+    "acquire": "Collect the .evtx binary for chain of custody; for this analyzer, export individual XML events using Get-WinEvent -Path <file.evtx> | ForEach-Object { $_.ToXml() }; alternatively use evtx_dump/EvtxECmd then normalize output schema. Relevant channel: System",
+    "note": "Known IDs: 7045/4697. Current analyzer requires decoded events (XML/JSON), and explicitly rejects raw EVTX rather than silently returning empty results. Multi-Event XML and JSON schemas vary by exporter."
   },
   "Windows Services Registry Analyzer": {
-    "input": "Exported Services registry data JSON/text",
-    "source": "SYSTEM\\ControlSet00x\\Services",
-    "acquire": "RECmd, Registry Explorer, Autoruns or reg query",
-    "note": "Service control set selection depends on SYSTEM\\Select."
+    "input": "Raw SYSTEM registry hive (regf)",
+    "source": "C:\\Windows\\System32\\config\\SYSTEM; ControlSet00x\\Services\\<service>",
+    "acquire": "Collect the raw hive and matching .LOG1/.LOG2 transaction logs using KAPE RegistryHives, FTK Imager, or a forensic image; the current parser reads only the supplied base hive (no transaction-log replay)",
+    "note": "The parser expects a native SYSTEM hive, not an exported .reg file, JSON, or text. No transaction-log replay."
   },
   "Windows Timeline ActivitiesCache Parser": {
-    "input": "Raw SQLite ActivitiesCache.db",
-    "source": "%LOCALAPPDATA%\\ConnectedDevicesPlatform\\<account>\\ActivitiesCache.db",
-    "acquire": "KAPE or FTK Imager; collect -wal and -shm when present",
-    "note": "Offline SQLite may be missing recent records without WAL."
+    "input": "Raw SQLite ActivitiesCache.db (base DB only)",
+    "source": "C:\\Users\\<user>\\AppData\\Local\\ConnectedDevicesPlatform\\<account-folder>\\ActivitiesCache.db",
+    "acquire": "Collect database and -wal/-shm via forensic image; merge/checkpoint on a working copy before import if active WAL contains recent entries",
+    "note": "WAL replay is NOT implemented in the HexSpindle browser SQLite reader; input base DB alone can omit recent records."
   },
   "YARA Rules": {
-    "input": "Text, JSON or raw evidence bytes as supported by the operation",
-    "source": "Consult the evidence source and operation-specific parser implementation",
-    "acquire": "Forensic imaging, KAPE, FTK Imager or source-native exporter",
-    "note": "Validate with a specialized tool before relying on output."
+    "input": "Raw input bytes to scan with a user-provided YARA rule argument",
+    "source": "Any captured file or extracted sample",
+    "acquire": "Open the sample file, then configure the rule argument within the recipe card; do not import a .yar file as the sample itself",
+    "note": "YARA evaluation uses the vendored YARA WASM bundle and rule argument; maliciousness conclusions require analyst review."
   },
   "Zone.Identifier ADS Parser": {
-    "input": "Zone.Identifier stream text",
-    "source": "NTFS alternate stream on downloaded file",
-    "acquire": "PowerShell Get-Content -Stream Zone.Identifier -Path <file>",
-    "note": "ADS must be extracted explicitly; regular file download may lose it."
+    "input": "Text content of the Zone.Identifier named NTFS alternate data stream (not the parent file)",
+    "source": "<downloaded-file>:Zone.Identifier",
+    "acquire": "PowerShell: Get-Content -LiteralPath \"C:\\Evidence\\sample.exe\" -Stream Zone.Identifier; or ADS-aware forensic acquisition",
+    "note": "Some downloads lack MOTW/Zone.Identifier; absence does not imply local provenance."
   }
 };

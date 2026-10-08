@@ -1,4 +1,4 @@
 // SPDX-License-Identifier: MIT
 import { module } from './_cat.js';
 import { parseRecentDocs } from './_windows.js';
-module("RecentDocs Analyzer", 'Read-only DFIR evidence analysis; inspect source-specific limitations before drawing conclusions.', [], parseRecentDocs);
+module("RecentDocs Analyzer", "Input: Raw NTUSER.DAT registry hive (regf). The implementation reads native registry key values; exported JSON or .reg are not supported.", [], parseRecentDocs);
