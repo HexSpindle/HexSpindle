@@ -1,3 +1,12 @@
+/*!
+ * Portions derived from LZ-String.
+ * Copyright (c) 2013 Pieroxy.
+ * License: MIT
+ *
+ * Adapted for HexSpindle.
+ * Full license and attribution notices: /THIRD_PARTY_NOTICES.md
+ */
+
 const KEY_STR_BASE64 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=';
 const KEY_STR_URI_SAFE = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+-$';
 
