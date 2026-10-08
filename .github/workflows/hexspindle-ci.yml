@@ -28,6 +28,8 @@ jobs:
         run: node check-vendor-notices.mjs
       - name: Validate README operation coverage
         run: node check-readme-coverage.mjs
+      - name: Run DFIR forensic operation reference tests
+        run: node ci-forensics.mjs
       - name: Check startup module size
         run: node check-startup-size.mjs
       - name: Check rendering isolation invariants

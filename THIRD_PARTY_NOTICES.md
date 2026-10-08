@@ -282,6 +282,10 @@ Common license conditions appear in [`licenses/`](licenses/): [`MIT.txt`](licens
 - **Copyright/attribution:** Original xmldom copyright holders and contributors (see upstream LICENSE)
 - **Changes and additional notices:** Derived XML serializer; verify exact origin/version.
 
+## HexSpindle DFIR operations expansion (2026-10-08)
+
+The 68 newly added JavaScript operation wrappers and their shared DFIR parsers under `modules/forensics/` are contributed as original HexSpindle code under the repository MIT license. **No additional third-party JavaScript bundle or binary dependency is included with this expansion.** This section is an internal licensing clarification, not an additional third-party attribution and not an independent verification of the implementation's originality. Existing third-party code and the unresolved notice-verification items in this document remain subject to their own licenses.
+
 ## Additional components and data provenance to verify
 
 These files contain substantial standards-derived tables or algorithms. They are **not** designated third-party works solely because an implementation of the standard exists elsewhere; verify their generation or original source before making any third-party ownership claim:

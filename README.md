@@ -33,7 +33,7 @@ No server-side processing is required for normal operation.
 
 ## Operation Coverage
 
-HexSpindle currently implements **658 operations across all 16 supported categories**.
+HexSpindle currently implements **726 operations across all 16 supported categories**.
 
 Operations are added incrementally. Features that have not yet been ported are simply omitted from the operation registry, allowing the rest of the application to remain fully functional.
 
@@ -52,12 +52,16 @@ The **Magic** decoder uses the same registry when evaluating candidate transform
 | Other | 32 |
 | Arithmetic / Logic | 31 |
 | Code Tidy | 16 |
-| Forensics | 16 |
+| Forensics | 84 |
 | Date / Time | 11 |
 | Extractors | 11 |
 | Flow Control | 9 |
 | Language | 6 |
-| **Total** | **658** |
+| **Total** | **726** |
+### DFIR operation coverage
+
+The Forensics category includes 68 additional DFIR operations, organized in the UI into Windows Artifacts & Execution History, Malware & Binary Analysis, Incident Response & Log Analysis, and Browser Activity & Persistence. These include metadata inspectors, text/JSON analyzers, and selected binary artifact parsers. Some formats are only partially supported: notably EVTX (metadata, not full BinXML reconstruction), Windows registry hives (no transaction-log replay), and browser SQLite databases (no WAL merging). Signing inspectors report structure/presence rather than verification of cryptographic trust. Validate findings with specialist forensic tooling and retain source evidence and hashes.
+
 ## Architecture
 
 HexSpindle is organized around a modular operation registry and a client-side recipe execution engine.

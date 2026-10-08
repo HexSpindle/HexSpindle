@@ -1,0 +1,4 @@
+// SPDX-License-Identifier: MIT
+import { module } from './_cat.js';
+import { analyzeRdp } from './_logs.js';
+module("RDP Activity Analyzer", 'Read-only DFIR evidence analysis; inspect source-specific limitations before drawing conclusions.', [], analyzeRdp);
