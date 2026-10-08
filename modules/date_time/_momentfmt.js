@@ -1,5 +1,12 @@
-// Moment.js-style format strings ("DD/MM/YYYY HH:mm:ss", "X", ...): a port of moment 2.x's forgiving parser
-// and English formatter (MIT), with moment-timezone's tz() semantics.
+/*!
+ * Portions ported from Moment.js and Moment-Timezone.
+ * Copyright JS Foundation and other contributors.
+ * License: MIT
+ *
+ * Adapted for HexSpindle's dependency-free date/time operations.
+ * Full license and attribution notices: /THIRD_PARTY_NOTICES.md
+ */
+
 import { getTz, localToUtc, utcToZonedParts } from './_tz.js';
 import { momentParse } from './_moment.js';
 
