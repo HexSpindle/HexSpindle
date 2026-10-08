@@ -1,4 +1,6 @@
 // Vendored nodom 2.4.0 (ISC, https://github.com/pakastin/nodom), UMD build wrapped as an ES module.
+// Full third-party license and attribution notices: /THIRD_PARTY_NOTICES.md
+
 const module = { exports: {} };
 const exports = module.exports;
 
