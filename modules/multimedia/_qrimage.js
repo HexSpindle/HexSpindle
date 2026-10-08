@@ -1,5 +1,7 @@
 // Vendored qr-image 3.2.0 (MIT, Copyright (c) 2013 Yandex LLC; https://github.com/alexeyten/qr-image).
 // Matrix builder and SVG writer only; Buffer replaced by a Uint8Array shim.
+// Full third-party license and attribution notices: /THIRD_PARTY_NOTICES.md
+
 const Buffer = function (x) { return typeof x === 'number' ? new Uint8Array(x) : typeof x === 'string' ? new TextEncoder().encode(x) : Uint8Array.from(x); };
 Buffer.isBuffer = x => x instanceof Uint8Array;
 const _mods = {};
