@@ -32,6 +32,8 @@ jobs:
         run: npx playwright install --with-deps chromium
       - name: Run browser smoke tests
         run: node ci-smoke.mjs
+      - name: Run engine regression tests
+        run: node ci-regression.mjs
 
   deploy-pages:
     name: Deploy website
