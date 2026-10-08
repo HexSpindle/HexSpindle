@@ -7,14 +7,16 @@ import { fileURLToPath } from 'node:url';
 import { createRequire } from 'node:module';
 const { chromium } = createRequire(import.meta.url)('playwright');
 const ROOT = resolve(fileURLToPath(new URL('..', import.meta.url)));
-const MIME = { '.js': 'text/javascript', '.mjs': 'text/javascript', '.html': 'text/html', '.json': 'application/json' };
+const MIME = { '.js': 'text/javascript', '.mjs': 'text/javascript', '.html': 'text/html; charset=utf-8', '.json': 'application/json' };
 const server = createServer(async (req, res) => {
   try {
-    const path = decodeURIComponent(new URL(req.url, 'http://localhost').pathname);
-    const full = resolve(ROOT, '.' + path);
-    if (full !== ROOT && !full.startsWith(ROOT + sep)) { res.writeHead(403); res.end(); return; }
-    const bytes = await readFile(full === ROOT ? join(ROOT, 'index.html') : full);
-    res.writeHead(200, {'Content-Type': MIME[extname(full)] || 'application/octet-stream'}); res.end(bytes);
+    const pathname = decodeURIComponent(new URL(req.url, 'http://localhost').pathname);
+    const requested = pathname === '/' ? '/index.html' : pathname;
+    const full = resolve(ROOT, '.' + requested);
+    if (!full.startsWith(ROOT + sep)) { res.writeHead(403); res.end(); return; }
+    const bytes = await readFile(full);
+    res.writeHead(200, { 'Content-Type': MIME[extname(full)] || 'application/octet-stream' });
+    res.end(bytes);
   } catch { res.writeHead(404); res.end('Not found'); }
 });
 await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
@@ -22,7 +24,7 @@ let browser;
 try {
   browser = await chromium.launch();
   const page = await browser.newPage();
-  await page.goto(`http://127.0.0.1:${server.address().port}/`, {waitUntil:'load'});
+  await page.goto(`http://127.0.0.1:${server.address().port}/`, { waitUntil: 'load' });
   const tests = await page.evaluate(async () => {
     const { encodeText, decodeBytes, ENCODINGS } = await import('./modules/language/encode_text.js');
     const vectors = [
@@ -38,7 +40,7 @@ try {
       ['GBK', 'GBK', '中文', 'd6d0cec4'],
       ['EUC-KR', 'EUC-KR', '한글', 'c7d1b1db'],
     ];
-    const hex = b => Array.from(b, x => x.toString(16).padStart(2,'0')).join('');
+    const hex = b => Array.from(b, x => x.toString(16).padStart(2, '0')).join('');
     const results = [];
     for (const [label, name, input, expected] of vectors) {
       try {
@@ -50,15 +52,15 @@ try {
         const roundtrip = decodeBytes(output, name);
         if (roundtrip && typeof roundtrip.then === 'function') throw Error('decodeBytes API unexpectedly became asynchronous');
         if (roundtrip !== input) throw Error(`roundtrip expected ${JSON.stringify(input)}, got ${JSON.stringify(roundtrip)}`);
-        results.push({label, ok:true});
-      } catch (e) { results.push({label, ok:false, error:String(e.message || e)}); }
+        results.push({ label, ok: true });
+      } catch (e) { results.push({ label, ok: false, error: String(e.message || e) }); }
     }
     return results;
   });
-  for (const t of tests) console.log(`${t.ok?'PASS':'FAIL'} ${t.label}${t.ok?'':': '+t.error}`);
-  console.log(`Encoding vectors: ${tests.filter(t=>t.ok).length}/${tests.length} passed`);
-  if (tests.some(t=>!t.ok)) process.exitCode = 1;
+  for (const t of tests) console.log(`${t.ok ? 'PASS' : 'FAIL'} ${t.label}${t.ok ? '' : ': ' + t.error}`);
+  console.log(`Encoding vectors: ${tests.filter(t => t.ok).length}/${tests.length} passed`);
+  if (tests.some(t => !t.ok)) process.exitCode = 1;
 } finally {
   if (browser) await browser.close();
-  await new Promise(resolve=>server.close(resolve));
+  await new Promise(resolve => server.close(resolve));
 }
