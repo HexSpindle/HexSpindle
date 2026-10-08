@@ -6,7 +6,7 @@ This document attributes third-party software and embedded data distributed with
 
 Common license conditions appear in [`licenses/`](licenses/): [`MIT.txt`](licenses/MIT.txt), [`ISC.txt`](licenses/ISC.txt), [`BSD-2-Clause.txt`](licenses/BSD-2-Clause.txt), [`BSD-3-Clause.txt`](licenses/BSD-3-Clause.txt), [`Apache-2.0.txt`](licenses/Apache-2.0.txt), [`GPL-3.txt`](licenses/GPL-3.txt) and [`LGPL-3.txt`](licenses/LGPL-3.txt). Copyright lines in the component entries below accompany the relevant common license text; where a bundle includes its own upstream copyright/license banners, **retain those original banners as well**. An SPDX name by itself is not a substitute for the complete applicable license conditions. Original upstream package license files/NOTICE files may contain additional author-specific language which must also be preserved.
 
-> **Release qualification.** This is a comprehensive *initial inventory*, not a certification that all upstream notices were obtained. In particular, the generated Tesseract sidecar, mixed-bundle transitive notices, exact OpenPGP.js corresponding-source instructions, and some copyright holders/revisions still require upstream artifact verification. These are flagged below and under [Before publishing a release](#before-publishing-a-release). Do not represent this file as a fully verified dependency SBOM or legal sign-off.
+> **Release qualification.** This is a comprehensive *initial inventory*, not a certification that all upstream notices were obtained. The Tesseract.js 7.0.0 generated-license sidecar is now included; however, mixed-bundle transitive notices, exact OpenPGP.js corresponding-source instructions, and some copyright holders/revisions still require upstream artifact verification. These are flagged below and under [Before publishing a release](#before-publishing-a-release). Do not represent this file as a fully verified dependency SBOM or legal sign-off.
 
 ## Third-party components (included source/bundles)
 
@@ -200,7 +200,7 @@ Common license conditions appear in [`licenses/`](licenses/): [`MIT.txt`](licens
 - **Version/build:** 7.0.0
 - **License(s):** Apache-2.0; bundled third-party licenses
 - **Copyright/attribution:** Tesseract.js contributors and bundled dependency copyright holders
-- **Changes and additional notices:** MANDATORY FOLLOW-UP: original generated tesseract.min.js.LICENSE.txt is NOT in this package; obtain version-matched contents.
+- **Changes and additional notices:** The Tesseract.js 7.0.0 generated `tesseract.min.js.LICENSE.txt` notice is included verbatim at [`licenses/TESSERACT-BUNDLED-LICENSES.txt`](licenses/TESSERACT-BUNDLED-LICENSES.txt). It identifies regenerator-runtime (MIT). The main Apache-2.0 license remains at [`licenses/Apache-2.0.txt`](licenses/Apache-2.0.txt). Other upstream release-compliance checks remain outstanding as described below.
 
 ### 25. `modules/other/_codepage.mjs`
 
@@ -300,7 +300,7 @@ The file `modules/public_key/_openpgp.mjs` retains the OpenPGP.js LGPL banner. O
 
 ## Before publishing a release
 
-1. **Tesseract.js:** retrieve the exact `tesseract.min.js.LICENSE.txt` (or version-matched bundled-license artifact) for Tesseract.js 7.0.0 and place its verbatim text at `licenses/TESSERACT-BUNDLED-LICENSES.txt` (or include the original file unchanged). It is **not** included in this package and the module still refers to it.
+1. **Tesseract.js:** The original 7.0.0 generated-license sidecar is included at [`licenses/TESSERACT-BUNDLED-LICENSES.txt`](licenses/TESSERACT-BUNDLED-LICENSES.txt) (regenerator-runtime MIT notice). Retain that file and the Apache-2.0 license in every distribution; verify any additional upstream notices if the bundled version or build changes.
 2. **Mixed-license bundles:** obtain precise dependency versions, the copyright holder lines, and full upstream license/NOTICE text for bundled transitive packages from the source artifact used to build `_escodegen.mjs`, `_terser.mjs`, `_sql_formatter.mjs`, `_amf_lib.mjs`, `_protobufjs.mjs`, `_img_codecs.mjs`, `_hashes_lib.mjs`, and `_d3.mjs`.
 3. **Apache NOTICE files:** determine whether GCHQ CyberChef, Google Brotli, YARA, codepage or any other Apache-2.0 upstream distributions supplied a `NOTICE` file. Preserve notices required for redistributed portions, and prominently identify modifications of Apache-2.0 files.
 4. **OpenPGP.js:** document and provide the exact corresponding source and any modifications, verify your LGPLv3 distribution obligations, and ensure recipients can exercise the rights required by that license.

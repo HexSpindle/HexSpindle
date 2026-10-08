@@ -51,6 +51,23 @@ for (const row of inventory.components) {
       issues.push(`Shared license file suspiciously short: ${licenseFile}`);
   }
 }
+
+// Require the exact version-matched bundled notice text used by Tesseract.js 7.0.0.
+// A filename-only check would not catch a placeholder or accidental replacement.
+const tesseractNotice = 'licenses/TESSERACT-BUNDLED-LICENSES.txt';
+const regeneratorNotice = '/*! regenerator-runtime -- Copyright (c) 2014-present, Facebook, Inc. -- license (MIT): https://github.com/facebook/regenerator/blob/main/LICENSE */';
+if (requireFile(tesseractNotice, 'Tesseract.js bundled license notice')) {
+  if (read(tesseractNotice).trim() !== regeneratorNotice) {
+    issues.push(`${tesseractNotice}: contents do not match the reviewed Tesseract.js 7.0.0 generated-license notice`);
+  }
+}
+if (!notices.includes('`' + tesseractNotice + '`')) {
+  issues.push(`Tesseract.js bundled license notice not linked from THIRD_PARTY_NOTICES.md: ${tesseractNotice}`);
+}
+if (!notices.includes('regenerator-runtime')) {
+  issues.push('Tesseract.js bundled dependency attribution (regenerator-runtime) not found in THIRD_PARTY_NOTICES.md');
+}
+
 // Specific outstanding obligations are deliberately NOT reported as passing compliance.
 // This sentinel keeps the outstanding-items section from disappearing accidentally.
 for (const keyword of ['Tesseract.js:', 'OpenPGP.js:', 'Mixed-license bundles:']) {
