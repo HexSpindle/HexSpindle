@@ -1,0 +1,221 @@
+{
+  "schemaVersion": 1,
+  "description": "Reviewed third-party bundle inventory. See THIRD_PARTY_NOTICES.md for attribution and outstanding compliance obligations.",
+  "components": [
+    {
+      "path": "modules/code_tidy/_escodegen.mjs",
+      "licenseFiles": [
+        "licenses/BSD-2-Clause.txt",
+        "licenses/BSD-3-Clause.txt"
+      ]
+    },
+    {
+      "path": "modules/code_tidy/_highlight.mjs",
+      "licenseFiles": [
+        "licenses/BSD-3-Clause.txt"
+      ]
+    },
+    {
+      "path": "modules/code_tidy/_sql_formatter.mjs",
+      "licenseFiles": [
+        "licenses/MIT.txt"
+      ]
+    },
+    {
+      "path": "modules/code_tidy/_terser.mjs",
+      "licenseFiles": [
+        "licenses/BSD-2-Clause.txt",
+        "licenses/MIT.txt"
+      ]
+    },
+    {
+      "path": "modules/code_tidy/_words.js",
+      "licenseFiles": [
+        "licenses/MIT.txt"
+      ]
+    },
+    {
+      "path": "modules/code_tidy/_vkbeautify.js",
+      "licenseFiles": [
+        "licenses/MIT.txt"
+      ]
+    },
+    {
+      "path": "modules/compression/_brotli.js",
+      "licenseFiles": [
+        "licenses/MIT.txt",
+        "licenses/Apache-2.0.txt"
+      ]
+    },
+    {
+      "path": "modules/compression/_fzstd.mjs",
+      "licenseFiles": [
+        "licenses/MIT.txt"
+      ]
+    },
+    {
+      "path": "modules/compression/_lzstring.js",
+      "licenseFiles": [
+        "licenses/MIT.txt"
+      ]
+    },
+    {
+      "path": "modules/data_format/_amf_lib.mjs",
+      "licenseFiles": [
+        "licenses/MIT.txt",
+        "licenses/Apache-2.0.txt",
+        "licenses/BSD-3-Clause.txt"
+      ]
+    },
+    {
+      "path": "modules/data_format/_protobufjs.mjs",
+      "licenseFiles": [
+        "licenses/BSD-3-Clause.txt",
+        "licenses/Apache-2.0.txt"
+      ]
+    },
+    {
+      "path": "modules/date_time/_moment_tz_data.mjs",
+      "licenseFiles": [
+        "licenses/MIT.txt"
+      ]
+    },
+    {
+      "path": "modules/date_time/_momentfmt.js",
+      "licenseFiles": [
+        "licenses/MIT.txt"
+      ]
+    },
+    {
+      "path": "modules/forensics/_libyara.mjs",
+      "licenseFiles": [
+        "licenses/ISC.txt",
+        "licenses/Apache-2.0.txt"
+      ]
+    },
+    {
+      "path": "modules/hashing/_hashes_lib.mjs",
+      "licenseFiles": [
+        "licenses/MIT.txt"
+      ]
+    },
+    {
+      "path": "modules/multimedia/_d3.mjs",
+      "licenseFiles": [
+        "licenses/ISC.txt"
+      ]
+    },
+    {
+      "path": "modules/multimedia/_d3_hexbin.mjs",
+      "licenseFiles": [
+        "licenses/BSD-3-Clause.txt"
+      ]
+    },
+    {
+      "path": "modules/multimedia/_geodesy.mjs",
+      "licenseFiles": [
+        "licenses/MIT.txt"
+      ]
+    },
+    {
+      "path": "modules/multimedia/_img_codecs.mjs",
+      "licenseFiles": [
+        "licenses/MIT.txt",
+        "licenses/BSD-3-Clause.txt"
+      ]
+    },
+    {
+      "path": "modules/multimedia/_jimp.js",
+      "licenseFiles": [
+        "licenses/MIT.txt"
+      ]
+    },
+    {
+      "path": "modules/multimedia/_nodom.mjs",
+      "licenseFiles": [
+        "licenses/ISC.txt"
+      ]
+    },
+    {
+      "path": "modules/multimedia/_qrimage.js",
+      "licenseFiles": [
+        "licenses/MIT.txt"
+      ]
+    },
+    {
+      "path": "modules/multimedia/_roboto_bmfonts.mjs",
+      "licenseFiles": [
+        "licenses/Apache-2.0.txt"
+      ]
+    },
+    {
+      "path": "modules/multimedia/_tesseract.mjs",
+      "licenseFiles": [
+        "licenses/Apache-2.0.txt"
+      ]
+    },
+    {
+      "path": "modules/other/_codepage.mjs",
+      "licenseFiles": [
+        "licenses/Apache-2.0.txt"
+      ]
+    },
+    {
+      "path": "modules/other/_geodesy.mjs",
+      "licenseFiles": [
+        "licenses/MIT.txt"
+      ]
+    },
+    {
+      "path": "modules/other/_magic_lib.mjs",
+      "licenseFiles": [
+        "licenses/Apache-2.0.txt",
+        "licenses/MIT.txt"
+      ]
+    },
+    {
+      "path": "modules/other/_markdownit.js",
+      "licenseFiles": [
+        "licenses/MIT.txt"
+      ]
+    },
+    {
+      "path": "modules/public_key/_noble_curve448.mjs",
+      "licenseFiles": [
+        "licenses/MIT.txt"
+      ]
+    },
+    {
+      "path": "modules/public_key/_openpgp.mjs",
+      "licenseFiles": [
+        "licenses/LGPL-3.txt",
+        "licenses/GPL-3.txt",
+        "licenses/MIT.txt"
+      ]
+    },
+    {
+      "path": "modules/public_key/_asn1hex.js",
+      "licenseFiles": [
+        "licenses/MIT.txt"
+      ]
+    },
+    {
+      "path": "modules/public_key/_x509_ext.js",
+      "licenseFiles": [
+        "licenses/MIT.txt"
+      ]
+    },
+    {
+      "path": "modules/utils/_jsdiff.js",
+      "licenseFiles": [
+        "licenses/BSD-3-Clause.txt"
+      ]
+    },
+    {
+      "path": "modules/utils/_xmldom_serialize.js",
+      "licenseFiles": [
+        "licenses/MIT.txt"
+      ]
+    }
+  ]
+}

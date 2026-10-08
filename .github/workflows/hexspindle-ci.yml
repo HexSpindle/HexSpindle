@@ -26,6 +26,8 @@ jobs:
           package-manager-cache: false
       - name: Validate operation index and import references
         run: node check-integrity.mjs
+      - name: Validate third-party notice inventory
+        run: node check-vendor-notices.mjs
       - name: Install dependencies
         run: npm ci
       - name: Install Chromium
