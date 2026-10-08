@@ -46,6 +46,8 @@ jobs:
         run: node ci-regression.mjs
       - name: Run encoding reference-vector tests
         run: node ci-encodings.mjs
+      - name: Test candidate CSP in report-only mode
+        run: node ci-csp-report-only.mjs
   deploy-pages:
     name: Deploy website
     needs: browser-smoke-test
