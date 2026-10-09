@@ -126,42 +126,39 @@ function pruneEmpty(value) {
   return value;
 }
 
-function mergeIpEnrichment(branches) {
+// Parallel IP and IOC groups share the execution machinery, but their keys differ.
+// Do not coerce URLs/domains/hashes to an `ip` property during IOC merging.
+function mergeStructuredEnrichment(branches, expectedType) {
+  const keyName = expectedType === 'indicator-enrichment' ? 'indicator' : 'ip';
+  const label = keyName === 'ip' ? 'IP' : 'IOC';
   const records = new Map();
-  // First merge every provider that returned structured indicator rows.
   for (const branch of branches) {
     if (branch.error) continue;
     const merge = branch.mergeData;
-    if (!merge || merge.type !== 'ip-enrichment' || !merge.provider || !Array.isArray(merge.rows)) {
-      throw new RecipeError(`Operation '${branch.op?.module || branch.module || '?'}' did not return merge-compatible IP enrichment data`);
+    if (!merge || merge.type !== expectedType || !merge.provider || !Array.isArray(merge.rows)) {
+      throw new RecipeError(`Operation '${branch.op?.module || branch.module || '?'}' did not return merge-compatible ${label} enrichment data`);
     }
     for (const row of merge.rows) {
-      const ip = row?.ip;
-      if (!ip) continue;
-      if (!records.has(ip)) records.set(ip, { ip, enrichment: {} });
-      const { ip: _ip, error, ...data } = row;
-      if (error) {
-        records.get(ip).enrichment[merge.provider] = { status: 'error', error: String(error) };
-      } else {
-        const cleaned = pruneEmpty(data);
-        records.get(ip).enrichment[merge.provider] = cleaned === undefined
+      const key = row?.[keyName];
+      if (!key) continue;
+      if (!records.has(key)) records.set(key, { [keyName]: key, enrichment: {} });
+      const { error, ...rest } = row;
+      delete rest[keyName];
+      if (error) records.get(key).enrichment[merge.provider] = { status: 'error', error: String(error) };
+      else {
+        const cleaned = pruneEmpty(rest);
+        records.get(key).enrichment[merge.provider] = cleaned === undefined
           ? { status: 'success' }
           : { status: 'success', data: cleaned };
       }
     }
   }
-
-  // If a whole provider failed (bad key, CORS, service outage, etc.), retain that
-  // failure beside successful siblings for every indicator we were able to recover.
   for (const branch of branches) {
     if (!branch.error) continue;
     const provider = branch.mod?.parallelProvider || branch.op?.module || 'unknown';
     const message = branch.error?.message || String(branch.error);
-    for (const record of records.values()) {
-      record.enrichment[provider] = { status: 'error', error: message };
-    }
+    for (const record of records.values()) record.enrichment[provider] = { status: 'error', error: message };
   }
-
   const rows = [...records.values()].map(row => pruneEmpty(row)).filter(Boolean);
   return encodeUtf8(JSON.stringify(rows.length === 1 ? rows[0] : rows, null, 2));
 }
@@ -203,6 +200,9 @@ async function runParallelGroup(data, ops, start, end, ctx, offset, top) {
     active.push({ op, gi, mod: MODULES[op.module] });
   }
   if (!active.length) return data;
+  // IOC lookups are isolated from IP-only parallel operations by group ID.
+  const expectedType = active[0].mod?.parallelGroup === 'ioc-enrichment'
+    ? 'indicator-enrichment' : 'ip-enrichment';
 
   // Every branch receives the exact same immutable upstream byte snapshot.
   // In Step mode, completed branches can be supplied through ctx.parallelCache.
@@ -224,8 +224,8 @@ async function runParallelGroup(data, ops, start, end, ctx, offset, top) {
       const args = resolveArgs(item.mod, item.op.args, ctx.regs);
       const [bytes, html, mergeData] = await callModule(item.mod, data, args);
       checkAbort(ctx);
-      if (!mergeData || mergeData.type !== 'ip-enrichment' || !mergeData.provider || !Array.isArray(mergeData.rows))
-        throw new Error(`Operation '${item.op.module}' did not return merge-compatible IP enrichment data`);
+      if (!mergeData || mergeData.type !== expectedType || !mergeData.provider || !Array.isArray(mergeData.rows))
+        throw new Error(`Operation '${item.op.module}' did not return merge-compatible ${expectedType} data`);
       result = { ...item, bytes, html, mergeData, ms: +(performance.now() - t0).toFixed(2), error: null, cached: false };
     } catch (error) {
       if (error?.name === 'AbortError' || ctx.signal?.aborted) throw abortError(ctx.signal);
@@ -264,7 +264,7 @@ async function runParallelGroup(data, ops, start, end, ctx, offset, top) {
     throw new RecipeError(`Parallel group: ${msg}`);
   }
 
-  const merged = mergeIpEnrichment(results);
+  const merged = mergeStructuredEnrichment(results, expectedType);
   ctx.html = false;
   if (top) ctx.last = merged;
   return merged;
@@ -397,7 +397,7 @@ export async function runOps(data, ops, ctx, top = false, offset = 0) {
       // When Step stops on the first member of a configured parallel stage, that
       // member is executed through the normal single-step path. Seed the same
       // parallel cache here so the next Step click does not execute it again.
-      if (ctx.parallelCache && !op.parallel && ops[i + 1]?.parallel && mergeData?.type === 'ip-enrichment') {
+      if (ctx.parallelCache && !op.parallel && ops[i + 1]?.parallel && ['ip-enrichment', 'indicator-enrichment'].includes(mergeData?.type)) {
         const item = { op, gi, mod };
         const key = parallelBranchCacheKey(item, sourceData, hashBytes(sourceData));
         ctx.parallelCache.set(key, { bytes: data, html, mergeData, error: null, cached: false });

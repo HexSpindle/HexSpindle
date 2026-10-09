@@ -44,6 +44,7 @@ export function statusRows(manifest, operationName) {
       retrieved_at: data?.source_retrieved_at || null,
       modified_at: data?.source_modified_at || null,
       records: Number.isInteger(data?.records) ? data.records : null,
+      unavailable_reason: manifest?.unavailable?.[key] || null,
     };
   });
 }
@@ -73,7 +74,7 @@ function paint(panel) {
   for (const row of statusRows(currentManifest, panel.dataset.provider)) {
     const item = element('div', '', 'display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;margin-top:3px;');
     item.append(element('span', row.label), element('span',
-      row.retrieved_at ? utcDate(row.retrieved_at) : 'Not synchronized',
+      row.retrieved_at ? utcDate(row.retrieved_at) : (row.unavailable_reason || 'Not synchronized'),
       'color:var(--dim,#94a3b8);font-variant-numeric:tabular-nums;'));
     if (row.modified_at) item.title = `Upstream Last-Modified: ${utcDate(row.modified_at)}`;
     panel.append(item);

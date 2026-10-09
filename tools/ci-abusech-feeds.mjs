@@ -4,6 +4,8 @@ import assert from 'node:assert/strict';
 import { gzipSync } from 'node:zlib';
 import { createHash } from 'node:crypto';
 import { MODULES } from '../core/registry.js';
+import { bake } from '../core/engine.js';
+import { encodeUtf8, decodeUtf8 } from '../core/util.js';
 import '../modules/networking/threatfox_ioc.js';
 import '../modules/networking/urlhaus_url.js';
 import { parseIndicators, parseIndex, lookupAbusech } from '../modules/networking/_abusech_local.js';
@@ -11,6 +13,11 @@ import { parseIndicators, parseIndex, lookupAbusech } from '../modules/networkin
 assert(MODULES['ThreatFox IOC Lookup']);
 assert(MODULES['URLhaus URL Lookup']);
 assert(!MODULES['SANS ISC Import Feed']);
+for (const op of ['ThreatFox IOC Lookup','URLhaus URL Lookup']) {
+  assert.equal(MODULES[op].parallelSafe, true);
+  assert.equal(MODULES[op].parallelGroup,'ioc-enrichment');
+}
+assert.notEqual(MODULES['ThreatFox IOC Lookup'].parallelGroup, 'ip-enrichment');
 assert.deepEqual(parseIndicators('["test.invalid","test.invalid"]'), ['test.invalid']);
 const fixture = '{"indicator":"198.51.100.7:443","type":"ip:port","malware":"TestOnly"}\n';
 assert.equal(parseIndex(fixture).get('198.51.100.7:443')[0].malware,'TestOnly');
@@ -36,13 +43,28 @@ globalThis.fetch=async input=>{
   throw new Error('Unexpected external lookup: '+link);
 };
 try {
-  const a=JSON.parse(await lookupAbusech('threatfox','198.51.100.7:443\n198.51.100.7'));
+  const a=JSON.parse((await lookupAbusech('threatfox','198.51.100.7:443\n198.51.100.7')).output);
   assert.deepEqual(a.map(x=>x.found),[true,false]);
-  const b=JSON.parse(await lookupAbusech('urlhaus','https://bad.example/Malware\nhttps://bad.example/malware'));
+  const b=JSON.parse((await lookupAbusech('urlhaus','https://bad.example/Malware\nhttps://bad.example/malware')).output);
   assert.deepEqual(b.map(x=>x.found),[true,false],'URL case-sensitive paths');
   const first=fetches.length;
   await lookupAbusech('threatfox','198.51.100.7:443');
   assert.equal(fetches.length,first,'must use local cache for repeated matches');
   assert.equal(fetches.filter(x=>x.endsWith('.gz?v='+manifest.datasets.abusech_threatfox.sha256.slice(0,16))).length,1);
+  // The merge must preserve IOC keys, keep provider results independent, and not
+  // mistakenly claim URL/hash data is an IP enrichment result.
+  const recipe = [
+    {module:'ThreatFox IOC Lookup',args:['JSON']},
+    {module:'URLhaus URL Lookup',args:['JSON'],parallel:true},
+  ];
+  const baked = await bake(encodeUtf8('https://bad.example/Malware\n198.51.100.7:443'), recipe);
+  assert.equal(baked.error,null,JSON.stringify(baked.error));
+  const merged = JSON.parse(decodeUtf8(baked.output));
+  assert.equal(merged.length,2);
+  assert(merged.every(r=>r.indicator && !('ip' in r)));
+  assert(merged.every(r=>r.enrichment.abusech_threatfox && r.enrichment.abusech_urlhaus));
+  assert.equal(merged.find(r=>r.indicator==='https://bad.example/Malware').enrichment.abusech_urlhaus.data.found,true);
+  assert.equal(merged.find(r=>r.indicator==='198.51.100.7:443').enrichment.abusech_threatfox.data.found,true);
+  console.log('PASS IOC parallel group: preserved indicator keys, structured provider results, no IP group collision');
   console.log('PASS abuse.ch exact IP:port and case-sensitive URL matching, gzip, SHA identity, no external per-IOC requests, cache');
 } finally {globalThis.fetch=before;}

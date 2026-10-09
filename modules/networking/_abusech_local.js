@@ -2,6 +2,7 @@
 // Local, same-origin IOC matching. abuse.ch exports only available if explicitly authorized.
 import { feedManifest, readMirrorText, readMirrorCache, writeMirrorCache } from './_feed_mirror.js';
 import { formatRows } from './_ip_enrichment.js';
+import { StructuredResult } from '../../core/registry.js';
 
 const hot = new Map(), pending = new Map();
 const SOURCES = { threatfox: 'abusech_threatfox', urlhaus: 'abusech_urlhaus' };
@@ -66,5 +67,7 @@ export async function lookupAbusech(kind,input,output='JSON') {
     source:kind==='threatfox'?'ThreatFox':'URLhaus',
     matches:rows.get(indicatorKey(indicator))||[],
     snapshot_retrieved_at:info.source_retrieved_at}));
-  return formatRows(items,output);
+  return new StructuredResult(formatRows(items, output), {
+    type: 'indicator-enrichment', provider: `abusech_${kind}`, rows: items,
+  });
 }
