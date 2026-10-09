@@ -87,7 +87,7 @@ function paint(panel) {
     panel.append(item);
   }
   if (panel.dataset.provider === 'IP GeoLocation') {
-    panel.append(element('div', 'User-provided MMDB files always remain supported and take priority. Public GeoLite2 City requires redistribution permission. The displayed update date comes from MMDB build metadata, not the download date.',
+    panel.append(element('div', 'User-provided MMDB files always remain supported and take priority. The displayed update date comes from MMDB build metadata, not the download date.',
       'color:var(--dim,#94a3b8);font-size:11px;margin-top:6px;'));
     const attribution = document.createElement('a');
     attribution.href = 'https://www.maxmind.com';
