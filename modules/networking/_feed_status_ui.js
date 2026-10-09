@@ -11,6 +11,8 @@ const PROVIDERS = Object.freeze({
     ['Daily sources', 'sans_daily_sources'],
   ],
   'IPInfo.io Basic': [['IPinfo Lite (optional)', 'ipinfo_lite']],
+  'ThreatFox IOC Lookup': [['ThreatFox IOC export', 'abusech_threatfox']],
+  'URLhaus URL Lookup': [['URLhaus recent URL export', 'abusech_urlhaus']],
   'ARIN RDAP': [
     ['ARIN', 'arin'], ['APNIC', 'apnic'], ['RIPE NCC', 'ripencc'],
     ['LACNIC', 'lacnic'], ['AFRINIC', 'afrinic'],

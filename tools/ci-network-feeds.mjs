@@ -1,11 +1,13 @@
 // SPDX-License-Identifier: MIT
 // Network operation regression tests run in main HexSpindle CI before deployment.
 import assert from 'node:assert/strict';
+import { gzipSync } from 'node:zlib';
+import { createHash } from 'node:crypto';
 import { lookupGeoJS } from '../modules/networking/geojs_ip.js';
 import { lookupIPInfo } from '../modules/networking/ipinfo_io.js';
 import { MODULES } from '../core/registry.js';
 import '../modules/networking/arin_rdap.js';
-import '../modules/networking/sans_isc_ip.js';
+import { lookupSansBulk } from '../modules/networking/sans_isc_ip.js';
 import '../modules/networking/ripestat_ip.js';
 
 const originalFetch = globalThis.fetch;
@@ -41,11 +43,40 @@ try {
   assert.equal(legacyCalls,1,'Anonymous safety cap must precede remote calls');
   assert.equal(MODULES['ARIN RDAP'].connection,null);
   assert.equal(MODULES['SANS ISC IP'].connection,null);
+  assert.equal(MODULES['SANS ISC Import Feed'], undefined, 'Removed offline importer must not register');
   for (const name of ['IPInfo.io Basic','GeoJS IP Lookup','RIPEstat IP Intelligence']) {
     assert(MODULES[name].desc.length>100, name+' missing operation limitations');
   }
+  // A complete offline fixture proves SANS still downloads from same-origin /data/feeds,
+  // decompresses its payload, parses records and performs local batch matching.
+  const rawSans = Buffer.from('8.8.8.8\tfixture-bad-ip\n1.1.1.1\tfixture-known-ip\n');
+  const zippedSans = gzipSync(rawSans);
+  const sansInfo = {
+    path: 'data/feeds/sans-threatintel.txt.gz',
+    sha256: createHash('sha256').update(rawSans).digest('hex'),
+    raw_bytes: rawSans.byteLength, compressed_bytes: zippedSans.byteLength,
+    source_retrieved_at: '2026-10-09T05:17:00Z',
+  };
+  const recordedUrls = [];
+  globalThis.fetch = async url => {
+    recordedUrls.push(String(url));
+    if (String(url).includes('/data/feeds/manifest.json'))
+      return new Response(JSON.stringify({schema_version:1,generated_at:'2026-10-09T05:20:00Z',datasets:{sans_threatintel:sansInfo}}),{status:200});
+    if (String(url).includes('/data/feeds/sans-threatintel.txt.gz'))
+      return new Response(zippedSans,{status:200,headers:{'content-length':String(zippedSans.length)}});
+    throw new Error('SANS bulk lookup attempted an unexpected external fetch: ' + url);
+  };
+  const sans = await lookupSansBulk('8.8.8.8\n1.1.1.1\n8.8.4.4','JSON','Bulk (cached or download)','Threatintel labels');
+  const sansRows = JSON.parse(sans.output);
+  assert.equal(sansRows.length,3);
+  assert.deepEqual(sansRows.map(row=>row.found),[true,true,false]);
+  assert(sansRows[0].threatintel_labels?.includes('fixture-bad-ip'));
+  assert.equal(recordedUrls.length,2, 'SANS bulk should fetch only manifest and mirrored feed');
+  assert(recordedUrls.every(url=>url.includes('/data/feeds/')));
+  console.log('PASS: SANS mirror gzip decode, three local IP matches, zero upstream requests');
   console.log('PASS: GeoJS 45 IPs -> 3 bulk requests; no PTR requests');
   console.log('PASS: GeoJS PTR cap and stable output order');
   console.log('PASS: IPinfo Lite fallback + anonymous safety cap');
-  console.log('PASS: SANS/ARIN no redundant connection panels; provider limitations registered');
+  console.log('PASS: SANS/ARIN no redundant connection panels, no SANS import operation');
+  console.log('PASS: Provider limitations registered');
 } finally { globalThis.fetch=originalFetch; }

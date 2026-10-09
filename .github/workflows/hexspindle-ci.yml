@@ -58,6 +58,8 @@ jobs:
         run: node check-release-boundary.mjs
       - name: Test networking feed operations and GeoJS batch handling
         run: node ci-network-feeds.mjs
+      - name: Test optional abuse.ch local feed readers
+        run: node ci-abusech-feeds.mjs
       - name: Install dependencies
         run: npm ci
       - name: Install Chromium

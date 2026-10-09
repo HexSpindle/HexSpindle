@@ -33,7 +33,7 @@ No server-side processing is required for normal operation.
 
 ## Operation Coverage
 
-HexSpindle currently implements **742 operations across all 16 supported categories**.
+HexSpindle currently implements **744 operations across all 16 supported categories**.
 
 Operations are added incrementally. Features that have not yet been ported are simply omitted from the operation registry, allowing the rest of the application to remain fully functional.
 
@@ -46,7 +46,7 @@ The **Magic** decoder uses the same registry when evaluating candidate transform
 | Data Format | 78 |
 | Hashing | 66 |
 | Utils | 61 |
-| Networking | 51 |
+| Networking | 53 |
 | Public Key | 49 |
 | Multimedia | 41 |
 | Compression | 34 |
@@ -57,7 +57,7 @@ The **Magic** decoder uses the same registry when evaluating candidate transform
 | Extractors | 11 |
 | Flow Control | 9 |
 | Language | 6 |
-| **Total** | **742** |
+| **Total** | **744** |
 ## Architecture
 
 HexSpindle is organized around a modular operation registry and a client-side recipe execution engine.

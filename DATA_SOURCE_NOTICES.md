@@ -57,3 +57,24 @@ lookup modes. Opt-in **live** modes still send IP queries to the relevant provid
 MD5 from the ARIN publisher is checked if available for download, while SHA-256 is
 used for HexSpindle's own content manifest. SHA-256 of a downloaded response
 attests to that response, not the completeness of a provider's underlying database.
+
+## MaxMind GeoLite2 City — personal licensed dataset
+
+Optional private refreshes use a user-provided MaxMind account and license key.
+The GeoLite2 City MMDB is **not publicly redistributed** or bundled with
+HexSpindle. Users select their own authorized local MMDB in the existing
+IP GeoLocation file picker. A scheduled private refresh may store the MMDB in
+a user-controlled non-public S3 bucket, but never in the Pages artifact.
+See https://support.maxmind.com/knowledge-base/articles/commercial-license-for-geolite.
+
+## abuse.ch / Spamhaus — optional ThreatFox and URLhaus exports
+
+These sources are disabled for public Pages publishing unless the operator
+has permission to redistribute their downloaded intelligence exports. A free
+Auth-Key is NOT evidence of such authorization. All contributions remain
+subject to abuse.ch fair-use and commercial terms. If authorized, the
+provider's name is shown with matched indicators and source retrieval times.
+ThreatFox IOC exports omit expired entries (>~6 months); URLhaus's recent
+export uses a rolling 30-day window. Do not treat an absent indicator as safe.
+See https://abuse.ch/terms-of-use/ and https://threatfox.abuse.ch/export and
+https://urlhaus.abuse.ch/api/.

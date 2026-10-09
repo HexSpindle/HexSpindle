@@ -3,7 +3,7 @@
 import { module } from './_cat.js';
 import { A } from '../../core/registry.js';
 import { OUTPUT_FORMATS, enrichmentResult, extractIps, fetchJson, mapIps, parallelIpOptions } from './_ip_enrichment.js';
-import { SANS_FEEDS, SANS_ATTRIBUTION, importSansFeed, getSansFeed, matchSansFeeds, feedMetadata } from './_sans_isc_feed.js';
+import { getSansFeed, matchSansFeeds, feedMetadata } from './_sans_isc_feed.js';
 import { installFeedStatusUI } from './_feed_status_ui.js';
 installFeedStatusUI();
 
@@ -12,7 +12,6 @@ const API = 'https://isc.sans.edu/api';
 const HEADERS = { Accept: 'application/json' };
 const LOOKUP_MODES = ['Bulk (cached or download)', 'Bulk (cached only)', 'Live API (detailed)'];
 const BULK_DATASETS = ['Intelfeed', 'Threatintel labels', 'Daily sources', 'All three'];
-const IMPORT_DATASETS = ['Intelfeed JSON', 'Threatintel text', 'Daily sources TSV'];
 const IDS = ['intelfeed', 'threatintel', 'daily_sources'];
 
 async function query(ip) {
@@ -56,21 +55,4 @@ module(
     aliases: ['SANS', 'ISC', 'Internet Storm Center', 'DShield'],
 
   }
-);
-
-// Deliberately registered in the existing SANS module: no modules/index.js modification.
-// Workflow: Open downloaded feed as the main INPUT file, select its type and run this once.
-// Then put the IP list back in INPUT and run SANS ISC IP in a Bulk lookup mode.
-module(
-  'SANS ISC Import Feed',
-  'Import one downloaded SANS ISC/DShield bulk feed into an indexed in-browser database. Open a downloaded Intelfeed JSON, threatintel.txt or daily_sources as HexSpindle INPUT first. Choose the matching type. Keeps a reusable IndexedDB cache if the browser permits it. Never redistributes SANS data.',
-  [A.select('Feed type', IMPORT_DATASETS, IMPORT_DATASETS[0])],
-  async (input, type) => {
-    const kind = IDS[IMPORT_DATASETS.indexOf(type)] || 'intelfeed';
-    // Input remains binary to support large feed files and non-UTF8 garbage detection.
-    if (!(input instanceof Uint8Array)) throw new Error('Open the downloaded feed as a HexSpindle input file.');
-    const result = await importSansFeed(kind, input);
-    return JSON.stringify({ status: 'imported', ...result, how_to_use: 'Replace INPUT with your IP list, remove the Import operation, add SANS ISC IP and choose Bulk (cached only). A missing match does not mean an IP is benign.', licenses: 'See https://isc.sans.edu/feeds_doc.html', attribution: SANS_ATTRIBUTION }, null, 2);
-  },
-  { text: false, aliases: ['Import SANS', 'DShield feed import', 'SANS bulk import'] }
 );

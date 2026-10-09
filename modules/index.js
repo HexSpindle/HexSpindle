@@ -548,6 +548,8 @@ import './multimedia/show_on_map.js';
 import './multimedia/split_colour_channels.js';
 import './multimedia/view_bit_plane.js';
 import './networking/arin_rdap.js';
+import './networking/threatfox_ioc.js';
+import './networking/urlhaus_url.js';
 import './networking/bgp_rpki_intelligence.js';
 import './networking/change_ip_format.js';
 import './networking/cidr_summarize.js';

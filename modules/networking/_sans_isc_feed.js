@@ -207,14 +207,6 @@ async function fetchFeed(kind, manifest) {
   return result;
 }
 
-export async function importSansFeed(kind, bytes) {
-  const rows = parseFeedBytes(kind, bytes);
-  const result = { kind, rows, storedAt: Date.now(), origin: 'uploaded', url: SANS_FEEDS[kind].url, persistent: false };
-  result.persistent = await saveStored(kind, result);
-  hot.set(kind, result);
-  return { kind, records: rows.size, cached_in_browser: result.persistent, imported_at: new Date(result.storedAt).toISOString(), source: result.url, attribution: SANS_ATTRIBUTION };
-}
-
 async function loadImpl(kind, mode) {
   let existing = hot.get(kind);
   if (!existing) {
@@ -222,11 +214,10 @@ async function loadImpl(kind, mode) {
     if (existing) hot.set(kind, existing);
   }
   if (mode === 'offline') {
-    if (!existing) throw new Error(`No cached ${SANS_FEEDS[kind].label}. Run the GitHub Pages feed-sync workflow or import a local feed.`);
+    if (!existing) throw new Error(`No cached ${SANS_FEEDS[kind].label}. Run the automatic lookup online once to populate this browser cache.`);
     return existing;
   }
-  // Local imports are intentional and cannot be overwritten automatically.
-  if (existing?.origin === 'uploaded') return existing;
+  // Older manually imported caches must not suppress newer publisher snapshots.
   try {
     const manifest = await feedManifest();
     const info = getFeedInfo(manifest, `sans_${kind}`);

@@ -33,7 +33,7 @@ export function getFeedInfo(manifest, kind) {
 export async function openMirrorStream(kind, manifest) {
   const info = getFeedInfo(manifest || await feedManifest(), kind);
   if (typeof DecompressionStream === 'undefined')
-    throw new Error('Browser does not support gzip DecompressionStream; use an up-to-date browser or manual feed import.');
+    throw new Error('Browser does not support gzip DecompressionStream; use an up-to-date browser that supports streaming decompression.');
   const url = new URL(info.path, ROOT);
   url.searchParams.set('v', info.sha256.slice(0, 16));
   const response = await fetch(url, { credentials: 'omit', cache: 'default' });
