@@ -58,14 +58,13 @@ MD5 from the ARIN publisher is checked if available for download, while SHA-256 
 used for HexSpindle's own content manifest. SHA-256 of a downloaded response
 attests to that response, not the completeness of a provider's underlying database.
 
-## MaxMind GeoLite2 City — personal licensed dataset
+## User-supplied MMDB databases
 
-Optional private refreshes use a user-provided MaxMind account and license key.
-The GeoLite2 City MMDB is **not publicly redistributed** or bundled with
-HexSpindle. Users select their own authorized local MMDB in the existing
-IP GeoLocation file picker. A scheduled private refresh may store the MMDB in
-a user-controlled non-public S3 bucket, but never in the Pages artifact.
-See https://support.maxmind.com/knowledge-base/articles/commercial-license-for-geolite.
+The **IP GeoLocation** operation reads MMDB files that a user selects locally.
+HexSpindle does not download, host, store on a server, or automatically update
+MaxMind GeoLite2 City databases. Users obtain and update their own authorized
+MaxMind, DB-IP, IP2Location/IP2Proxy, IPinfo, or other compatible MMDB files.
+The imported MMDB is processed locally in the browser and is not sent to HexSpindle.
 
 ## abuse.ch / Spamhaus — optional ThreatFox and URLhaus exports
 
