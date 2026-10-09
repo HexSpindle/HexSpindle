@@ -2,8 +2,10 @@
 // HexSpindle SANS ISC IP lookups: cached bulk feeds or opt-in detailed API.
 import { module } from './_cat.js';
 import { A } from '../../core/registry.js';
-import { OUTPUT_FORMATS, enrichmentResult, extractIps, fetchJson, mapIps, parallelIpOptions, publicConnection } from './_ip_enrichment.js';
+import { OUTPUT_FORMATS, enrichmentResult, extractIps, fetchJson, mapIps, parallelIpOptions } from './_ip_enrichment.js';
 import { SANS_FEEDS, SANS_ATTRIBUTION, importSansFeed, getSansFeed, matchSansFeeds, feedMetadata } from './_sans_isc_feed.js';
+import { installFeedStatusUI } from './_feed_status_ui.js';
+installFeedStatusUI();
 
 const SERVICE = 'sans_isc';
 const API = 'https://isc.sans.edu/api';
@@ -16,10 +18,6 @@ const IDS = ['intelfeed', 'threatintel', 'daily_sources'];
 async function query(ip) {
   const { data } = await fetchJson(`${API}/ip/${encodeURIComponent(ip)}?json`, { headers: HEADERS });
   return data;
-}
-export async function testSANSISCConnection() {
-  try { await query('8.8.8.8'); return { ok: true, message: 'Connected to SANS ISC live API (bulk feed availability is separate).' }; }
-  catch (error) { return { ok: false, message: error?.message || String(error) }; }
 }
 const numeric = value => value === null || value === undefined || value === '' ? undefined : Number(value);
 function parseLive(payload) {
@@ -35,7 +33,7 @@ function parseLive(payload) {
   };
 }
 
-export async function lookupSansBulk(input, output = 'JSON', mode = LOOKUP_MODES[0], dataset = BULK_DATASETS[0]) {
+export async function lookupSansBulk(input, output = 'JSON', mode = LOOKUP_MODES[0], dataset = BULK_DATASETS[3]) {
   if (mode === LOOKUP_MODES[2]) return enrichmentResult(SERVICE,
     await mapIps(input, async ip => parseLive(await query(ip))), output);
   const selected = dataset === BULK_DATASETS[3] ? IDS : [IDS[BULK_DATASETS.indexOf(dataset)] || IDS[0]];
@@ -50,14 +48,13 @@ export async function lookupSansBulk(input, output = 'JSON', mode = LOOKUP_MODES
 
 module(
   'SANS ISC IP',
-  'Fast batch lookup against cached SANS ISC/DShield daily feeds (one download per dataset, local matching for every IP), or detailed per-IP live API lookups. Bulk data is not the same as the full IP API and a missing match does NOT mean an IP is safe. Attribution: SANS Technology Institute, Internet Storm Center (isc.sans.edu). Direct remote download requires CORS; if blocked, use SANS ISC Import Feed.',
-  [A.select('Output', OUTPUT_FORMATS, 'JSON'), A.select('Lookup mode', LOOKUP_MODES, LOOKUP_MODES[0]), A.select('Bulk dataset', BULK_DATASETS, BULK_DATASETS[0])],
+  'Fast local IP matching against automatically synchronized same-origin SANS ISC/DShield feeds (one compressed download per updated dataset), or detailed opt-in per-IP live API lookups. See the latest sync dates directly below this description. Missing records do NOT mean the IP is benign. Attribution: SANS Technology Institute / ISC.',
+  [A.select('Output', OUTPUT_FORMATS, 'JSON'), A.select('Lookup mode', LOOKUP_MODES, LOOKUP_MODES[0]), A.select('Bulk dataset', BULK_DATASETS, BULK_DATASETS[3])],
   lookupSansBulk,
   {
     ...parallelIpOptions(SERVICE),
     aliases: ['SANS', 'ISC', 'Internet Storm Center', 'DShield'],
-    connection: publicConnection(SERVICE, testSANSISCConnection,
-      'Test connection checks the LIVE SANS ISC API, not bulk feed CORS. Bulk feeds may require local import when hosted on GitHub Pages.'),
+
   }
 );
 

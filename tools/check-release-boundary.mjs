@@ -6,7 +6,7 @@ import { join, resolve, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = resolve(fileURLToPath(new URL('..', import.meta.url)));
-const files = ['index.html','app.js','app.css','LICENSE','THIRD_PARTY_NOTICES.md',
+const files = ['index.html','app.js','app.css','LICENSE','THIRD_PARTY_NOTICES.md','DATA_SOURCE_NOTICES.md',
   'robots.txt','sitemap.xml','.nojekyll','google8833fe62b3f6acca.html'];
 const dirs = ['assets','core','modules','licenses'];
 const errors = [], notes = [];
@@ -42,7 +42,7 @@ const html = readFileSync(path('index.html'),'utf8');
 const required = [
   [workflow.includes(`for file in ${files.join(' ')}; do`), 'Workflow root allowlist has changed: review deployed filenames'],
   [workflow.includes(`for directory in ${dirs.join(' ')}; do`), 'Workflow directory allowlist has changed: review deployed directories'],
-  [/rsync -av --delete --exclude='\.git\/' release\/ site\//.test(workflow), 'Release synchronization no longer matches validated allowlist'],
+  [/rsync -av --delete --exclude='\.git\/' --exclude='\.github\/' --exclude='tools\/' release\/ site\//.test(workflow), 'Release synchronization no longer matches validated allowlist'],
   [/^permissions:\s*\n\s*contents: read\s*$/m.test(workflow), 'Workflow must retain read-only GITHUB_TOKEN permissions'],
   [/if:\s*github\.event_name == 'push' && github\.ref == 'refs\/heads\/main'/.test(workflow), 'Deploy job must be restricted to pushes on main'],
   [/needs:\s*browser-smoke-test/.test(workflow), 'Deploy must depend on passed smoke tests'],

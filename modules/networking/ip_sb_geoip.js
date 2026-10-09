@@ -1,6 +1,6 @@
 import { module } from './_cat.js';
 import { A } from '../../core/registry.js';
-import { OUTPUT_FORMATS, enrichmentResult, fetchJson, mapIps, parallelIpOptions, publicConnection, pruneEmpty } from './_ip_enrichment.js';
+import { OUTPUT_FORMATS, enrichmentResult, fetchJson, extractIps, mapIps, parallelIpOptions, publicConnection, pruneEmpty } from './_ip_enrichment.js';
 
 const SERVICE = 'ip_sb';
 
@@ -30,11 +30,19 @@ export async function testIpSbConnection() {
   catch (error) { return { ok: false, message: error?.message || String(error) }; }
 }
 
+// Conservative per-run ceiling protects free endpoints against unintentional flooding.
+const DEFAULT_LIMIT = 30;
+async function constrainedMap(input, queryFn) {
+  const count = extractIps(input).length;
+  if (count > DEFAULT_LIMIT) throw new Error(`This provider is limited by HexSpindle to ${DEFAULT_LIMIT} IPs per run (requested ${count}). Use a cached/local data source or split your list.`);
+  return mapIps(input, queryFn, { delayMs: 750 });
+}
+
 module(
   'IP.SB GeoIP',
-  'Free browser-facing IPv4/IPv6 GeoIP enrichment from IP.SB with location, timezone, ASN, ISP and organization. The provider explicitly supports CORS and requires no key.',
+  'Free browser-facing IPv4/IPv6 GeoIP enrichment from IP.SB with location, timezone, ASN, ISP and organization. The provider explicitly supports CORS and requires no key. IP.SB publishes rate limits and may throttle shared/IP-based traffic. Default maximum 30 IPs/run and 750 ms spacing; a local MMDB is preferable for high-volume batches.',
   [A.select('Output', OUTPUT_FORMATS, 'JSON')],
-  async (input, output) => enrichmentResult(SERVICE, await mapIps(input, query), output),
+  async (input, output) => enrichmentResult(SERVICE, await constrainedMap(input, query), output),
   {
     ...parallelIpOptions(SERVICE),
     aliases: ['IP.SB', 'ip.sb', 'GeoIP'],

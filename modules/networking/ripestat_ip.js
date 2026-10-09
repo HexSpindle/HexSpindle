@@ -1,6 +1,6 @@
 import { module } from './_cat.js';
 import { A } from '../../core/registry.js';
-import { OUTPUT_FORMATS, enrichmentResult, fetchJson, mapIps, parallelIpOptions, publicConnection, pruneEmpty } from './_ip_enrichment.js';
+import { OUTPUT_FORMATS, enrichmentResult, fetchJson, extractIps, mapIps, parallelIpOptions, publicConnection, pruneEmpty } from './_ip_enrichment.js';
 
 const SERVICE = 'ripestat';
 const BASE = 'https://stat.ripe.net/data';
@@ -75,18 +75,23 @@ export async function testRIPEstatConnection() {
   catch (error) { return { ok: false, message: error?.message || String(error) }; }
 }
 
+async function batchRIPE(input, whois, routing, maxRecords){
+ const count=extractIps(input).length;
+ if(count>40)throw new Error('RIPEstat lookup is limited to 40 IPs/run; each IP needs 3–5 API calls. For larger lists use the daily RIR allocation feed in ARIN RDAP, which lacks WHOIS and current BGP routing.');
+ return mapIps(input,ip=>query(ip,whois,routing,maxRecords),{delayMs:450});
+}
 module(
   'RIPEstat IP Intelligence',
-  'Browser-safe RIPE NCC enrichment for IPv4/IPv6: containing BGP prefix/origin ASN, authoritative RIR, abuse contacts, optional WHOIS/IRR records, and optional routing visibility/status from RIPE RIS. No API key required.',
+  'Browser-safe RIPE NCC enrichment for IPv4/IPv6: containing BGP prefix/origin ASN, authoritative RIR, abuse contacts, optional WHOIS/IRR records, and optional routing visibility/status from RIPE RIS. No API key required. Default: WHOIS/IRR and routing details off, 40 IPs/run, 450 ms between IPs. RIPEstat limits to 8 concurrent requests per client; WHOIS/IRR and observed BGP routing are not provided by the daily allocation dataset.',
   [
-    A.boolean('Include WHOIS / IRR records', true),
-    A.boolean('Include routing details', true),
+    A.boolean('Include WHOIS / IRR records', false),
+    A.boolean('Include routing details', false),
     A.number('Max WHOIS / IRR records', 5, 1, 25, 1),
     A.select('Output', OUTPUT_FORMATS, 'JSON'),
   ],
   async (input, includeWhois, includeRouting, maxRecords, output) => enrichmentResult(
     SERVICE,
-    await mapIps(input, ip => query(ip, includeWhois, includeRouting, Math.max(1, Math.min(25, maxRecords | 0)))),
+    await batchRIPE(input, includeWhois, includeRouting, Math.max(1, Math.min(25, maxRecords | 0))),
     output,
   ),
   {

@@ -56,6 +56,8 @@ jobs:
         run: node audit-csp-compat.mjs
       - name: Validate security posture and production release boundary
         run: node check-release-boundary.mjs
+      - name: Test networking feed operations and GeoJS batch handling
+        run: node ci-network-feeds.mjs
       - name: Install dependencies
         run: npm ci
       - name: Install Chromium
@@ -101,7 +103,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p release
-          for file in index.html app.js app.css LICENSE THIRD_PARTY_NOTICES.md robots.txt sitemap.xml .nojekyll google8833fe62b3f6acca.html; do
+          for file in index.html app.js app.css LICENSE THIRD_PARTY_NOTICES.md DATA_SOURCE_NOTICES.md robots.txt sitemap.xml .nojekyll google8833fe62b3f6acca.html; do
             test -f "source/$file" || { echo "Missing required release file: $file" >&2; exit 1; }
             cp -- "source/$file" "release/$file"
           done
@@ -115,7 +117,7 @@ jobs:
           fi
           echo "Prepared $(find release -type f | wc -l) deployment files"
       - name: Synchronize release into Pages repository
-        run: rsync -av --delete --exclude='.git/' release/ site/
+        run: rsync -av --delete --exclude='.git/' --exclude='.github/' --exclude='tools/' release/ site/
       - name: Commit and push deployment
         working-directory: site
         shell: bash

@@ -1,6 +1,6 @@
 import { module } from './_cat.js';
 import { A } from '../../core/registry.js';
-import { OUTPUT_FORMATS, enrichmentResult, fetchJson, mapIps, parallelIpOptions, publicConnection, pruneEmpty } from './_ip_enrichment.js';
+import { OUTPUT_FORMATS, enrichmentResult, fetchJson, extractIps, mapIps, parallelIpOptions, publicConnection, pruneEmpty } from './_ip_enrichment.js';
 
 const SERVICE = 'ipwhois_free';
 
@@ -33,11 +33,19 @@ export async function testIPWhoisFreeConnection() {
   catch (error) { return { ok: false, message: error?.message || String(error) }; }
 }
 
+// Conservative per-run ceiling protects free endpoints against unintentional flooding.
+const DEFAULT_LIMIT = 20;
+async function constrainedMap(input, queryFn) {
+  const count = extractIps(input).length;
+  if (count > DEFAULT_LIMIT) throw new Error(`This provider is limited by HexSpindle to ${DEFAULT_LIMIT} IPs per run (requested ${count}). Use a cached/local data source or split your list.`);
+  return mapIps(input, queryFn, { delayMs: 1100 });
+}
+
 module(
   'ipwho.is IP Lookup',
-  'Keyless CORS-enabled IPv4/IPv6 geolocation and network enrichment from ipwho.is: country/region/city, coordinates, timezone, ASN, organization, ISP and domain. Free endpoint limits apply.',
+  'Keyless CORS-enabled IPv4/IPv6 geolocation and network enrichment from ipwho.is: country/region/city, coordinates, timezone, ASN, organization, ISP and domain. Free endpoint limits apply. ipwho.is free service has rate/usage limits and no public unrestricted complete bulk dataset. Default maximum 20 IPs/run, 1100 ms spacing; use local GeoIP MMDB for larger data.',
   [A.select('Output', OUTPUT_FORMATS, 'JSON')],
-  async (input, output) => enrichmentResult(SERVICE, await mapIps(input, query), output),
+  async (input, output) => enrichmentResult(SERVICE, await constrainedMap(input, query), output),
   {
     ...parallelIpOptions(SERVICE),
     aliases: ['ipwhois.io', 'ipwho.is', 'IP Whois geolocation'],

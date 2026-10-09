@@ -1,6 +1,6 @@
 import { module } from './_cat.js';
 import { A } from '../../core/registry.js';
-import { OUTPUT_FORMATS, enrichmentResult, fetchJson, mapIps, parallelIpOptions, publicConnection, pruneEmpty } from './_ip_enrichment.js';
+import { OUTPUT_FORMATS, enrichmentResult, fetchJson, extractIps, mapIps, parallelIpOptions, publicConnection, pruneEmpty } from './_ip_enrichment.js';
 
 const SERVICE = 'bgp_rpki_atlas';
 const BASE = 'https://atlas.ipinfo.app/api/v2';
@@ -40,11 +40,16 @@ export async function testAtlasConnection() {
   catch (error) { return { ok: false, message: error?.message || String(error) }; }
 }
 
+async function batchBGP(input, details) {
+  const count=extractIps(input).length;
+  if(count>50)throw new Error('Atlas BGP/RPKI is limited to 50 IPs per run by HexSpindle. No public full RPKI/peer/IRR snapshot is available for identical offline output.');
+  return mapIps(input,ip=>query(ip,details),{delayMs:350});
+}
 module(
   'BGP / RPKI Intelligence',
-  'Browser-native routing enrichment from Atlas: observed covering prefixes, origin ASN, peer visibility, MOAS indicator, RPKI route-origin state and IRR registration state. Optionally includes prefix-level less/more-specific routing details. No API key required.',
+  'Browser-native routing enrichment from Atlas: observed covering prefixes, origin ASN, peer visibility, MOAS indicator, RPKI route-origin state and IRR registration state. Optionally includes prefix-level less/more-specific routing details. No API key required. Default: prefix details off, 50 IPs/run maximum and 350 ms request spacing. RPKI/IRR states and peer visibility are live values and cannot be inferred from public RIR allocation snapshots.',
   [A.boolean('Include prefix routing details', false), A.select('Output', OUTPUT_FORMATS, 'JSON')],
-  async (input, details, output) => enrichmentResult(SERVICE, await mapIps(input, ip => query(ip, details)), output),
+  async (input, details, output) => enrichmentResult(SERVICE, await batchBGP(input, details), output),
   {
     ...parallelIpOptions(SERVICE),
     aliases: ['RPKI', 'BGP', 'IRR', 'Atlas', 'Route origin validation'],

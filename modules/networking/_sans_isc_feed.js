@@ -3,6 +3,7 @@
 // Source attribution: SANS Technology Institute, Internet Storm Center (https://isc.sans.edu).
 // SANS data is NOT bundled; refer to https://isc.sans.edu/feeds_doc.html for terms.
 import { parseIp } from './_mmdb.js';
+import { feedManifest, openMirrorStream, getFeedInfo } from './_feed_mirror.js';
 
 export const SANS_FEEDS = Object.freeze({
   intelfeed: Object.freeze({ label: 'Intelfeed JSON', url: 'https://isc.sans.edu/api/intelfeed?json' }),
@@ -173,41 +174,39 @@ export function parseFeedBytes(kind, bytes) {
   for (let i = 0; i < u.length; i += 512 * 1024) append(acc, u.subarray(i, i + 512 * 1024));
   return finish(acc);
 }
-async function fetchFeed(kind) {
-  const meta = SANS_FEEDS[kind];
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 120_000);
+async function fetchFeed(kind, manifest) {
+  const info = getFeedInfo(manifest, `sans_${kind}`);
+  const { stream } = await openMirrorStream(`sans_${kind}`, manifest);
+  const reader = stream.getReader();
+  const acc = kind === 'intelfeed' ? null : newAccumulator(kind);
+  const chunks = kind === 'intelfeed' ? [] : null;
+  let count = 0;
   try {
-    const response = await fetch(meta.url, { credentials: 'omit', signal: controller.signal, headers: { Accept: kind === 'intelfeed' ? 'application/json' : 'text/plain' } });
-    if (!response.ok) throw new Error(`HTTP ${response.status} from ${meta.url}`);
-    const size = Number(response.headers.get('content-length'));
-    if (size > MAX_BYTES) throw new Error('SANS feed exceeds 200 MiB browser safety limit');
-    let rows;
-    if (kind === 'intelfeed') {
-      const text = await response.text();
-      if (text.length > MAX_BYTES) throw new Error('SANS Intelfeed exceeds 200 MiB limit');
-      rows = parseIntelJson(JSON.parse(text));
-    } else if (response.body?.getReader) {
-      const acc = newAccumulator(kind), reader = response.body.getReader();
-      try { while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        append(acc, value);
-      } } finally { reader.releaseLock(); }
-      rows = finish(acc);
-    } else {
-      rows = parseFeedBytes(kind, new Uint8Array(await response.arrayBuffer()));
+    while (true) {
+      const { done, value } = await reader.read(); if (done) break;
+      count += value.byteLength;
+      if (count > MAX_BYTES) throw new Error('SANS feed exceeds browser safety limit');
+      if (acc) append(acc, value);
+      else chunks.push(value);
     }
-    const result = { kind, rows, storedAt: Date.now(), origin: 'remote', url: meta.url, persistent: false };
-    result.persistent = await saveStored(kind, result);
-    hot.set(kind, result);
-    return result;
-  } catch (error) {
-    if (error?.name === 'AbortError') throw new Error('SANS feed download exceeded 120 seconds');
-    if (error instanceof TypeError) throw new Error(`Cannot download ${meta.url} from this browser (possibly CORS or offline). Download the feed manually, open it as HexSpindle input, and run "SANS ISC Import Feed".`);
-    throw error;
-  } finally { clearTimeout(timer); }
+  } finally { reader.releaseLock(); }
+  if (count !== info.raw_bytes) throw new Error(`${kind} decompressed size differs from published manifest`);
+  let rows;
+  if (acc) rows = finish(acc);
+  else {
+    const combined = new Uint8Array(count);
+    let offset = 0;
+    for (const chunk of chunks) { combined.set(chunk, offset); offset += chunk.byteLength; }
+    rows = parseFeedBytes(kind, combined);
+  }
+  const result = { kind, rows, storedAt: Date.now(), origin: 'mirror', version: info.sha256,
+    publishedAt: manifest.generated_at, sourceUpdatedAt: info.source_modified_at,
+    sourceRetrievedAt: info.source_retrieved_at, url: SANS_FEEDS[kind].url, persistent: false };
+  result.persistent = await saveStored(kind, result);
+  hot.set(kind, result);
+  return result;
 }
+
 export async function importSansFeed(kind, bytes) {
   const rows = parseFeedBytes(kind, bytes);
   const result = { kind, rows, storedAt: Date.now(), origin: 'uploaded', url: SANS_FEEDS[kind].url, persistent: false };
@@ -223,14 +222,23 @@ async function loadImpl(kind, mode) {
     if (existing) hot.set(kind, existing);
   }
   if (mode === 'offline') {
-    if (!existing) throw new Error(`No cached ${SANS_FEEDS[kind].label}. Download the feed, open it as HexSpindle input and run "SANS ISC Import Feed" first.`);
+    if (!existing) throw new Error(`No cached ${SANS_FEEDS[kind].label}. Run the GitHub Pages feed-sync workflow or import a local feed.`);
     return existing;
   }
-  // User-provided datasets are intentionally not silently replaced by a remote copy.
-  if (existing && (existing.origin === 'uploaded' || Date.now() - existing.storedAt < TTL)) return existing;
-  try { return await fetchFeed(kind); }
-  catch (error) { if (existing) return { ...existing, stale: true, refreshError: error.message }; throw error; }
+  // Local imports are intentional and cannot be overwritten automatically.
+  if (existing?.origin === 'uploaded') return existing;
+  try {
+    const manifest = await feedManifest();
+    const info = getFeedInfo(manifest, `sans_${kind}`);
+    // All browsers share the publisher's data version; no redundant 100MB downloads.
+    if (existing?.version === info.sha256) return existing;
+    return await fetchFeed(kind, manifest);
+  } catch (error) {
+    if (existing) return { ...existing, stale: true, refreshError: error.message };
+    throw error;
+  }
 }
+
 export function getSansFeed(kind, mode = 'auto') {
   if (!SANS_FEEDS[kind]) return Promise.reject(new Error('Unsupported SANS feed'));
   const key = `${kind}|${mode}`;
@@ -260,6 +268,18 @@ export function matchSansFeeds(ip, feeds) {
 
 export function feedMetadata(feeds) {
   return feeds.map(f => ({ dataset: f.kind, records: f.rows.size, origin: f.origin,
+    source_retrieved_at: f.sourceRetrievedAt || null, published_at: f.publishedAt || null,
+    source_last_modified: f.sourceUpdatedAt || null, publisher_sha256: f.version || null,
     fetched_or_imported_at: new Date(f.storedAt).toISOString(), stale: !!f.stale,
     cached_in_browser: !!f.persistent, source_url: f.url, ...(f.refreshError ? { refresh_error: f.refreshError } : {}) }));
+}
+
+export async function sansCacheStatus() {
+  return Promise.all(Object.keys(SANS_FEEDS).map(async kind => {
+    const cached = hot.get(kind) || revive(await readStored(kind));
+    return { dataset: kind, cached: !!cached, records: cached?.rows?.size || null,
+      browser_cached_at: cached ? new Date(cached.storedAt).toISOString() : null,
+      source_retrieved_at: cached?.sourceRetrievedAt || null, source_last_modified: cached?.sourceUpdatedAt || null,
+      publisher_sha256: cached?.version || null, persistent: !!cached?.persistent };
+  }));
 }
