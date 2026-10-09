@@ -69,7 +69,11 @@ export async function callModule(mod, data, args) {
 export { resolveArgs };
 
 function parallelCompatible(left, right) {
-  return !!left?.parallelSafe && !!right?.parallelSafe && !!left.parallelGroup && left.parallelGroup === right.parallelGroup;
+  if (!left?.parallelSafe || !right?.parallelSafe) return false;
+  if (left.parallelGroup === right.parallelGroup) return !!left.parallelGroup;
+  // IOC feeds can enrich the same IP inputs as traditional IP-only providers.
+  return ['ip-enrichment', 'ioc-enrichment'].includes(left.parallelGroup) &&
+    ['ip-enrichment', 'ioc-enrichment'].includes(right.parallelGroup);
 }
 
 function abortError(signal) {
@@ -126,30 +130,38 @@ function pruneEmpty(value) {
   return value;
 }
 
-// Parallel IP and IOC groups share the execution machinery, but their keys differ.
-// Do not coerce URLs/domains/hashes to an `ip` property during IOC merging.
-function mergeStructuredEnrichment(branches, expectedType) {
-  const keyName = expectedType === 'indicator-enrichment' ? 'indicator' : 'ip';
-  const label = keyName === 'ip' ? 'IP' : 'IOC';
+// Merge IP-only and IOC lookup branches by indicator identity. Preserve `ip` for
+// traditional IP enrichment rows, and `indicator` for URL/domain/hash-only results.
+// Every provider receives the SAME original input rather than chained JSON output.
+function mergeStructuredEnrichment(branches) {
   const records = new Map();
+  const makeRecord = (key, field) => {
+    if (!records.has(key)) records.set(key, { [field]: key, enrichment: {} });
+    else if (field === 'ip' && !records.get(key).ip) {
+      delete records.get(key).indicator;
+      records.get(key).ip = key;
+    }
+    return records.get(key);
+  };
   for (const branch of branches) {
     if (branch.error) continue;
     const merge = branch.mergeData;
-    if (!merge || merge.type !== expectedType || !merge.provider || !Array.isArray(merge.rows)) {
-      throw new RecipeError(`Operation '${branch.op?.module || branch.module || '?'}' did not return merge-compatible ${label} enrichment data`);
+    if (!merge || !['ip-enrichment', 'indicator-enrichment'].includes(merge.type) ||
+        !merge.provider || !Array.isArray(merge.rows)) {
+      throw new RecipeError(`Operation '${branch.op?.module || branch.module || '?'}' did not return structured enrichment rows`);
     }
+    const field = merge.type === 'ip-enrichment' ? 'ip' : 'indicator';
     for (const row of merge.rows) {
-      const key = row?.[keyName];
-      if (!key) continue;
-      if (!records.has(key)) records.set(key, { [keyName]: key, enrichment: {} });
-      const { error, ...rest } = row;
-      delete rest[keyName];
-      if (error) records.get(key).enrichment[merge.provider] = { status: 'error', error: String(error) };
+      const key = row?.[field];
+      if (typeof key !== 'string' || !key) continue;
+      const record = makeRecord(key, field);
+      const { error, ...data } = row;
+      delete data[field];
+      if (error) record.enrichment[merge.provider] = { status: 'error', error: String(error) };
       else {
-        const cleaned = pruneEmpty(rest);
-        records.get(key).enrichment[merge.provider] = cleaned === undefined
-          ? { status: 'success' }
-          : { status: 'success', data: cleaned };
+        const clean = pruneEmpty(data);
+        record.enrichment[merge.provider] = clean === undefined
+          ? { status: 'success' } : { status: 'success', data: clean };
       }
     }
   }
@@ -200,9 +212,6 @@ async function runParallelGroup(data, ops, start, end, ctx, offset, top) {
     active.push({ op, gi, mod: MODULES[op.module] });
   }
   if (!active.length) return data;
-  // IOC lookups are isolated from IP-only parallel operations by group ID.
-  const expectedType = active[0].mod?.parallelGroup === 'ioc-enrichment'
-    ? 'indicator-enrichment' : 'ip-enrichment';
 
   // Every branch receives the exact same immutable upstream byte snapshot.
   // In Step mode, completed branches can be supplied through ctx.parallelCache.
@@ -224,8 +233,9 @@ async function runParallelGroup(data, ops, start, end, ctx, offset, top) {
       const args = resolveArgs(item.mod, item.op.args, ctx.regs);
       const [bytes, html, mergeData] = await callModule(item.mod, data, args);
       checkAbort(ctx);
-      if (!mergeData || mergeData.type !== expectedType || !mergeData.provider || !Array.isArray(mergeData.rows))
-        throw new Error(`Operation '${item.op.module}' did not return merge-compatible ${expectedType} data`);
+      if (!mergeData || !['indicator-enrichment', 'ip-enrichment'].includes(mergeData.type) ||
+          !mergeData.provider || !Array.isArray(mergeData.rows))
+        throw new Error(`Operation '${item.op.module}' did not return merge-compatible enrichment data`);
       result = { ...item, bytes, html, mergeData, ms: +(performance.now() - t0).toFixed(2), error: null, cached: false };
     } catch (error) {
       if (error?.name === 'AbortError' || ctx.signal?.aborted) throw abortError(ctx.signal);
@@ -264,7 +274,7 @@ async function runParallelGroup(data, ops, start, end, ctx, offset, top) {
     throw new RecipeError(`Parallel group: ${msg}`);
   }
 
-  const merged = mergeStructuredEnrichment(results, expectedType);
+  const merged = mergeStructuredEnrichment(results);
   ctx.html = false;
   if (top) ctx.last = merged;
   return merged;

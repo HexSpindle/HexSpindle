@@ -1,6 +1,7 @@
 import { module } from './_cat.js';
 import { A, StructuredResult } from '../../core/registry.js';
 import { getGeoIpBundle } from './_geoip_store.js';
+import { loadPublicGeoLiteCity } from './_geolite_city_public.js';
 import { isIp } from './_mmdb.js';
 import { normalizeGeoIpRecord, extractIpTokens } from './_geoip_normalize.js';
 import { pruneEmpty } from './_ip_enrichment.js';
@@ -36,26 +37,32 @@ function toCsv(rows) {
 
 module(
   'IP GeoLocation',
-  'Look up IPv4/IPv6 addresses in one or more local MaxMind DB (.mmdb) files. Database type/provider is detected from MMDB metadata, not filenames, and provider-specific records are normalized by schema. Supports complementary City/Country/ASN/ISP/Proxy databases in one bundle.',
+  'Look up IPs using user-selected local MMDB files, or optionally a publicly published GeoLite2 City database where licensed. Uploaded MMDB files take priority. Database type/provider is detected from metadata, not filenames; City/Country/ASN/ISP/Proxy files can be combined.',
   [
     A.files('MMDB databases', '.mmdb,.MMDB', true, 'Select one or more DB-IP, IP2Location/IP2Proxy, IPinfo, MaxMind GeoLite2/GeoIP2, or other MaxMind DB-compatible files'),
     A.select('Output', ['JSON', 'JSON Lines', 'CSV'], 'JSON'),
     A.boolean('Include raw records', false),
   ],
-  (input, bundleId, output, includeRaw) => {
+  async (input, bundleId, output, includeRaw) => {
     const bundle = getGeoIpBundle(bundleId);
-    if (!bundle) throw new Error('No MMDB databases are loaded for this recipe step. Re-select the database files.');
+    if (bundleId && !bundle) throw new Error('Selected MMDB files are not in this browser session. Re-select the database files.');
+    const publicDb = bundle ? null : await loadPublicGeoLiteCity();
+    const dbs = bundle?.dbs || (publicDb ? [publicDb] : []);
+    if (!dbs.length) throw new Error('No MMDB databases are available. Choose your own MMDB file in the operation settings.');
     const ips = extractIps(input);
     if (!ips.length) throw new Error('No valid IPv4 or IPv6 addresses were found in the input');
     const rows = ips.map(ip => {
       const row = { ip }, matches = [], raw = {};
-      for (const db of bundle.dbs) {
+      for (const db of dbs) {
         let record, prefixLength;
         try { [record, prefixLength] = db.reader.getWithPrefixLength(ip); } catch (e) { matches.push({ database: db.name, error: e.message }); continue; }
         if (!record) continue;
         const norm = normalizeGeoIpRecord(record, db);
         mergeNormalized(row, norm);
-        matches.push({ database: db.name, provider: db.provider, role: db.role, database_type: db.databaseType, prefix_length: prefixLength });
+        matches.push({ database: db.name, provider: db.provider, role: db.role,
+          database_type: db.databaseType, database_updated_date: db.buildEpoch ? new Date(db.buildEpoch*1000).toISOString().slice(0,10) : undefined,
+          mmdb_format_version: `${db.reader.metadata.binaryFormatMajorVersion}.${db.reader.metadata.binaryFormatMinorVersion}`,
+          prefix_length: prefixLength });
         if (includeRaw) raw[db.name] = record;
       }
       row.matched_databases = matches.filter(m => !m.error).map(m => m.database);

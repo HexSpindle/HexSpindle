@@ -416,7 +416,10 @@ function selectOptions(options, selected) {
 
 function parallelCompatible(left, right) {
   const a = left && S.mods[left.module], b = right && S.mods[right.module];
-  return !!a?.parallelSafe && !!b?.parallelSafe && !!a.parallelGroup && a.parallelGroup === b.parallelGroup;
+  if (!a?.parallelSafe || !b?.parallelSafe) return false;
+  if (a.parallelGroup === b.parallelGroup) return !!a.parallelGroup;
+  return ['ip-enrichment', 'ioc-enrichment'].includes(a.parallelGroup) &&
+    ['ip-enrichment', 'ioc-enrichment'].includes(b.parallelGroup);
 }
 function canJoinPrevious(i) { return i > 0 && parallelCompatible(S.recipe[i - 1], S.recipe[i]); }
 function normalizeParallelLinks() {
@@ -523,9 +526,9 @@ function argField(op, spec, i) {
       const paint = () => {
         const sum = summarizeGeoIpBundle(op.args[i]);
         status.replaceChildren();
-        if (!sum) { status.append(el('span', { class: 'muted' }, v ? 'Files are not in this browser session — select them again.' : 'No files selected.')); return; }
+        if (!sum) { status.append(el('span', { class: 'muted' }, v ? 'Files are not in this browser session — select them again.' : 'No MMDB selected. An authorized public GeoLite2 City feed will be used if available.')); return; }
         status.append(el('b', {}, sum.count + ' database' + (sum.count === 1 ? '' : 's') + ' · ' + fmtBytes(sum.bytes)));
-        for (const d of sum.databases) status.append(el('div', { class: 'file-db', title: d.databaseType }, el('span', {}, d.name), el('small', {}, d.provider + ' · ' + d.role + ' · ' + fmtBytes(d.size))));
+        for (const d of sum.databases) status.append(el('div', { class: 'file-db', title: d.databaseType }, el('span', {}, d.name), el('small', {}, d.provider + ' · ' + d.role + ' · ' + fmtBytes(d.size) + (d.buildEpoch ? ' · Updated: ' + new Date(d.buildEpoch * 1000).toISOString().slice(0, 10) : '') + ' · ' + d.databaseType)));
         if (sum.databases.some(d => d.provider === 'DB-IP')) status.append(el('a', { class: 'dbip-credit', href: 'https://db-ip.com', target: '_blank', rel: 'noopener noreferrer' }, 'IP Geolocation by DB-IP'));
       };
       pick.addEventListener('change', async e => {

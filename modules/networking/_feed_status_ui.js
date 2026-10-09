@@ -11,6 +11,7 @@ const PROVIDERS = Object.freeze({
     ['Daily sources', 'sans_daily_sources'],
   ],
   'IPInfo.io Basic': [['IPinfo Lite (optional)', 'ipinfo_lite']],
+  'IP GeoLocation': [['GeoLite2-City.mmdb (optional public copy)', 'maxmind_geolite2_city']],
   'ThreatFox IOC Lookup': [['ThreatFox IOC export', 'abusech_threatfox']],
   'URLhaus URL Lookup': [['URLhaus recent URL export', 'abusech_urlhaus']],
   'ARIN RDAP': [
@@ -42,6 +43,10 @@ export function statusRows(manifest, operationName) {
     return {
       label,
       retrieved_at: data?.source_retrieved_at || null,
+      database_name: data?.database_name || null,
+      database_updated_date: data?.database_updated_date || null,
+      database_type: data?.database_type || null,
+      mmdb_format_version: data?.mmdb_format_version || null,
       modified_at: data?.source_modified_at || null,
       records: Number.isInteger(data?.records) ? data.records : null,
       unavailable_reason: manifest?.unavailable?.[key] || null,
@@ -73,11 +78,24 @@ function paint(panel) {
   panel.append(published);
   for (const row of statusRows(currentManifest, panel.dataset.provider)) {
     const item = element('div', '', 'display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;margin-top:3px;');
-    item.append(element('span', row.label), element('span',
+    item.append(element('span', row.database_name || row.label), element('span',
+      row.database_updated_date ? `Updated: ${row.database_updated_date}` :
       row.retrieved_at ? utcDate(row.retrieved_at) : (row.unavailable_reason || 'Not synchronized'),
       'color:var(--dim,#94a3b8);font-variant-numeric:tabular-nums;'));
     if (row.modified_at) item.title = `Upstream Last-Modified: ${utcDate(row.modified_at)}`;
+    if (row.database_updated_date) item.title = `MMDB database build: ${row.database_updated_date}; fetched: ${utcDate(row.retrieved_at)}`;
     panel.append(item);
+  }
+  if (panel.dataset.provider === 'IP GeoLocation') {
+    panel.append(element('div', 'User-provided MMDB files always remain supported and take priority. Public GeoLite2 City requires redistribution permission. The displayed update date comes from MMDB build metadata, not the download date.',
+      'color:var(--dim,#94a3b8);font-size:11px;margin-top:6px;'));
+    const attribution = document.createElement('a');
+    attribution.href = 'https://www.maxmind.com';
+    attribution.target = '_blank';
+    attribution.rel = 'noopener noreferrer';
+    attribution.textContent = 'GeoLite2 data created by MaxMind, available from MaxMind';
+    attribution.style.cssText = 'display:inline-block;margin-top:6px;color:var(--accent,#36a7ff);font-size:11px;';
+    panel.append(attribution);
   }
   if (panel.dataset.provider === 'IPInfo.io Basic') {
     const attribution = document.createElement('a');

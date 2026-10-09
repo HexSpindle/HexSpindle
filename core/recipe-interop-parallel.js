@@ -13,7 +13,10 @@ function parallelFlag(row) {
 
 function compatible(mods, a, b) {
   const ma = mods[a?.module], mb = mods[b?.module];
-  return !!ma?.parallelSafe && !!mb?.parallelSafe && !!ma.parallelGroup && ma.parallelGroup === mb.parallelGroup;
+  if (!ma?.parallelSafe || !mb?.parallelSafe) return false;
+  if (ma.parallelGroup === mb.parallelGroup) return !!ma.parallelGroup;
+  return ['ip-enrichment', 'ioc-enrichment'].includes(ma.parallelGroup) &&
+    ['ip-enrichment', 'ioc-enrichment'].includes(mb.parallelGroup);
 }
 
 function applyParallel(parsed, rows, mods) {

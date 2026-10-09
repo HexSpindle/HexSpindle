@@ -57,3 +57,21 @@ lookup modes. Opt-in **live** modes still send IP queries to the relevant provid
 MD5 from the ARIN publisher is checked if available for download, while SHA-256 is
 used for HexSpindle's own content manifest. SHA-256 of a downloaded response
 attests to that response, not the completeness of a provider's underlying database.
+
+
+## MaxMind GeoLite2 City (optional; default: disabled)
+
+GeoLite2 data created by MaxMind, available from https://www.maxmind.com.
+The `IP GeoLocation` operation always permits users to load their own licensed MMDB files.
+The Pages workflow validates GeoLite2 City on Tuesday/Friday with configured secrets,
+but **does not publish any database unless** the repository variable
+`MAXMIND_PUBLIC_MIRROR_ALLOWED` is `true` AND the maintainer has confirmed that the
+applicable MaxMind redistribution license permits public delivery of the full MMDB.
+A free account/download license by itself is not enough. MaxMind describes separate
+commercial redistribution licensing: https://support.maxmind.com/knowledge-base/articles/commercial-license-for-geolite
+
+When authorized, the feed manifest exposes the actual MMDB `database_type`, `build_epoch`
+as the database's updated date, and its separate download retrieval time. Subsequent
+ordinary site deployments carry the last published version forward until an authorized
+new release is available. Turning the publishing variable off removes the copy from
+the next generated Pages artifact; prior browser or CDN copies cannot be remotely revoked.
