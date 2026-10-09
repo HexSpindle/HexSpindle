@@ -57,23 +57,3 @@ lookup modes. Opt-in **live** modes still send IP queries to the relevant provid
 MD5 from the ARIN publisher is checked if available for download, while SHA-256 is
 used for HexSpindle's own content manifest. SHA-256 of a downloaded response
 attests to that response, not the completeness of a provider's underlying database.
-
-## User-supplied MMDB databases
-
-The **IP GeoLocation** operation reads MMDB files that a user selects locally.
-HexSpindle does not download, host, store on a server, or automatically update
-MaxMind GeoLite2 City databases. Users obtain and update their own authorized
-MaxMind, DB-IP, IP2Location/IP2Proxy, IPinfo, or other compatible MMDB files.
-The imported MMDB is processed locally in the browser and is not sent to HexSpindle.
-
-## abuse.ch / Spamhaus — optional ThreatFox and URLhaus exports
-
-These sources are disabled for public Pages publishing unless the operator
-has permission to redistribute their downloaded intelligence exports. A free
-Auth-Key is NOT evidence of such authorization. All contributions remain
-subject to abuse.ch fair-use and commercial terms. If authorized, the
-provider's name is shown with matched indicators and source retrieval times.
-ThreatFox IOC exports omit expired entries (>~6 months); URLhaus's recent
-export uses a rolling 30-day window. Do not treat an absent indicator as safe.
-See https://abuse.ch/terms-of-use/ and https://threatfox.abuse.ch/export and
-https://urlhaus.abuse.ch/api/.
