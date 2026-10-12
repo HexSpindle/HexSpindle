@@ -109,7 +109,7 @@ jobs:
             test -f "source/$file" || { echo "Missing required release file: $file" >&2; exit 1; }
             cp -- "source/$file" "release/$file"
           done
-          for directory in assets core modules licenses; do
+          for directory in assets core modules licenses analytics; do
             test -d "source/$directory" || { echo "Missing required release directory: $directory" >&2; exit 1; }
             cp -a -- "source/$directory" "release/$directory"
           done
