@@ -4,7 +4,6 @@
  * other network calls are limited to explicit user actions: Suggest, network-enabled recipe operations,
  * and their connection tests. API credentials are user supplied and are never embedded in HexSpindle. */
 import { MODULES, describe, CATEGORY_LABELS } from './core/registry.js';
-import { trackOperationAdded, trackFeature, trackExecution } from './analytics/client.js';
 import { FORENSICS_EVIDENCE_GUIDE } from './core/forensics-evidence-guide.js';
 import { bake as engineBake } from './core/engine.js';
 import { normaliseRecipe, parseRecipeText, exportRecipeText } from './core/recipe-interop-parallel.js';
@@ -16,6 +15,29 @@ import { search as magicSearch } from './core/magic.js';
 import { loadGeoIpBundle, summarizeGeoIpBundle, dropGeoIpBundle } from './modules/networking/_geoip_store.js';
 import { getServiceCredential, setServiceCredential, clearServiceCredential } from './core/service-credentials.js';
 import './modules/index.js';
+
+// Optional analytics: never block HexSpindle startup.
+let analytics = null;
+
+import('./analytics/client.js')
+  .then(module => {
+    analytics = module;
+  })
+  .catch(error => {
+    console.warn('Analytics unavailable:', error);
+  });
+
+const trackOperationAdded = (...args) => {
+  try { analytics?.trackOperationAdded(...args); } catch {}
+};
+
+const trackFeature = (...args) => {
+  try { analytics?.trackFeature(...args); } catch {}
+};
+
+const trackExecution = (...args) => {
+  try { analytics?.trackExecution(...args); } catch {}
+};
 
 // ---------------------------------------------------------------- helpers
 const $ = (s, r = document) => r.querySelector(s);
