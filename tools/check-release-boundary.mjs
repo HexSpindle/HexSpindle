@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url';
 const root = resolve(fileURLToPath(new URL('..', import.meta.url)));
 const files = ['index.html','app.js','app.css','LICENSE','THIRD_PARTY_NOTICES.md','DATA_SOURCE_NOTICES.md',
   'robots.txt','sitemap.xml','.nojekyll','google8833fe62b3f6acca.html'];
-const dirs = ['assets','core','modules','licenses'];
+const dirs = ['assets','core','modules','licenses','analytics'];
 const errors = [], notes = [];
 const fail = message => errors.push(message);
 const path = part => join(root, part);
