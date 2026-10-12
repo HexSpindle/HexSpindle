@@ -2669,3 +2669,119 @@ header.top .icon-btn:hover {
 .dfir-evidence b { color:var(--text); font-weight:650; }
 .tip .dfir-help-inline { margin-top:6px; font-size:11px; color:var(--muted); overflow-wrap:anywhere; }
 .tip .dfir-help-inline b { color:var(--text); }
+
+/* HexSpindle analytics controls in the status footer.
+   Append this block at the END of the existing app.css. */
+footer.status {
+  height: 34px;
+  min-height: 34px;
+  gap: 8px;
+  padding: 0 12px;
+  overflow: hidden;
+}
+footer.status > .dot { flex: 0 0 8px; }
+footer.status > #statusText,
+footer.status > #statusRight {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+footer.status > #statusRight { flex: 0 1 auto; }
+footer.status > .grow { flex: 1 1 auto; min-width: 3px; }
+footer.status > #hsAnalyticsPrefs {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  flex: 0 0 auto;
+  padding-left: 9px;
+  margin-left: 2px;
+  border-left: 1px solid var(--line);
+  white-space: nowrap;
+  min-width: 0;
+}
+footer.status .hs-analytics-link {
+  color: var(--muted);
+  text-decoration: none;
+  text-underline-offset: 3px;
+}
+footer.status .hs-analytics-link:hover,
+footer.status .hs-analytics-link:focus-visible {
+  color: var(--accent);
+  text-decoration: underline;
+}
+footer.status .hs-analytics-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  white-space: nowrap;
+  color: var(--muted);
+  font-size: 10px;
+}
+footer.status .hs-analytics-state::before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex: none;
+  background: var(--muted);
+}
+footer.status .hs-analytics-state.is-on::before { background: var(--ok); }
+footer.status .hs-analytics-action {
+  font: inherit;
+  font-size: 10px;
+  line-height: 1.3;
+  color: var(--text);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 3px 7px;
+  cursor: pointer;
+  background: rgba(var(--accent-rgb), .07);
+  white-space: nowrap;
+}
+footer.status .hs-analytics-action:hover,
+footer.status .hs-analytics-action:focus-visible {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+footer.status .hs-analytics-action:focus-visible,
+footer.status .hs-analytics-link:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+/* Small screens: keep both status and privacy controls visible in two rows. */
+@media (max-width: 760px) {
+  footer.status {
+    height: auto;
+    min-height: 54px;
+    padding: 5px 10px;
+    display: grid;
+    grid-template-columns: 8px minmax(0, 1fr) minmax(0, auto);
+    grid-template-areas:
+      'indicator status summary'
+      'analytics analytics analytics';
+    column-gap: 8px;
+    row-gap: 4px;
+    align-items: center;
+  }
+  footer.status > .dot { grid-area: indicator; }
+  footer.status > #statusText { grid-area: status; }
+  footer.status > #statusRight {
+    grid-area: summary;
+    max-width: 42vw;
+    font-size: 10px;
+  }
+  footer.status > .grow { display: none; }
+  footer.status > #hsAnalyticsPrefs {
+    grid-area: analytics;
+    justify-self: end;
+    justify-content: flex-end;
+    gap: 6px;
+    padding-left: 0;
+    margin-left: 0;
+    border-left: 0;
+    flex-wrap: wrap;
+    white-space: normal;
+    max-width: 100%;
+  }
+}
