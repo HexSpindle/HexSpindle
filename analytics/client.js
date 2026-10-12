@@ -48,7 +48,24 @@ export function trackExecution(recipe,steps,mode='auto'){
    push(t);
  }
 }
-function button(label,cb){const b=document.createElement('button');b.type='button';b.textContent=label;b.addEventListener('click',cb);b.style.cssText='border:1px solid #64748b;border-radius:7px;background:#1a3349;color:#e9f4ff;padding:5px 9px;cursor:pointer';return b;}
+
+// The footer reports the current privacy state even if analytics is disabled.
+function footerButton(label, callback){
+ const b=document.createElement('button');
+ b.type='button';
+ b.className='hs-analytics-action';
+ b.textContent=label;
+ b.addEventListener('click',callback);
+ return b;
+}
+function footerState(label,kind,title){
+ const e=document.createElement('span');
+ e.className='hs-analytics-state '+kind;
+ e.textContent=label;
+ e.title=title;
+ e.setAttribute('role','status');
+ return e;
+}
 function stopTracking(){
  enabled=false;queue=[];if(flushTimer){clearTimeout(flushTimer);flushTimer=null;}
  visitorId='';sessionId='';local.set(PREFERENCE,'no');local.del(VISITOR);session.del(SESSION);
@@ -63,15 +80,35 @@ function startTracking(){
 function updateControls(){
  const bar=document.getElementById('hsAnalyticsPrefs');if(!bar)return;
  bar.replaceChildren();
- const a=document.createElement('a');a.href='./analytics/privacy.html';a.textContent='Analytics privacy';a.style.cssText='color:inherit;text-decoration:underline;text-underline-offset:2px;margin-right:9px';
+ const a=document.createElement('a');
+ a.href='./analytics/privacy.html';a.className='hs-analytics-link';a.textContent='Analytics privacy';
  bar.append(a);
- if(!VALID_ENDPOINT || privacySignal())return;
- const b=enabled?button('Opt out of analytics',stopTracking):button('Enable analytics',startTracking);
- bar.append(b);
+ if(!VALID_ENDPOINT){
+   bar.append(footerState('Unavailable','is-off','Analytics endpoint is not configured for this site.'));
+   return;
+ }
+ if(navigator.globalPrivacyControl===true){
+   bar.append(footerState('Tracking off · GPC','is-off','Global Privacy Control is enabled in your browser; usage analytics is disabled.'));
+   return;
+ }
+ if(navigator.doNotTrack==='1'){
+   bar.append(footerState('Tracking off · DNT','is-off','Do Not Track is enabled in your browser; usage analytics is disabled.'));
+   return;
+ }
+ if(enabled){
+   bar.append(footerState('Analytics on','is-on','Only approved usage metadata is collected; forensic input and output are not sent.'));
+   bar.append(footerButton('Opt out',stopTracking));
+ }else{
+   bar.append(footerState('Tracking off','is-off','You opted out of analytics on this browser.'));
+   bar.append(footerButton('Enable',startTracking));
+ }
 }
 function initialize(){
  const footer=document.querySelector('footer.status');
- if(footer){const container=document.createElement('span');container.id='hsAnalyticsPrefs';container.style.cssText='margin-left:8px;display:inline-flex;align-items:center;gap:5px;white-space:nowrap';footer.append(container);}
+ if(footer){
+   let container=document.getElementById('hsAnalyticsPrefs');
+   if(!container){container=document.createElement('span');container.id='hsAnalyticsPrefs';footer.append(container);}
+ }
  if(VALID_ENDPOINT && !privacySignal() && local.get(PREFERENCE)!=='no'){
    enabled=true;ensureIds();push({type:'page_view'});
  }
