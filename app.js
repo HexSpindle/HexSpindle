@@ -1,9 +1,10 @@
 'use strict';
 /* HexSpindle web UI - vanilla JS, no build step. Everything runs client-side: the recipe engine,
- * every operation, and Magic all execute in this browser tab - nothing is sent to any server. The
- * network calls are limited to explicit user actions: Suggest, network-enabled recipe operations,
+ * every operation, and Magic execute locally in the browser. Usage analytics may send non-content metadata to a separate Cloudflare service; see analytics/privacy.html. The
+ * other network calls are limited to explicit user actions: Suggest, network-enabled recipe operations,
  * and their connection tests. API credentials are user supplied and are never embedded in HexSpindle. */
 import { MODULES, describe, CATEGORY_LABELS } from './core/registry.js';
+import { trackOperationAdded, trackFeature, trackExecution } from './analytics/client.js';
 import { FORENSICS_EVIDENCE_GUIDE } from './core/forensics-evidence-guide.js';
 import { bake as engineBake } from './core/engine.js';
 import { normaliseRecipe, parseRecipeText, exportRecipeText } from './core/recipe-interop-parallel.js';
@@ -388,7 +389,7 @@ function redo() {
 function commit(structural = true) { normalizeParallelLinks(); hist.push(); persist(); if (structural) renderRecipe(); scheduleBake(); }
 const commitArg = debounce(() => { hist.push(); }, 600);
 function addOp(name, args, at) {
-  const o = newOp(name, args); at == null ? S.recipe.push(o) : S.recipe.splice(at, 0, o);
+  const o = newOp(name, args); trackOperationAdded(name); at == null ? S.recipe.push(o) : S.recipe.splice(at, 0, o);
   S.stepTo = null; S.inspect = null; if (innerWidth <= 1100) setPane('recipe'); commit(); const box = $('#recipeList'); setTimeout(() => { box.scrollTop = at == null ? box.scrollHeight : box.scrollTop; }, 30);
 }
 function selectOptions(options, selected) {
@@ -781,7 +782,7 @@ function cancelBake(silent = false) {
   return true;
 }
 const hasNet = () => S.recipe.some(o => !o.disabled && S.mods[o.module]?.net);
-function scheduleBake(now) { S.outputDirty = true; if (!S.auto && !now) return; if (hasNet() && now !== 'manual') { setStatus('', 'Network operation in the recipe: press SPIN to run it'); return; } clearTimeout(bakeTimer); bakeTimer = setTimeout(bake, now ? 0 : 220); }
+function scheduleBake(now) { S.outputDirty = true; if (!S.auto && !now) return; if (hasNet() && now !== 'manual') { setStatus('', 'Network operation in the recipe: press SPIN to run it'); return; } clearTimeout(bakeTimer); bakeTimer = setTimeout(() => bake({ source: 'auto' }), now ? 0 : 220); }
 
 async function bake(opts = {}) {
   if (activeBake) cancelBake(true);
@@ -801,6 +802,7 @@ async function bake(opts = {}) {
     if (run.cancelled || controller.signal.aborted || seq !== S.seq) return;
     S.res = j; S.out = j.output; S.outputTab = S.tab; S.outputDirty = false; S.viewLimit = VIEW_STEP; inp.out = { bytes: S.out, html: j.html };
     paintSteps(); renderOutput(); if (!$('#findbar').hidden) findRun();
+    trackExecution(S.recipe.map(o => ({module:o.module,category:S.mods[o.module]?.category || '',disabled:o.disabled})), j.steps, opts.source || 'auto');
     persist(); // Preserve the displayed result, including binary output, across refreshes.
     $('#outTime').textContent = `${j.ms} ms`;
     setStatus(j.error ? 'err' : '', j.error ? `Error in step ${j.error.step + 1}` : j.pausedAt != null ? `Paused before step ${j.pausedAt + 1}` : 'Ready');
@@ -842,7 +844,7 @@ function paintSteps() {
 function showBanner(kind, msg, btn) {
   const b = $('#banner'); if (!msg) { b.hidden = true; return; } b.hidden = false; b.className = 'banner ' + kind; b.replaceChildren(msg, btn || '');
 }
-function inspect(i) { S.inspect = i; S.stepTo = null; bake({ upto: i }); }
+function inspect(i) { S.inspect = i; S.stepTo = null; bake({ upto: i, source: 'inspect' }); }
 function step() {
   const n = S.recipe.length; if (!n) return;
   // A new Step sequence gets a fresh parallel branch cache. While advancing through
@@ -852,7 +854,7 @@ function step() {
   if (S.res?.pausedAt != null && S.stepTo == null) S.stepTo = S.res.pausedAt;
   else S.stepTo = S.stepTo == null ? 0 : Math.min(S.stepTo + 1, n - 1);
   S.inspect = null;
-  bake({ upto: S.stepTo, parallelCache: stepParallelCache });
+  bake({ upto: S.stepTo, parallelCache: stepParallelCache, source: 'sequential' });
 }
 
 
@@ -2246,7 +2248,7 @@ async function init() {
   $$('#mtabs button').forEach(b => b.onclick = () => setPane(b.dataset.p));
   setPane(LS.get('pane', 'recipe')); applyWrap();
   addEventListener('resize', () => setPane(document.body.dataset.pane));
-  $('#btnBake').onclick = () => { S.stepTo = null; S.inspect = null; stepParallelCache = new Map(); if (narrow()) setPane('io'); bake(); };
+  $('#btnBake').onclick = () => { S.stepTo = null; S.inspect = null; stepParallelCache = new Map(); if (narrow()) setPane('io'); bake({ source: 'manual' }); };
   $('#btnCancelBake').onclick = () => cancelBake(false);
   $('#btnStep').onclick = () => { if (narrow()) setPane('io'); step(); };
   $('#autoBake').onchange = e => { S.auto = e.target.checked; persist(); if (S.auto) scheduleBake(true); };
@@ -2258,8 +2260,8 @@ async function init() {
   $('#btnCopy').onclick = async () => { try { await navigator.clipboard.writeText(decodeText(S.out, $('#outView').value === 'latin1' ? 'latin1' : 'utf8')); toast('Output copied'); } catch { $('#output').select(); document.execCommand('copy'); toast('Output copied'); } };
   $('#btnSave').onclick = () => { const img = sniffImage(S.out); download(img ? 'output.' + img.split('/')[1].replace('svg+xml', 'svg').replace('x-icon', 'ico') : 'output.bin', S.out); };
   $('#btnSwap').onclick = () => { setInputBytes(S.out.slice(), null, cur().enc === 'hex' ? 'utf8' : cur().enc); };
-  $('#btnMagic').onclick = magic; $('#btnCompare').onclick = compareOutputs; $('#btnPalette').onclick = palette; $('#btnExamples').onclick = examples; $('#btnSuggest').onclick = suggestRecipe; $('#btnSuggest').title = 'Suggest a configured recipe using Anthropic (Claude) or OpenAI (ChatGPT) and your own API key'; $('#btnRecipeIO').onclick = recipeIO; $('#btnHelp').onclick = help;
-  $('#btnBatch').onclick = batchOpen; $('#batchInput').onchange = e => { runBatch(e.target.files); e.target.value = ''; };
+  $('#btnMagic').onclick = () => { trackFeature('Magic'); magic(); }; $('#btnCompare').onclick = () => { trackFeature('Compare'); compareOutputs(); }; $('#btnPalette').onclick = palette; $('#btnExamples').onclick = examples; $('#btnSuggest').onclick = () => { trackFeature('Suggest'); suggestRecipe(); }; $('#btnSuggest').title = 'Suggest a configured recipe using Anthropic (Claude) or OpenAI (ChatGPT) and your own API key'; $('#btnRecipeIO').onclick = recipeIO; $('#btnHelp').onclick = help;
+  $('#btnBatch').onclick = () => { trackFeature('Batch'); batchOpen(); }; $('#batchInput').onchange = e => { runBatch(e.target.files); e.target.value = ''; };
   $('#btnExpandAll').onclick = expandAllCats; $('#btnCollapseAll').onclick = collapseAllCats;
   $('#output').addEventListener('scroll', syncOutputHighlights);
   $('#output').addEventListener('copy', e => {
@@ -2290,7 +2292,7 @@ async function init() {
   addEventListener('keydown', e => {
     const mod = e.ctrlKey || e.metaKey;
     if (e.key === 'Escape') closeModal();
-    else if (mod && e.key === 'Enter') { e.preventDefault(); S.stepTo = S.inspect = null; stepParallelCache = new Map(); bake(); }
+    else if (mod && e.key === 'Enter') { e.preventDefault(); S.stepTo = S.inspect = null; stepParallelCache = new Map(); bake({ source: 'manual' }); }
     else if (mod && e.key.toLowerCase() === 'k') { e.preventDefault(); palette(); }
     else if (mod && e.key.toLowerCase() === 's') { e.preventDefault(); recipeIO(); }
     else if (mod && e.key.toLowerCase() === 'f' && !/INPUT|TEXTAREA/.test(document.activeElement?.tagName)) { e.preventDefault(); findOpen(); }
