@@ -81,7 +81,7 @@ function updateControls(){
  const bar=document.getElementById('hsAnalyticsPrefs');if(!bar)return;
  bar.replaceChildren();
  const a=document.createElement('a');
- a.href='./analytics/privacy.html';a.className='hs-analytics-link';a.textContent='Analytics privacy';
+ a.href='./analytics/privacy.html';a.className='hs-analytics-link';a.textContent='Analytics Privacy';
  bar.append(a);
  if(!VALID_ENDPOINT){
    bar.append(footerState('Unavailable','is-off','Analytics endpoint is not configured for this site.'));
