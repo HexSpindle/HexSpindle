@@ -1,4 +1,5 @@
 import { makeModule } from '../../core/registry.js';
+import './_magic.js';
 export const module = makeModule('other');
 
 export class Flt { constructor(value) { this.value = value; } }

@@ -74,6 +74,9 @@ HexSpindle is organized around a modular operation registry and a client-side re
 - **`core/magic.js`**  
   Implements the **Magic** speculative decoder. Candidate decoding and decompression operations are tried only where the data structurally fits them, explored breadth-first across multiple stages, and ranked by a confidence score that combines that fit with how meaningful the result is (readable text, valid UTF-8, JSON / XML, file signatures, entropy).
 
+- **`core/magic-detect.js`** and **`modules/<category>/_magic.js`**  
+  Magic hints. Besides the core formats built into `core/magic.js`, operations describe how their own input can be recognised, either with `{ magic: hint }` when they register or in their category's `_magic.js`. A `decodes` hint lets Magic run the operation as a decoding stage; an `analyses` hint makes Magic suggest a parser or analyser for data it recognises (a PE file, a registry hive, an access log, a certificate) without running it; a `needsKey` hint names the operation that would open ciphertext Magic can identify but not decrypt. A new operation gains Magic support by adding one hint next to it.
+
 - **`core/util.js`**, **`core/codec.js`**, **`core/filetypes.js`**  
   Shared utilities for byte manipulation, text and binary encoding, codec handling, and file-type detection. `core/filetypes.js` also contains the magic-byte signature table used by **Detect File Type** and **Magic**.
 

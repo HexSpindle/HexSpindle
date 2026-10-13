@@ -52,6 +52,8 @@ jobs:
         run: node ci-forensics-usn.mjs
       - name: Test Magic decoder accuracy and graphical output
         run: node ci-magic.mjs
+      - name: Test Magic hints declared by operations (decoders, suggested analysis, identification)
+        run: node ci-magic-hints.mjs
       - name: Check startup module size
         run: node check-startup-size.mjs
       - name: Check rendering isolation invariants

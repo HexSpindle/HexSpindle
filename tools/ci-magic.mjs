@@ -118,7 +118,8 @@ const checks = [
   [(() => {
     const m = /^<!--hexspindle-magic:([A-Za-z0-9+/=]+)-->/.exec(html);
     const list = m && JSON.parse(Buffer.from(m[1], 'base64').toString('utf8'));
-    return Array.isArray(list) && list.length === 1 && list[0].score >= 80 && list[0].recipe.map(s => s[0]).join() === 'From Hex,From Base64';
+    const decodings = Array.isArray(list) ? list.filter(x => !x.title) : [];
+    return decodings.length === 1 && decodings[0].score >= 80 && decodings[0].recipe.map(s => s[0]).join() === 'From Hex,From Base64';
   })(), 'Add-to-recipe marker for the very likely match is missing or wrong'],
   [typeof await MODULES.Magic.func(enc.encode('aGVsbG8gd29ybGQ='), 3, false, '', 8, false, 'Ranked list') === 'string', 'Ranked list output is not text'],
 ];

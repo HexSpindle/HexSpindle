@@ -1,12 +1,25 @@
-import { MODULES } from './registry.js';
+import { MODULES, MAGIC_HINTS } from './registry.js';
 import { callModule, resolveArgs } from './engine.js';
 import { SIGNATURES } from './filetypes.js';
 import { decodeLatin1 } from './util.js';
+import { delimiterOf, HASH_LENGTHS } from './magic-detect.js';
 
 // Magic: speculative multi-stage decoding.
 // Each candidate operation is only tried when the data structurally fits that encoding ("fit"),
 // every result is assessed for how meaningful it is ("quality"), and a chain's confidence combines both.
 // A layer that decodes further into something at least as meaningful is treated as an intermediate stage.
+//
+// Besides the core formats recognised in this file, operations describe their own input with hints
+// (registry.js: { magic: hint } at registration, or magicHint(); helpers in magic-detect.js):
+//   { kind: 'decode',  detect(ctx) }   the operation transforms the data; Magic runs it and follows the result
+//   { kind: 'analyse', detect(ctx) }   the operation reports on the data; Magic suggests it without running it
+// detect(ctx) returns nothing, a fit from 0 to 1, or { fit, args, label, ... } (or an array of those), where
+//   ctx = { bytes, isText, ascii, text, head, utf8, compact, single, file, at(signature, offset) }.
+// Extra fields a decode hint may return: needsQuality (only believed when the output is meaningful),
+// weak (text-to-text cipher: must clearly improve readability), trust (self-validating, e.g. a checksum),
+// variants ([{ args, label }]: a small keyspace, the best key is kept), whole (variants need the full text) and
+// needsWords (the output must contain at least that many dictionary words, to rule out lucky keys) and
+// verify(outputBytes) (an extra check on the result, e.g. that it is printable ASCII).
 
 const SAMPLE = 4096;
 const FULL_CHECK_LIMIT = 300000;
@@ -44,6 +57,13 @@ function language(text) {
   return coverage * Math.min(1, 0.5 * bigram + 0.6 * words);
 }
 
+// How many distinct dictionary words (three letters or more) a text contains.
+function knownWords(text) {
+  const found = new Set();
+  for (const word of text.toLowerCase().split(/[^a-z]+/)) if (word.length > 2 && WORDS.has(word)) found.add(word);
+  return found.size;
+}
+
 // ---- Assessing how meaningful a result is ------------------------------------------------------
 
 const COMPRESSED = new Set(['gz', 'bz2', 'xz', 'zst', 'lz4', 'zlib']);
@@ -60,6 +80,11 @@ function fileType(u8) {
     if (ext === 'zlib' && (((u8[0] << 8) | u8[1]) % 31 !== 0 || u8.length < 8)) continue;
     // One- and two-byte signatures match random data far too often to count as strong evidence.
     let strength = off > 0 || magic.length >= 4 ? 0.92 : magic.length === 3 ? 0.8 : magic.length === 2 ? 0.3 : 0;
+    if (ext === 'exe' && u8.length >= 0x40) {
+      // "MZ" alone is two bytes; the PE signature it points to settles it.
+      const pe = u8[0x3c] | (u8[0x3d] << 8) | (u8[0x3e] << 16);
+      if (pe + 4 <= u8.length && u8[pe] === 0x50 && u8[pe + 1] === 0x45 && !u8[pe + 2] && !u8[pe + 3]) strength = 0.92;
+    }
     // A signature with almost nothing after it (e.g. the four bytes of "cafebabe") is not a file.
     if (u8.length < off + magic.length + 8) strength *= 0.3;
     if (strength && (!best || strength > best.strength)) best = { name, ext, strength };
@@ -77,6 +102,9 @@ export function entropy(u8) {
 }
 
 const ENCODED_TOKEN = /^[A-Za-z0-9+/=_-]{16,}$/;
+const SCRIPTS = [/\p{Script=Latin}/u, /\p{Script=Cyrillic}/u, /\p{Script=Greek}/u, /\p{Script=Arabic}/u, /\p{Script=Hebrew}/u,
+  /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]/u, /\p{Script=Thai}/u, /\p{Script=Devanagari}/u,
+  /\p{Script=Armenian}/u, /\p{Script=Georgian}/u, /\p{Script=Ethiopic}/u, /\p{Script=Bengali}/u, /\p{Script=Tamil}/u];
 const STRUCTURE = [
   [/^\s*[a-z][a-z0-9+.-]{1,12}:\/\/[^\s]{3,}/i, 0.5, 'URL'],
   [/^[\w.+-]+@[\w-]+(?:\.[\w-]+)+$/, 0.45, 'Email address'],
@@ -113,7 +141,7 @@ export function assess(u8) {
   for (const ch of text) {
     const c = ch.codePointAt(0);
     if (c === 9 || c === 10 || c === 13 || c === 32) spaces++;
-    else if (c < 32 || (c >= 127 && c < 160) || c === 0xfffd) control++;
+    else if (c < 32 || (c >= 127 && c < 160) || c === 0xfffd || (c >= 0xe000 && c <= 0xf8ff) || (c >= 0xfff0 && c <= 0xffff)) control++;
     else if (c < 128) { if ((c | 32) >= 97 && (c | 32) <= 122) letters++; else other++; }
     else if (/\p{L}|\p{M}/u.test(ch)) foreign++;
     else other++;
@@ -129,7 +157,13 @@ export function assess(u8) {
     try { const v = JSON.parse(trimmed); if (v && typeof v === 'object' && Object.keys(v).length) return { q: 0.72 + 0.25 * lang, kind: 'JSON', text: true, lang }; } catch { /* not JSON */ }
   }
   if (/^<(?:\?xml|!DOCTYPE|[a-zA-Z][\w:-]*(?:\s[^<>]*)?>)/.test(trimmed) && /<\/[\w:-]+>|\/>/.test(trimmed)) return { q: 0.7 + 0.25 * lang, kind: 'XML / HTML markup', text: true, lang };
-  if (foreign >= 4 && foreign / length >= 0.2) return { q: 0.92, kind: 'Text (UTF-8)', text: true, lang: 1 };
+  if (foreign >= 4 && foreign / length >= 0.2) {
+    // Real text stays within one writing system; bytes that merely happen to be valid UTF-8 wander across many.
+    const letters = [...text].filter(ch => ch.codePointAt(0) > 127 && /\p{L}/u.test(ch));
+    const dominant = Math.max(...SCRIPTS.map(rx => letters.filter(ch => rx.test(ch)).length));
+    if (letters.length && dominant / letters.length < 0.7) return { q: 0.2, kind: 'Text in mixed scripts (probably not real text)', text: true, lang: 0 };
+    return { q: 0.92, kind: 'Text (UTF-8)', text: true, lang: 1 };
+  }
 
   const tokens = trimmed.split(/\s+/).filter(Boolean);
   let q = 0.35 + 0.5 * lang, kind = lang >= 0.5 ? 'Readable text' : 'Printable text';
@@ -146,17 +180,6 @@ export function assess(u8) {
 
 const B64_STD = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=';
 const B64_URL = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_=';
-const DELIMITER_NAMES = { ' ': 'Space', ',': 'Comma', ';': 'Semi-colon', ':': 'Colon', '\n': 'Line feed', '\r\n': 'CRLF', '\t': 'Tab' };
-
-// Names the single delimiter separating numeric tokens, or null when delimiters are mixed.
-function delimiterOf(t) {
-  const runs = t.match(/[^0-9a-zA-Z]+/g);
-  if (!runs) return null;
-  const first = runs[0];
-  if (runs.every(r => r === first) && DELIMITER_NAMES[first]) return DELIMITER_NAMES[first];
-  return runs.every(r => /^[ \t\r\n]+$/.test(r)) ? 'Space' : null;
-}
-
 function base64Fit(body, pad) {
   const n = body.length + pad;
   if (body.length < 6 || (pad ? n % 4 !== 0 : n % 4 === 1)) return 0;
@@ -166,8 +189,8 @@ function base64Fit(body, pad) {
   return fit;
 }
 
-// Returns [{ name, args, fit, weak?, speculative?, label? }] for operations whose input format the data matches.
-function candidates(u8, a) {
+// Core formats: returns [{ name, args, fit, weak?, speculative?, label? }] for operations whose input format the data matches.
+function coreCandidates(u8, a) {
   const out = [];
   const add = (name, args, fit, extra) => { if (fit > 0 && MODULES[name]) out.push({ name, args, fit, ...extra }); };
   const full = u8.length <= FULL_CHECK_LIMIT;
@@ -269,7 +292,8 @@ function candidates(u8, a) {
     }
     const a85 = /^(?:<~)?([!-uz]+)(?:~>)?$/.exec(compact);
     if (a85 && a85[1].length >= 10 && /[^A-Za-z0-9+/=]/.test(a85[1])) add('From Base85', [], compact.startsWith('<~') ? 0.95 : 0.6);
-    if (compact.length >= 12 && !/^[0-9a-fA-F]+$/.test(compact)) {
+    // Base58 and Base62 treat the input as one big number: used for short identifiers, and far too slow on large blobs.
+    if (compact.length >= 12 && compact.length <= 4096 && !/^[0-9a-fA-F]+$/.test(compact)) {
       if (/^[1-9A-HJ-NP-Za-km-z]+$/.test(compact)) add('From Base58', [], 0.5);
       if (/^[0-9A-Za-z]+$/.test(compact)) add('From Base62', [], 0.35);
     }
@@ -287,14 +311,69 @@ function candidates(u8, a) {
   // Weak text-to-text ciphers: only kept by the search when the result is clearly more meaningful.
   const solid = t.replace(/\s/g, '');
   if (solid.length >= 4) {
-    if (solid.replace(/[^A-Za-z]/g, '').length / solid.length >= 0.5) {
-      add('ROT13', [true, true, false, 13], 0.75, { weak: true, rotate: true });
+    if (solid.replace(/[^A-Za-z]/g, '').length / solid.length >= 0.5 && new Set(solid.toLowerCase().replace(/[^a-z]/g, '')).size >= 7 && !/looks encoded/.test(a.kind)) {
+      add('ROT13', [], 0.75, { weak: true, variants: Array.from({ length: 25 }, (_, i) => ({ args: [true, true, false, i + 1], label: i === 12 ? 'ROT13' : `ROT13 (amount ${i + 1})` })) });
       add('Atbash Cipher', [], 0.6, { weak: true });
     }
     add('ROT47', [47], 0.7, { weak: true });
   }
   add('Reverse', ['Character'], 0.6, { weak: true, speculative: single && compact.length >= 8 });
   return out;
+}
+
+// ---- Hints declared by operations ---------------------------------------------------------------
+
+function context(u8, a) {
+  const full = u8.length <= FULL_CHECK_LIMIT;
+  const view = full ? u8 : u8.subarray(0, 65536);
+  const isText = !!a.text;
+  let ascii = isText;
+  if (isText) for (const c of view) if (c > 126) { ascii = false; break; }
+  const text = isText ? decodeLatin1(view).trim() : '';
+  const compact = text.replace(/[\r\n]+/g, '');
+  let utf8 = null;
+  if (isText) { try { utf8 = new TextDecoder('utf-8', { fatal: true }).decode(u8.subarray(0, SAMPLE), { stream: u8.length > SAMPLE }); } catch { /* not UTF-8 */ } }
+  return {
+    bytes: u8, isText, ascii, text, head: text.slice(0, SAMPLE), utf8, compact, single: !!compact && !/\s/.test(compact), file: fileType(u8)?.ext || '',
+    at(signature, offset = 0) {
+      if (offset + signature.length > u8.length) return false;
+      for (let i = 0; i < signature.length; i++) if (u8[offset + i] !== signature.charCodeAt(i)) return false;
+      return true;
+    },
+  };
+}
+
+function hinted(ctx, kind) {
+  const out = [];
+  for (const [name, hints] of Object.entries(MAGIC_HINTS)) {
+    if (!MODULES[name]) continue;
+    for (const hint of hints) {
+      if (hint.kind !== kind) continue;
+      let found;
+      try { found = hint.detect(ctx); } catch { continue; }
+      for (const f of Array.isArray(found) ? found : [found]) {
+        const c = typeof f === 'number' ? { fit: f } : f;
+        if (c && c.fit > 0) out.push({ name, args: [], ...c, requires: hint.requires });
+      }
+    }
+  }
+  return out;
+}
+
+// Core formats first, then whatever operations registered for themselves; strongest fit first.
+function candidates(u8, a) {
+  const core = coreCandidates(u8, a);
+  const known = new Set(core.map(c => c.name));
+  const all = [...core, ...hinted(context(u8, a), 'decode').filter(c => !known.has(c.name) || c.label)];
+  return all.map((c, i) => [c, i]).sort((x, y) => (x[0].fallback ? 1 : 0) - (y[0].fallback ? 1 : 0) || y[0].fit - x[0].fit || x[1] - y[1]).map(x => x[0]);
+}
+
+// Operations worth running on this data next: reported as suggestions, never executed by the search.
+function suggestions(u8, a) {
+  const best = new Map();
+  for (const c of hinted(context(u8, a), 'analyse')) if (!best.has(c.name) || best.get(c.name).fit < c.fit) best.set(c.name, c);
+  return [...best.values()].sort((x, y) => y.fit - x.fit).slice(0, 6)
+    .map(c => ({ name: c.name, args: c.args, fit: c.fit, requires: c.requires || null, label: (c.label || c.name) + (c.requires ? ` (needs ${c.requires})` : '') }));
 }
 
 // ---- Search ------------------------------------------------------------------------------------
@@ -311,28 +390,49 @@ function sameBytes(x, y) {
   return true;
 }
 
-function rotate(text, n) {
-  return text.replace(/[a-zA-Z]/g, ch => { const base = ch <= 'Z' ? 65 : 97; return String.fromCharCode((ch.charCodeAt(0) - base + n) % 26 + base); });
-}
-
 function stepLabel(c) {
   if (c.label) return c.label;
-  if (c.name === 'ROT13' && c.args[3] !== 13) return `ROT13 (amount ${c.args[3]})`;
   if (c.name === 'XOR') return `XOR (key 0x${c.args[0].string})`;
   return c.name;
 }
 
-function inputHints(u8) {
-  if (u8.length > 200) return [];
-  const t = decodeLatin1(u8).trim();
-  const hashes = { 32: 'MD5 / NTLM', 40: 'SHA-1', 56: 'SHA-224', 64: 'SHA-256', 96: 'SHA-384', 128: 'SHA-512' };
-  if (/^[0-9a-fA-F]+$/.test(t) && hashes[t.length]) return [`${t.length} hex characters: this is the length of a ${hashes[t.length]} hash, which cannot be decoded.`];
-  if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(t)) return ['This is a UUID, an identifier rather than encoded data.'];
-  if (/^\$(?:2[aby]|argon2\w*|5|6|1|y)\$/.test(t)) return ['This looks like a password hash (crypt format), which cannot be decoded.'];
-  return [];
+// What the data appears to be when it cannot be (or has not been) decoded.
+function identify(u8, a) {
+  const notes = [];
+  if (u8.length <= 200) {
+    const t = decodeLatin1(u8).trim();
+    if (/^[0-9a-fA-F]+$/.test(t) && HASH_LENGTHS[t.length]) notes.push(`${t.length} hex characters, which is the length of ${HASH_LENGTHS[t.length]} hashes. A hash cannot be decoded.`);
+    if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(t)) notes.push('This is a UUID, an identifier rather than encoded data.');
+    if (/^\$(?:2[aby]|argon2\w*|5|6|1|y)\$/.test(t)) notes.push('This looks like a password hash (crypt format), which cannot be decoded.');
+  }
+  if (!a.text && !a.file && u8.length >= 32) {
+    // No structure and near-uniform byte values: encrypted, or compressed without a header.
+    const sample = u8.subarray(0, 65536), h = entropy(sample), n = sample.length;
+    const expected = n >= 256 ? 8 - 184 / n : Math.log2(n) - 0.15;   // what uniformly random bytes give for a sample this size
+    if (h >= expected - 0.35) {
+      const block = u8.length % 16 === 0 ? 'a multiple of 16 bytes, as a 128-bit block cipher (AES, Camellia, Twofish, SM4) produces'
+        : u8.length % 8 === 0 ? 'a multiple of 8 bytes, as a 64-bit block cipher (DES, Triple DES, Blowfish) produces'
+          : 'not block-aligned, which fits a stream cipher, an AEAD mode or headerless compression';
+      notes.push(`High-entropy data with no recognisable structure (${h.toFixed(2)} bits/byte, ${u8.length} bytes): probably encrypted (or compressed without a header). Its length is ${block}. Encrypted data cannot be decoded without the key.`);
+    }
+  }
+  if (a.text && (a.lang || 0) < 0.4) {
+    // Letter statistics separate simple substitution / transposition from polyalphabetic ciphers.
+    const letters = decodeLatin1(u8.subarray(0, 20000)).toUpperCase().replace(/[^A-Z]/g, '');
+    const solid = decodeLatin1(u8.subarray(0, 20000)).replace(/\s/g, '').length;
+    if (letters.length >= 80 && letters.length / solid >= 0.9) {
+      const counts = new Array(26).fill(0);
+      for (const ch of letters) counts[ch.charCodeAt(0) - 65]++;
+      const ic = counts.reduce((sum, c) => sum + c * (c - 1), 0) / (letters.length * (letters.length - 1));
+      if (ic >= 0.058) notes.push(`Letters only, with English-like letter frequencies (index of coincidence ${ic.toFixed(3)}): probably a monoalphabetic substitution or a transposition cipher. A substitution needs its key; frequency analysis is the usual way in.`);
+      else if (ic <= 0.05) notes.push(`Letters only, with flattened letter frequencies (index of coincidence ${ic.toFixed(3)}): probably a polyalphabetic cipher such as Vigenère, Beaufort or Autokey, which needs its key.`);
+    }
+  }
+  return notes;
 }
 
-const confidenceOf = n => n.path.length ? n.a.q * (0.75 + 0.25 * n.minFit) * Math.pow(0.985, n.path.length - 1) : n.a.q;
+// A self-validating decode (for example a verified checksum) is trusted even when its output is not readable.
+const confidenceOf = n => n.path.length ? Math.max(n.a.q, n.trust || 0) * (0.75 + 0.25 * n.minFit) * Math.pow(0.985, n.path.length - 1) : n.a.q;
 
 export async function search(data, depth = 3, intensive = false, crib = null, beam = 14, limitNodes = 600) {
   let cribRe = null;
@@ -356,7 +456,7 @@ export async function search(data, depth = 3, intensive = false, crib = null, be
       if (node.data.length > MAX_EXPAND_BYTES) continue;
       const push = (c, out, a) => {
         const child = { data: out, path: [...node.path, [c.name, c.args]], labels: [...node.labels, stepLabel(c)], parent: node, children: [],
-          minFit: Math.min(node.minFit, c.fit), a, depth: node.depth + 1, weak: !!c.weak, speculative: false };
+          minFit: Math.min(node.minFit, c.fit), a, depth: node.depth + 1, weak: !!c.weak, speculative: false, trust: c.trust || 0 };
         node.children.push(child); next.push(child); all.push(child);
         return child;
       };
@@ -368,6 +468,9 @@ export async function search(data, depth = 3, intensive = false, crib = null, be
         // A weak cipher is only believable when its output is clearly more meaningful than its input.
         const improves = a.q >= 0.6 && (a.q - node.a.q >= 0.2 || (a.lang || 0) - (node.a.lang || 0) >= 0.3);
         if (c.weak && !improves && !speculative) return;
+        // Trying hundreds of keys always finds one that scores well by luck; real words are the evidence that counts.
+        if (c.needsWords && knownWords(decodeLatin1(out.subarray(0, SAMPLE))) < c.needsWords) return;
+        if (c.verify && !c.verify(out)) return;
         // Headerless formats "succeed" on junk now and then, so the output has to stand on its own.
         if (c.needsQuality && (out.length < Math.max(8, node.data.length / 4) || (a.q < 0.5 && !candidates(out, a).some(x => !x.weak && !x.needsQuality && x.fit >= 0.85)))) return;
         seen.add(key);
@@ -379,16 +482,20 @@ export async function search(data, depth = 3, intensive = false, crib = null, be
         if (c.weak && (node.weak || node.speculative)) continue;
         if (c.fallback && node.children.length) continue;
         try {
-          if (c.rotate) {
-            // Score every Caesar shift on a sample and only run the best one.
-            const sample = decodeLatin1(node.data.subarray(0, 600));
-            let best = 13, bestScore = -1;
-            for (let n = 1; n < 26; n++) {
-              const r = assess(new TextEncoder().encode(rotate(sample, n))), s = r.q + (r.lang || 0);
-              if (s > bestScore) { bestScore = s; best = n; }
+          if (c.variants) {
+            // A small keyspace: score every key on a sample and only keep the best one.
+            if (c.whole && node.data.length > 6000) continue;
+            const sample = c.whole ? node.data : node.data.subarray(0, 400);
+            const mod = MODULES[c.name];
+            let best = null, bestScore = -1;
+            for (const v of c.variants) {
+              let out;
+              try { [out] = await callModule(mod, sample, resolveArgs(mod, v.args, new Map())); } catch { continue; }
+              if (!out || !out.length) continue;
+              const r = assess(out), score = r.q + (r.lang || 0);
+              if (score > bestScore) { bestScore = score; best = v; }
             }
-            const rot = { ...c, args: [true, true, false, best] };
-            await accept(rot, await run(rot.name, rot.args, node.data));
+            if (best) { const chosen = { ...c, args: best.args, label: best.label }; await accept(chosen, await run(chosen.name, chosen.args, node.data)); }
           } else if (c.speculative && node.depth === 0) {
             // Kept provisionally: it only survives if what follows decodes into something meaningful.
             await accept(c, await run(c.name, c.args, node.data), true);
@@ -445,10 +552,12 @@ export async function search(data, depth = 3, intensive = false, crib = null, be
     for (let p = n; p.parent; p = p.parent) chain.unshift(p);
     return chain.map((p, i) => ({ name: p.path[i][0], args: p.path[i][1], label: p.labels[i], data: p.data, kind: p.a.kind, text: !!p.a.text, quality: Math.round(p.a.q * 100) }));
   };
-  return results.map(n => ({
+  return results.map((n, i) => ({
     data: n.data, path: n.path, score: Math.round(n.final * 1000) / 10, kind: n.a.kind, text: !!n.a.text, intermediate: n.intermediate,
     matchesCrib: n.matchesCrib, stages: stagesOf(n),
-    ...(n.parent ? {} : { hints: inputHints(data), truncated: exhausted }),
+    // Follow-up analysis and identification are worked out for the input and the leading results only.
+    ...(i < 8 || !n.parent ? { analyses: suggestions(n.data, n.a), notes: identify(n.data, n.a) } : { analyses: [], notes: [] }),
+    ...(n.parent ? {} : { truncated: exhausted }),
   }));
 }
 

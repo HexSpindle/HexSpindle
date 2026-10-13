@@ -30,7 +30,15 @@ export class StructuredResult {
   }
 }
 
+// Magic detection hints, keyed by operation name. An operation declares how its input can be recognised
+// either with { magic: hint } when it registers or with magicHint(); core/magic.js describes the hint shape.
+export const MAGIC_HINTS = {};
+export function magicHint(name, hint) {
+  (MAGIC_HINTS[name] ||= []).push(hint);
+}
+
 export function register(name, desc, args, fn, opts = {}) {
+  if (opts.magic) magicHint(name, opts.magic);
   MODULES[name] = {
     name, desc, args: args || [], func: fn,
     text: !!opts.text, flow: !!opts.flow, net: !!opts.net, nondeterministic: !!opts.nondeterministic,

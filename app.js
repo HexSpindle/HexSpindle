@@ -1083,13 +1083,14 @@ function renderMagicBar(res, u) {
   list = list.filter(x => x && typeof x.label === 'string' && Array.isArray(x.recipe) && x.recipe.length && x.recipe.every(s => Array.isArray(s) && S.mods[s[0]] && Array.isArray(s[1])));
   if (!list.length) return;
   const magicOp = S.recipe[at];
-  bar.append(list.length === 1 ? 'Magic found a very likely decoding.' : 'Magic found very likely decodings.');
+  const decodings = list.filter(x => !x.title).length;
+  bar.append(decodings === 1 ? 'Magic found a very likely decoding.' : decodings ? 'Magic found very likely decodings.' : 'Magic recognised this data.');
   for (const x of list) {
     bar.append(el('button', { class: 'btn', title: 'Replaces the Magic step with these operations', onclick: () => {
       const i = S.recipe.indexOf(magicOp); if (i < 0) return;
       S.recipe.splice(i, 1, ...x.recipe.map(([name, args]) => newOp(name, args)));
       S.stepTo = null; S.inspect = null; commit();
-    } }, `Add to recipe: ${x.label} (${Math.round(+x.score || 0)}%)`));
+    } }, typeof x.title === 'string' ? x.title : `Add to recipe: ${x.label} (${Math.round(+x.score || 0)}%)`));
   }
   bar.hidden = false;
 }
