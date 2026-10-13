@@ -33,7 +33,7 @@ No server-side processing is required for normal operation.
 
 ## Operation Coverage
 
-HexSpindle currently implements **744 operations across all 16 supported categories**.
+HexSpindle currently implements **752 operations across all 16 supported categories**.
 
 Operations are added incrementally. Features that have not yet been ported are simply omitted from the operation registry, allowing the rest of the application to remain fully functional.
 
@@ -44,8 +44,8 @@ The **Magic** decoder uses the same registry when evaluating candidate transform
 | Encryption / Encoding | 146 |
 | Forensics | 100 |
 | Data Format | 78 |
+| Utils | 69 |
 | Hashing | 66 |
-| Utils | 61 |
 | Networking | 53 |
 | Public Key | 49 |
 | Multimedia | 41 |
@@ -57,7 +57,7 @@ The **Magic** decoder uses the same registry when evaluating candidate transform
 | Extractors | 11 |
 | Flow Control | 9 |
 | Language | 6 |
-| **Total** | **744** |
+| **Total** | **752** |
 
 ## Architecture
 

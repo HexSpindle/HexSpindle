@@ -59,5 +59,10 @@
   { "label": "SipHash-2-4 reference test vector (empty input)", "input": "", "recipe": [{ "module": "SipHash", "args": [{ "option": "Hex", "string": "000102030405060708090a0b0c0d0e0f" }, "SipHash-2-4", "64-bit"] }], "expect": "726fdb47dd0e0e31" },
   { "label": "AES-CMAC RFC 4493 test vector (empty message)", "input": "", "recipe": [{ "module": "CMAC", "args": [{ "option": "Hex", "string": "2b7e151628aed2a6abf7158809cf4f3c" }, "AES"] }], "expect": "bb1d6929e95937287fa37d129b756746" },
   { "label": "CRC-16/CCITT-FALSE catalogue check value", "input": "123456789", "recipe": [{ "module": "CRC-16 Checksum", "args": ["CRC-16/CCITT-FALSE"] }], "expect": "29b1" },
-  { "label": "scrypt (matches hashlib.scrypt)", "input": "password", "recipe": [{ "module": "scrypt", "args": [{ "option": "UTF8", "string": "saltsalt" }, 16, 8, 1, 32] }], "expect": "c5d9b820cc8f02979643ee4088f570d8bdce0a70383819e7c1618857638ce7ea" }
+  { "label": "scrypt (matches hashlib.scrypt)", "input": "password", "recipe": [{ "module": "scrypt", "args": [{ "option": "UTF8", "string": "saltsalt" }, 16, 8, 1, 32] }], "expect": "c5d9b820cc8f02979643ee4088f570d8bdce0a70383819e7c1618857638ce7ea" },
+  { "label":"Deduplicate lines (keeps the first occurrence)","input":"a\nb\na\nc\nb","recipe":[{"module":"Deduplicate lines","args":[]}],"expect":"a\nb\nc" },
+  { "label":"Remove empty lines","input":"a\n\n  \nb","recipe":[{"module":"Remove empty lines","args":[]}],"expect":"a\nb" },
+  { "label":"Trim lines -> Cut fields -> Add prefix / suffix to lines","input":"  alice,30  \n  bob,25  ","recipe":[{"module":"Trim lines","args":[]},{"module":"Cut fields","args":[",","1"]},{"module":"Add prefix / suffix to lines","args":["'","'"]}],"expect":"'alice'\n'bob'" },
+  { "label":"Convert line endings -> Select lines","input":"l1\r\nl2\r\nl3","recipe":[{"module":"Convert line endings","args":[]},{"module":"Select lines","args":["2-"]}],"expect":"l2\nl3" },
+  { "label":"Remove non-printable characters","input":"he​llo\u0007","recipe":[{"module":"Remove non-printable characters","args":[]}],"expect":"hello" }
 ]
