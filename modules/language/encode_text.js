@@ -1,14 +1,44 @@
 import { module } from './_cat.js';
 import { A } from '../../core/registry.js';
 import { encodeUtf8, decodeUtf8, decodeLatin1 } from '../../core/util.js';
-import {
-  SINGLE_BYTE_TABLES,
-  MULTIBYTE_TABLES,
-  JIS_PLANES,
-  CNS_PLANES,
-  GB18030_UCHARS,
-  GB18030_GBCHARS,
-} from './_encoding_tables.js';
+
+// The mapping tables are about 2.3 MB of source, so they are fetched on first use
+// rather than as part of the startup module graph.
+let SINGLE_BYTE_TABLES = null, MULTIBYTE_TABLES = null, JIS_PLANES = null, CNS_PLANES = null;
+let GB18030_UCHARS = null, GB18030_GBCHARS = null;
+let tablesLoading = null;
+
+export function loadEncodingTables() {
+  if (!tablesLoading) {
+    tablesLoading = import('./_encoding_tables.js').then(t => {
+      ({ SINGLE_BYTE_TABLES, MULTIBYTE_TABLES, JIS_PLANES, CNS_PLANES, GB18030_UCHARS, GB18030_GBCHARS } = t);
+    }, e => { tablesLoading = null; throw e; });
+  }
+  return tablesLoading;
+}
+
+// Encodings that never read the tables. Anything not listed here loads them first.
+const TABLE_FREE = new Set([
+  'UTF-8', 'UTF-8-SIG', 'UTF-16LE', 'UTF-16BE', 'UTF-16', 'UTF-32LE', 'UTF-32BE', 'UTF-32',
+  'UTF-7', 'UTF-7-IMAP', 'CESU-8', 'SCSU', 'BOCU-1', 'UTF-EBCDIC',
+  'ASCII', 'ISO-8859-1 (Latin1)', 'x-user-defined',
+  'GB2312', 'HZ-GB-2312', 'ISO-2022-KR',
+  'Shift_JIS', 'EUC-JP', 'GBK', 'Big5', 'EUC-KR',
+]);
+// Decoded natively, but encoding them needs the tables.
+const TABLE_FREE_DECODE = new Set(['GB18030', 'ISO-2022-JP']);
+function needsTables(name, decoding) {
+  return !(TABLE_FREE.has(name) || (decoding && TABLE_FREE_DECODE.has(name)));
+}
+
+// encodeText and decodeBytes stay synchronous; await this first so the tables they need are present.
+export async function ensureEncodingTables(name, decoding = false) {
+  if (needsTables(name, decoding)) await loadEncodingTables();
+}
+function requireTables(name, decoding) {
+  if (!SINGLE_BYTE_TABLES && needsTables(name, decoding))
+    throw new Error(`Encoding tables are not loaded for ${name}; await ensureEncodingTables() first`);
+}
 
 export const ENCODING_GROUPS = [
   {
@@ -1402,6 +1432,7 @@ function encodeGb18030(text, strict) {
 }
 
 export function decodeBytes(data, name) {
+  requireTables(name, true);
   switch (name) {
     case 'UTF-8': return decodeUtf8(data);
     case 'UTF-8-SIG': return decodeUtf8Sig(data);
@@ -1433,15 +1464,16 @@ export function decodeBytes(data, name) {
     case 'ISO-2022-CN': return decodeIso2022Cn(data, false);
     case 'ISO-2022-CN-EXT': return decodeIso2022Cn(data, true);
     default:
-      if (SINGLE_BYTE_TABLES[name]) return decodeStaticSingle(data, name);
+      if (SINGLE_BYTE_TABLES?.[name]) return decodeStaticSingle(data, name);
       if (WHATWG_LABELS[name]) return decoder(WHATWG_LABELS[name]).decode(data);
-      if (MULTIBYTE_TABLES[name]) return decodeMapped(data, name);
+      if (MULTIBYTE_TABLES?.[name]) return decodeMapped(data, name);
       if (NATIVE_CJK[name]) return decoder(NATIVE_CJK[name]).decode(data);
       throw new Error(`Unsupported encoding: ${name}`);
   }
 }
 
 export function encodeText(text, name, strict = false) {
+  requireTables(name, false);
   switch (name) {
     case 'UTF-8': return encodeUtf8(text);
     case 'UTF-8-SIG': return encodeUtf8Sig(text);
@@ -1480,9 +1512,9 @@ export function encodeText(text, name, strict = false) {
     case 'ISO-2022-CN': return encodeIso2022Cn(text, false, strict);
     case 'ISO-2022-CN-EXT': return encodeIso2022Cn(text, true, strict);
     default:
-      if (SINGLE_BYTE_TABLES[name]) return encodeStaticSingle(text, name, strict);
+      if (SINGLE_BYTE_TABLES?.[name]) return encodeStaticSingle(text, name, strict);
       if (WHATWG_LABELS[name]) return encodeWhatwgSingle(text, WHATWG_LABELS[name], strict);
-      if (MULTIBYTE_TABLES[name]) return encodeMapped(text, name, strict);
+      if (MULTIBYTE_TABLES?.[name]) return encodeMapped(text, name, strict);
       if (NATIVE_CJK[name]) return encodeNativeCjk(text, name, strict);
       throw new Error(`Unsupported encoding: ${name}`);
   }
@@ -1492,6 +1524,9 @@ module(
   'Encode text',
   'Converts text (UTF-8 input) to bytes in another character encoding.',
   [A.select('Encoding', ENCODING_GROUPS, 'UTF-8')],
-  (t, enc) => encodeText(t, enc, false),
+  async (t, enc) => {
+    await ensureEncodingTables(enc);
+    return encodeText(t, enc, false);
+  },
   { text: true }
 );

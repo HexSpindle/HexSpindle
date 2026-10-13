@@ -24,9 +24,12 @@ let browser;
 try {
   browser = await chromium.launch();
   const page = await browser.newPage();
+  let tablesRequested = false;
+  page.on('request', r => { if (r.url().endsWith('/modules/language/_encoding_tables.js')) tablesRequested = true; });
   await page.goto(`http://127.0.0.1:${server.address().port}/`, { waitUntil: 'load' });
+  const tablesAtStartup = tablesRequested;
   const tests = await page.evaluate(async () => {
-    const { encodeText, decodeBytes, ENCODINGS } = await import('./modules/language/encode_text.js');
+    const { encodeText, decodeBytes, ensureEncodingTables, ENCODINGS } = await import('./modules/language/encode_text.js');
     const vectors = [
       ['UTF-8 ASCII', 'UTF-8', 'Hello', '48656c6c6f'],
       ['UTF-8 multilingual', 'UTF-8', 'سلام🌍', 'd8b3d984d8a7d985f09f8c8d'],
@@ -45,10 +48,13 @@ try {
     for (const [label, name, input, expected] of vectors) {
       try {
         if (!ENCODINGS.includes(name)) throw Error('Not in encoding dropdown');
+        // The mapping tables load on first use; the codec calls themselves stay synchronous.
+        await ensureEncodingTables(name, false);
         const output = encodeText(input, name, false);
         if (output && typeof output.then === 'function') throw Error('encodeText API unexpectedly became asynchronous');
         const actual = hex(output);
         if (actual !== expected) throw Error(`expected ${expected}, got ${actual}`);
+        await ensureEncodingTables(name, true);
         const roundtrip = decodeBytes(output, name);
         if (roundtrip && typeof roundtrip.then === 'function') throw Error('decodeBytes API unexpectedly became asynchronous');
         if (roundtrip !== input) throw Error(`roundtrip expected ${JSON.stringify(input)}, got ${JSON.stringify(roundtrip)}`);
@@ -60,6 +66,9 @@ try {
   for (const t of tests) console.log(`${t.ok ? 'PASS' : 'FAIL'} ${t.label}${t.ok ? '' : ': ' + t.error}`);
   console.log(`Encoding vectors: ${tests.filter(t => t.ok).length}/${tests.length} passed`);
   if (tests.some(t => !t.ok)) process.exitCode = 1;
+  console.log(`${tablesAtStartup ? 'FAIL' : 'PASS'} Encoding tables are not fetched at startup`);
+  if (tablesAtStartup) process.exitCode = 1;
+  if (!tablesRequested) { console.log('FAIL Encoding tables were never fetched for table-backed encodings'); process.exitCode = 1; }
 } finally {
   if (browser) await browser.close();
   await new Promise(resolve => server.close(resolve));
