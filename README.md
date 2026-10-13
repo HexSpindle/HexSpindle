@@ -58,6 +58,7 @@ The **Magic** decoder uses the same registry when evaluating candidate transform
 | Flow Control | 9 |
 | Language | 6 |
 | **Total** | **744** |
+
 ## Architecture
 
 HexSpindle is organized around a modular operation registry and a client-side recipe execution engine.
@@ -71,7 +72,7 @@ HexSpindle is organized around a modular operation registry and a client-side re
   Central operation registry and argument-specification helpers. Operations register themselves here so they can be discovered and executed consistently by the recipe engine and other features.
 
 - **`core/magic.js`**  
-  Implements the **Magic** speculative decoder. Candidate decoding operations are explored breadth-first and ranked using heuristics such as printable-character ratio, entropy, file signatures, and common-word detection.
+  Implements the **Magic** speculative decoder. Candidate decoding and decompression operations are tried only where the data structurally fits them, explored breadth-first across multiple stages, and ranked by a confidence score that combines that fit with how meaningful the result is (readable text, valid UTF-8, JSON / XML, file signatures, entropy).
 
 - **`core/util.js`**, **`core/codec.js`**, **`core/filetypes.js`**  
   Shared utilities for byte manipulation, text and binary encoding, codec handling, and file-type detection. `core/filetypes.js` also contains the magic-byte signature table used by **Detect File Type** and **Magic**.
@@ -102,6 +103,23 @@ Together, these files provide the browser UI and application shell, including:
 - Suggest
 - Magic decoding
 - ZIP/archive browser
+
+### Deployment build
+
+The source tree runs directly in a browser as native ES modules, with no build step, and stays the place where development happens. The published site is built from it by `tools/build-site.mjs` during deployment:
+
+- Everything `app.js` loads at startup is bundled into a single `HexSpindle.js`, so a visitor's browser fetches a handful of files rather than several hundred.
+- Libraries that are only loaded on demand are copied unchanged to their existing paths under `modules/`, keeping their exact bytes and licence headers.
+- Header comments of third-party code that is compiled into the bundle are reproduced in `HexSpindle.LICENSES.txt`.
+
+To build and test the deployable site locally:
+
+```
+cd tools
+npm ci
+node build-site.mjs --out ../dist
+node ci-dist-smoke.mjs --dist ../dist
+```
 
 ## Client-Side Processing
 

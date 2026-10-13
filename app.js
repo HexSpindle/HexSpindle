@@ -11,7 +11,7 @@ import { AI_PROVIDERS, loadAISetting, saveAISetting, deleteAISetting, migrateLeg
   maskAIKey, verifyAIConnection, requestAIText, readableAIError } from './core/ai-suggest.js';
 import { buildCandidateCatalogue, buildPlanningPrompt, buildConfigurationPrompt,
   validateAIPlan, validateAIRecipe } from './core/ai-recipe-builder.js';
-import { search as magicSearch } from './core/magic.js';
+import { search as magicSearch, verdict as magicVerdict } from './core/magic.js';
 import { loadGeoIpBundle, summarizeGeoIpBundle, dropGeoIpBundle } from './modules/networking/_geoip_store.js';
 import { getServiceCredential, setServiceCredential, clearServiceCredential } from './core/service-credentials.js';
 import './modules/index.js';
@@ -1064,9 +1064,39 @@ function renderExtractListing(body, entries, step) {
   body.append(wrap);
 }
 // ---------------------------------------------------------------- output
+// Magic's graphical output is drawn in a sandboxed frame that cannot run scripts, so the buttons for its
+// very likely recipes live here, above the frame. The operation passes them in a leading HTML comment.
+function renderMagicBar(res, u) {
+  let bar = $('#magicBar');
+  if (!bar) { bar = el('div', { class: 'banner info', id: 'magicBar', hidden: true }); $('#outBody').before(bar); }
+  bar.hidden = true; bar.replaceChildren();
+  if (!res?.html || res.error) return;
+  // Only honour the marker when the step that produced this output really is the Magic operation.
+  let at = S.inspect ?? S.stepTo;
+  if (at == null) for (at = S.recipe.length - 1; at >= 0 && S.recipe[at].disabled; at--);
+  if (S.recipe[at]?.module !== 'Magic') return;
+  const m = /^<!--hexspindle-magic:([A-Za-z0-9+/=]+)-->/.exec(new TextDecoder().decode(u.subarray(0, 20000)));
+  if (!m) return;
+  let list;
+  try { list = JSON.parse(new TextDecoder().decode(b64dec(m[1]))); } catch { return; }
+  if (!Array.isArray(list)) return;
+  list = list.filter(x => x && typeof x.label === 'string' && Array.isArray(x.recipe) && x.recipe.length && x.recipe.every(s => Array.isArray(s) && S.mods[s[0]] && Array.isArray(s[1])));
+  if (!list.length) return;
+  const magicOp = S.recipe[at];
+  bar.append(list.length === 1 ? 'Magic found a very likely decoding.' : 'Magic found very likely decodings.');
+  for (const x of list) {
+    bar.append(el('button', { class: 'btn', title: 'Replaces the Magic step with these operations', onclick: () => {
+      const i = S.recipe.indexOf(magicOp); if (i < 0) return;
+      S.recipe.splice(i, 1, ...x.recipe.map(([name, args]) => newOp(name, args)));
+      S.stepTo = null; S.inspect = null; commit();
+    } }, `Add to recipe: ${x.label} (${Math.round(+x.score || 0)}%)`));
+  }
+  bar.hidden = false;
+}
 function renderOutput() {
   const res = S.res, u = S.out, body = $('#outBody'); let view = $('#outView').value;
   const ta = $('#output');
+  renderMagicBar(res, u);
   if (res?.error) showBanner('err', `Step ${res.error.step + 1} (${res.error.module}): ${res.error.message}`);
   else if (S.inspect != null) showBanner('info', `Showing the output of step ${S.inspect + 1}. `, el('button', { class: 'btn', onclick: () => { S.inspect = null; bake(); } }, 'Show final output'));
   else if (S.stepTo != null) showBanner('info', `Stepping: executed up to step ${S.stepTo + 1} of ${S.recipe.length}. `, el('button', { class: 'btn', onclick: () => { S.stepTo = null; bake(); } }, 'Bake all'));
@@ -1103,7 +1133,10 @@ function renderOutput() {
   if (!showText) {
     ta.hidden = true;
     if (res?.html) {
-      const doc = `<!doctype html><meta charset="utf-8"><style>body{margin:14px;font:13px/1.5 ui-monospace,Consolas,monospace;color:${document.documentElement.dataset.theme === 'light' ? '#12203a' : '#d9e6ff'};background:transparent}table{border-collapse:collapse}td,th{border:1px solid #4a6a9a;padding:4px 10px}img,svg{max-width:100%}</style>` + new TextDecoder().decode(u);
+      // The document declares the same colour scheme as the frame; otherwise the browser paints an opaque white
+      // canvas behind it and the light text of the dark theme becomes unreadable.
+      const light = document.documentElement.dataset.theme === 'light';
+      const doc = `<!doctype html><meta charset="utf-8"><style>:root{color-scheme:${light ? 'light' : 'dark'}}body{margin:14px;font:13px/1.5 ui-monospace,Consolas,monospace;color:${light ? '#12203a' : '#d9e6ff'};background:transparent}table{border-collapse:collapse}td,th{border:1px solid #4a6a9a;padding:4px 10px}img,svg{max-width:100%}</style>` + new TextDecoder().decode(u);
       body.append(el('iframe', { class: 'render', sandbox: '', srcdoc: doc, title: 'Rendered output' }));
     } else if (img) { S.blobUrl = URL.createObjectURL(new Blob([u], { type: img })); body.append(el('div', { class: 'imgview' }, el('img', { src: S.blobUrl, alt: 'output image' }))); }
     else { S.blobUrl = URL.createObjectURL(new Blob([u], { type: pdf })); body.append(el('iframe', { class: 'render', src: S.blobUrl, title: 'PDF preview' })); }
@@ -1855,12 +1888,15 @@ async function magic() {
   openModal('Magic', el('div', { class: 'empty' }, 'Searching for decoding chains…'));
   try {
     const found = await magicSearch(u.subarray(0, 1 << 18), 3);
-    const rs = found.filter(x => x.path.length).slice(0, 15);
+    const rs = found.filter(x => x.path.length && x.score >= 5).slice(0, 15);
     openModal('Magic suggestions', rs.length ? rs.map(x => {
       const recipe = x.path.map(([module, args]) => ({ module, args }));
       const preview = new TextDecoder().decode(x.data.subarray(0, 160));
-      return el('div', { class: 'card' }, el('div', { class: 'chain' }, recipe.map((o, i) => [i ? el('i', {}, '→') : null, el('span', {}, o.module)]), el('span', { class: 'score', style: 'background:none' }, `score ${x.score}`)),
-        el('div', { class: 'snip' }, preview), el('div', {}, el('button', { class: 'btn', onclick: () => { recipe.forEach(o => S.recipe.push(newOp(o.module, o.args))); S.stepTo = null; commit(); closeModal(); } }, 'Add to recipe')));
+      // Confidence bar runs from red (unlikely) to green (very likely).
+      const bar = el('div', { style: 'height:8px;border-radius:4px;background:rgba(128,128,128,.25);overflow:hidden;margin:6px 0' },
+        el('div', { style: `width:${Math.max(1, x.score)}%;height:100%;border-radius:4px;background:hsl(${Math.round(x.score * 1.2)},72%,42%)` }));
+      return el('div', { class: 'card' }, el('div', { class: 'chain' }, x.stages.map((st, i) => [i ? el('i', {}, '→') : null, el('span', {}, st.label)]), el('span', { class: 'score', style: 'background:none' }, `${x.score.toFixed(0)}% · ${magicVerdict(x.score)}`)),
+        bar, el('div', { class: 'snip' }, `${x.kind}: ${preview}`), el('div', {}, el('button', { class: 'btn', onclick: () => { recipe.forEach(o => S.recipe.push(newOp(o.module, o.args))); S.stepTo = null; commit(); closeModal(); } }, 'Add to recipe')));
     }) : el('div', { class: 'empty' }, 'No promising decodings found.'));
   } catch (e) { openModal('Magic', el('div', { class: 'empty' }, 'Magic failed: ' + e.message)); }
 }

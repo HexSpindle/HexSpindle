@@ -9,6 +9,8 @@ jobs:
   browser-smoke-test:
     runs-on: ubuntu-latest
     timeout-minutes: 25
+    outputs:
+      bundle_sha256: ${{ steps.built.outputs.bundle_sha256 }}
     defaults:
       run:
         working-directory: tools
@@ -48,6 +50,8 @@ jobs:
         run: node ci-forensics-mft.mjs
       - name: Validate USN journal V2/V3/V4 and corruption behavior
         run: node ci-forensics-usn.mjs
+      - name: Test Magic decoder accuracy and graphical output
+        run: node ci-magic.mjs
       - name: Check startup module size
         run: node check-startup-size.mjs
       - name: Check rendering isolation invariants
@@ -78,6 +82,15 @@ jobs:
         run: node ci-csp-enforced.mjs
       - name: Test advanced CSP compatibility and blocking
         run: node ci-csp-advanced.mjs
+      - name: Build deployable site (bundle the startup graph)
+        run: node build-site.mjs --out ../dist
+      - name: Validate the built release boundary
+        run: node check-release-boundary.mjs --dist ../dist
+      - name: Test the built site in Chromium
+        run: node ci-dist-smoke.mjs --dist ../dist
+      - name: Record the tested bundle
+        id: built
+        run: echo "bundle_sha256=$(sha256sum ../dist/HexSpindle.js | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
   deploy-pages:
     name: Deploy website
     needs: browser-smoke-test
@@ -100,24 +113,31 @@ jobs:
           ref: main
           path: site
           ssh-key: ${{ secrets.PAGES_DEPLOY_KEY }}
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+          package-manager-cache: false
+      - name: Install build tooling
+        working-directory: source/tools
+        run: npm ci
       - name: Build allowlisted site artifact
+        working-directory: source/tools
+        run: node build-site.mjs --out "$GITHUB_WORKSPACE/release"
+      - name: Verify the artifact is the build that was tested
         shell: bash
+        env:
+          TESTED_SHA256: ${{ needs.browser-smoke-test.outputs.bundle_sha256 }}
         run: |
           set -euo pipefail
-          mkdir -p release
-          for file in index.html app.js app.css LICENSE THIRD_PARTY_NOTICES.md DATA_SOURCE_NOTICES.md robots.txt sitemap.xml .nojekyll google8833fe62b3f6acca.html; do
-            test -f "source/$file" || { echo "Missing required release file: $file" >&2; exit 1; }
-            cp -- "source/$file" "release/$file"
-          done
-          for directory in assets core modules licenses analytics; do
-            test -d "source/$directory" || { echo "Missing required release directory: $directory" >&2; exit 1; }
-            cp -a -- "source/$directory" "release/$directory"
-          done
-          if find release -type f \( -name '*.pem' -o -name '*.key' -o -name '*.env' -o -name '*.log' -o -name '*.map' -o -name '*.zip' \) -print -quit | grep -q .; then
-            echo 'Unexpected sensitive or development file in release artifact' >&2
+          built="$(sha256sum release/HexSpindle.js | cut -d' ' -f1)"
+          if [ -z "$TESTED_SHA256" ] || [ "$built" != "$TESTED_SHA256" ]; then
+            echo "Built bundle ($built) differs from the tested bundle (${TESTED_SHA256:-none})" >&2
             exit 1
           fi
-          echo "Prepared $(find release -type f | wc -l) deployment files"
+      - name: Validate the built release boundary
+        working-directory: source/tools
+        run: node check-release-boundary.mjs --dist "$GITHUB_WORKSPACE/release"
       - name: Synchronize release into Pages repository
         run: rsync -av --delete --exclude='.git/' --exclude='.github/' --exclude='tools/' release/ site/
       - name: Commit and push deployment

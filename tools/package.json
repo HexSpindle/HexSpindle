@@ -4,6 +4,7 @@
   "type": "module",
   "description": "Dev-only tooling for CI (headless-browser smoke test). Not part of the deployed app.",
   "devDependencies": {
+    "esbuild": "0.28.2",
     "playwright": "^1.56.0"
   }
 }

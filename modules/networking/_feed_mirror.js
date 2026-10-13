@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: MIT
 // Shared same-origin feed metadata, gzip streaming, IndexedDB cache.
 // No external JS dependency and no cross-origin proxy.
-const ROOT = new URL('../../', import.meta.url);
+// The site root comes from the page, not from this file's own location, so it still resolves
+// correctly when the module is bundled into a file that lives somewhere else.
+const ROOT = typeof document === 'undefined' ? new URL('../../', import.meta.url) : new URL('./', document.baseURI);
 const MANIFEST = new URL('data/feeds/manifest.json', ROOT);
 const DB_NAME = 'hexspindle-enrichment-mirror-v1';
 const STORE = 'snapshots';

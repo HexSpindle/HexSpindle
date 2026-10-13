@@ -1,6 +1,7 @@
 import { parseSeq, parseOneDer, derUint, decodeOid, derSequence, derInteger, derOid, derNull, derBitString, derOctetString } from './_asn1.js';
 import { findPem, findAllPem } from './_pem.js';
-import { bigIntToBytes } from './_bignum.js';
+import { bigIntToBytes, modExp, modInverse, bytesToBigInt } from './_bignum.js';
+import { parseX509 } from './_x509.js';
 import { concatBytes } from '../../core/util.js';
 import { OID_NAMES, EC_CURVE_OID_TO_WEBCRYPTO, WEBCRYPTO_CURVE_TO_OID } from './_oids.js';
 
@@ -135,7 +136,6 @@ export async function loadKeyInfo(pem, password) {
     return { type: 'public', kind, der };
   }
   if (/CERTIFICATE/.test(label)) {
-    const { parseX509 } = await import('./_x509.js');
     const cert = parseX509(der);
     const spkiDer = cert.tbs.spkiRaw;
     const { oid } = splitSpki(spkiDer);
@@ -200,7 +200,6 @@ export function rawSignatureToDer(raw) {
 }
 
 export async function dsaVerifyRaw(p, q, g, y, hashName, data, r, s) {
-  const { modExp, modInverse, bytesToBigInt } = await import('./_bignum.js');
   if (r <= 0n || r >= q || s <= 0n || s >= q) return false;
   const digest = new Uint8Array(await crypto.subtle.digest(hashName, data));
   const nBytes = Math.ceil(q.toString(2).length / 8);

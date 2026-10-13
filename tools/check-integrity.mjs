@@ -63,7 +63,7 @@ while (stack.length) {
   // Literal dynamic imports are usually emitted as standalone expressions.
   // This conservative detector intentionally avoids guessing inside vendored
   // strings/templates; a browser smoke test covers computed dynamic imports.
-  if (!/\/_[^/]+\.(?:m?js)$/.test(file)) {
+  if (!/[\\/]_[^\\/]+\.(?:m?js)$/.test(file)) {
     for (const match of content.matchAll(/\bimport\s*\(\s*(['"])(\.{1,2}\/[^'"\n]+)\1\s*\)/g)) {
       resolveImport(file, match[2]);
     }
