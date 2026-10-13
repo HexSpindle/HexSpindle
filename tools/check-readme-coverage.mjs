@@ -34,15 +34,17 @@ const section = [
  'The **Magic** decoder uses the same registry when evaluating candidate transformations. Unsupported candidates are automatically skipped, which means Magic\'s decoding coverage expands naturally as new operations are implemented.', '',
  '| Category | Operations |', '|---|---:|',
  ...sorted.map(([k,n])=>`| ${labels.get(k)} | ${n} |`),
- `| **Total** | **${total}** |`, '',
+ `| **Total** | **${total}** |`, '', '',
 ].join('\n');
 const pattern = /## Operation Coverage\r?\n[\s\S]*?(?=## Architecture\r?\n)/;
 if (!pattern.test(readme)) throw new Error('README Operation Coverage section or Architecture heading missing');
 const normalized = readme.replace(pattern, section);
+// Editors and Markdown formatters add or remove the blank line before the next heading; that is spacing, not coverage.
+const spacing = text => text.replace(/(?:\r?\n)+(?=## Architecture\r?\n)/, '\n\n');
 if (process.argv.includes('--write')) {
   if (normalized !== readme) writeFileSync(readmePath, normalized);
   console.log(`Updated README coverage: ${total} operations across ${counts.size} categories`);
-} else if (normalized !== readme) {
+} else if (spacing(normalized) !== spacing(readme)) {
   console.error('README operation coverage is out of date. Run: node tools/check-readme-coverage.mjs --write');
   process.exitCode = 1;
 } else {
