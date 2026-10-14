@@ -56,6 +56,10 @@ jobs:
         run: node ci-magic-hints.mjs
       - name: Test line-oriented text utilities
         run: node ci-utils-text.mjs
+      - name: Test Parse User Agent against a corpus of real user agents
+        run: node ci-user-agents.mjs
+      - name: Test credential decoders, structured-data converters, HTTP parsers and Windows identifier operations
+        run: node ci-decoders-parsers.mjs
       - name: Check startup module size
         run: node check-startup-size.mjs
       - name: Check rendering isolation invariants

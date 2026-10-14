@@ -1,54 +1,8 @@
 import { module } from './_cat.js';
+import { A } from '../../core/registry.js';
+import { parseUserAgent } from './_user_agent.js';
 
-const BROWSERS = [
-  ['Edge', /\bEdg(?:e|A|iOS)?\/([\w.]+)/], ['Opera', /\bOPR\/([\w.]+)/], ['Mobile Chrome', /\bCriOS\/([\w.]+)/],
-  ['Mobile Firefox', /\bFxiOS\/([\w.]+)/], ['Chrome Headless', /\bHeadlessChrome\/([\w.]+)/],
-  ['Mobile Chrome', /\bChrome\/([\w.]+) Mobile\b/], ['Chrome', /\bChrome\/([\w.]+)/],
-  ['Mobile Firefox', /\bMobile;.*Firefox\/([\w.]+)|Android.*Firefox\/([\w.]+)/], ['Firefox', /\bFirefox\/([\w.]+)/],
-  ['Mobile Safari', /\bVersion\/([\w.]+).*Mobile\/\w+.*Safari\//], ['Safari', /\bVersion\/([\w.]+).*Safari\//],
-  ['IE', /\bMSIE ([\w.]+)/], ['IE', /\bTrident\/.*rv:([\w.]+)/],
-];
-const WINDOWS = { '10.0': '10', '6.3': '8.1', '6.2': '8', '6.1': '7', '6.0': 'Vista', '5.2': 'XP', '5.1': 'XP', '5.0': '2000' };
-
-function detect(t) {
-  const r = { browser: {}, device: {}, engine: {}, os: {}, cpu: {} };
-  for (const [name, rx] of BROWSERS) {
-    const m = rx.exec(t);
-    if (m) { r.browser = { name, version: m.slice(1).find(x => x) }; break; }
-  }
-  let m;
-  if ((m = /\bTrident\/([\w.]+)/.exec(t))) r.engine = { name: 'Trident', version: m[1] };
-  else if ((m = /\bChrome\/([\w.]+)/.exec(t)) && parseInt(m[1], 10) >= 28) r.engine = { name: 'Blink', version: m[1] };
-  else if ((m = /\bAppleWebKit\/([\w.]+)/.exec(t))) r.engine = { name: 'WebKit', version: m[1] };
-  else if ((m = /\brv:([\w.]+).*\bGecko\//.exec(t))) r.engine = { name: 'Gecko', version: m[1] };
-
-  if ((m = /\bWindows NT ([\d.]+)/.exec(t))) r.os = { name: 'Windows', version: WINDOWS[m[1]] || m[1] };
-  else if ((m = /\b(?:iPhone|CPU) OS ([\d_]+)/.exec(t))) r.os = { name: 'iOS', version: m[1].replace(/_/g, '.') };
-  else if ((m = /\bAndroid[ /]?([\w.]*)/.exec(t))) r.os = { name: 'Android', version: m[1] || undefined };
-  else if ((m = /\bCrOS \S+ ([\w.]+)/.exec(t))) r.os = { name: 'Chrome OS', version: m[1] };
-  else if ((m = /\bMac OS X ?([\w.]*)/.exec(t))) r.os = { name: 'macOS', version: m[1].replace(/_/g, '.') || undefined };
-  else if ((m = /\bUbuntu(?:\/([\w.]+))?/.exec(t))) r.os = { name: 'Ubuntu', version: m[1] };
-  else if (/\bLinux\b/.test(t)) r.os = { name: 'Linux' };
-
-  if (/\biPhone\b/.test(t)) r.device = { model: 'iPhone', type: 'mobile', vendor: 'Apple' };
-  else if (/\biPad\b/.test(t)) r.device = { model: 'iPad', type: 'tablet', vendor: 'Apple' };
-  else if (/\bMacintosh\b/.test(t)) r.device = { model: 'Macintosh', vendor: 'Apple' };
-  else if ((m = /\bAndroid[^;)]*; ([^;)]+?)(?: Build\/[^;)]*)?\)/.exec(t))) {
-    const model = m[1];
-    const vendor = /^(?:SM-|GT-|SAMSUNG)/i.test(model) ? 'Samsung' : /^Pixel/.test(model) ? 'Google' : undefined;
-    r.device = { model, type: /\bMobile\b/.test(t) ? 'mobile' : 'tablet', vendor };
-  }
-
-  if (/\b(?:x86_64|x64|Win64|WOW64|amd64)\b/i.test(t)) r.cpu = { architecture: 'amd64' };
-  else if (/\b(?:arm64|aarch64)\b/i.test(t)) r.cpu = { architecture: 'arm64' };
-  else if (/\b(?:i[3-6]86|x86)\b/i.test(t)) r.cpu = { architecture: 'ia32' };
-  return r;
-}
-
-module('Parse User Agent', 'Identifies browser, device, engine, operating system and CPU from a User-Agent string.', [],
-  (t) => {
-    const ua = detect(t);
-    return `Browser
+const detailed = ua => `Browser
     Name: ${ua.browser.name || 'unknown'}
     Version: ${ua.browser.version || 'unknown'}
 Device
@@ -63,4 +17,40 @@ OS
     Version: ${ua.os.version || 'unknown'}
 CPU
     Architecture: ${ua.cpu.architecture || 'unknown'}`;
-  }, { text: true });
+
+const COLUMNS = [['Client', r => r.browser.name], ['Version', r => r.browser.version], ['Kind', r => r.kind], ['OS', r => r.os.name], ['OS version', r => r.os.version],
+  ['Device', r => r.device.model], ['Vendor', r => r.device.vendor], ['Type', r => r.device.type], ['Engine', r => r.engine.name], ['CPU', r => r.cpu.architecture]];
+const flat = r => Object.fromEntries([...COLUMNS.map(([name, get]) => [name, get(r) || '']), ['User agent', r.ua]]);
+const csvCell = v => /[",\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v;
+
+function table(rows) {
+  const cells = rows.map(r => COLUMNS.map(([, get]) => String(get(r) || '-')));
+  const widths = COLUMNS.map(([name], i) => Math.min(34, Math.max(name.length, ...cells.map(c => c[i].length))));
+  const line = values => values.map((v, i) => (v.length > widths[i] ? v.slice(0, widths[i] - 1) + '…' : v).padEnd(widths[i])).join('  ').trimEnd();
+  return [line(COLUMNS.map(c => c[0])), line(widths.map(w => '-'.repeat(w))), ...cells.map(line)].join('\n');
+}
+
+function summary(rows) {
+  const tally = get => { const m = new Map(); for (const r of rows) { const k = get(r) || 'unknown'; m.set(k, (m.get(k) || 0) + 1); } return [...m].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])); };
+  const block = (title, get, limit = 15) => { const t = tally(get); return `${title}\n${t.slice(0, limit).map(([k, n]) => `${String(n).padStart(6)}  ${k}`).join('\n')}${t.length > limit ? `\n        … and ${t.length - limit} more` : ''}`; };
+  const automated = rows.filter(r => /bot|scanner|tool|monitoring|automation/.test(r.kind)).length;
+  return [`User agents: ${rows.length} (${new Set(rows.map(r => r.ua)).size} distinct), ${automated} automated (bots, scanners, tools, monitoring)`,
+    block('By kind', r => r.kind), block('By client', r => r.browser.name), block('By client and major version', r => r.browser.name ? `${r.browser.name} ${String(r.browser.version || '').split('.')[0]}`.trim() : ''),
+    block('By operating system', r => r.os.name ? `${r.os.name} ${r.os.version || ''}`.trim() : ''), block('By device type', r => r.device.type), block('By device vendor', r => r.device.vendor)].join('\n\n');
+}
+
+module('Parse User Agent',
+  'Identifies the client (browser, in-app browser, email client, HTTP library, command-line tool, crawler, monitoring probe or security scanner), its version, the device, rendering engine, operating system and CPU from User-Agent strings. '
+  + 'Give one user agent for a detailed breakdown, or many (one per line, for example a column from an access log) for a table, CSV, JSON or a summary of counts.',
+  [A.select('Output', ['Auto', 'Detailed', 'Table', 'CSV', 'JSON', 'Summary'])],
+  (t, output = 'Auto') => {
+    const lines = t.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+    if (!lines.length) return detailed(parseUserAgent(''));
+    const mode = output === 'Auto' ? (lines.length === 1 ? 'Detailed' : 'Table') : output;
+    const rows = lines.map(parseUserAgent);
+    if (mode === 'Detailed') return rows.map((r, i) => (rows.length > 1 ? `# ${i + 1}: ${r.ua}\n` : '') + detailed(r)).join('\n\n');
+    if (mode === 'Table') return table(rows);
+    if (mode === 'CSV') return [[...COLUMNS.map(c => c[0]), 'User agent'].join(','), ...rows.map(r => Object.values(flat(r)).map(csvCell).join(','))].join('\n');
+    if (mode === 'JSON') return JSON.stringify(rows.map(flat), null, 2);
+    return summary(rows);
+  }, { text: true, aliases: ['ua', 'useragent', 'user-agent', 'browser detection'] });
