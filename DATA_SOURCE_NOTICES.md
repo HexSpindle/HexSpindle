@@ -4,6 +4,7 @@ These notices concern **downloaded feed data**, not third-party JavaScript packa
 new HexSpindle JavaScript and feed-builder code is SPDX `MIT` and uses only browser
 and Python standard libraries.
 
+
 ## SANS Internet Storm Center / DShield
 
 **Attribution:** SANS Technology Institute, Internet Storm Center — https://isc.sans.edu

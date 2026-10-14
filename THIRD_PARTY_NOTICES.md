@@ -2,6 +2,7 @@
 
 This document attributes third-party software and embedded data distributed within HexSpindle. HexSpindle's own original code is offered under the MIT license in the repository root `LICENSE`; that license **does not relicense third-party code**. Each third-party component continues under its applicable license. Versions and attributions below are based on identified module headers and a source inspection on 2026-10-08, and should be checked against exact upstream release artifacts when rebuilding bundles.
 
+
 ## License texts
 
 Common license conditions appear in [`licenses/`](licenses/): [`MIT.txt`](licenses/MIT.txt), [`ISC.txt`](licenses/ISC.txt), [`BSD-2-Clause.txt`](licenses/BSD-2-Clause.txt), [`BSD-3-Clause.txt`](licenses/BSD-3-Clause.txt), [`Apache-2.0.txt`](licenses/Apache-2.0.txt), [`GPL-3.txt`](licenses/GPL-3.txt) and [`LGPL-3.txt`](licenses/LGPL-3.txt). Copyright lines in the component entries below accompany the relevant common license text; where a bundle includes its own upstream copyright/license banners, **retain those original banners as well**. An SPDX name by itself is not a substitute for the complete applicable license conditions. Original upstream package license files/NOTICE files may contain additional author-specific language which must also be preserved.

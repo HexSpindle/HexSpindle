@@ -33,7 +33,7 @@ No server-side processing is required for normal operation.
 
 ## Operation Coverage
 
-HexSpindle currently implements **801 operations across all 16 supported categories**.
+HexSpindle currently implements **802 operations across all 16 supported categories**.
 
 Operations are added incrementally. Features that have not yet been ported are simply omitted from the operation registry, allowing the rest of the application to remain fully functional.
 
@@ -53,11 +53,11 @@ The **Magic** decoder uses the same registry when evaluating candidate transform
 | Other | 32 |
 | Arithmetic / Logic | 31 |
 | Code Tidy | 22 |
+| Extractors | 12 |
 | Date / Time | 11 |
-| Extractors | 11 |
 | Flow Control | 9 |
 | Language | 6 |
-| **Total** | **801** |
+| **Total** | **802** |
 
 ## Architecture
 
