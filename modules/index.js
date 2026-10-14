@@ -347,6 +347,7 @@ import './extractors/extract_iocs.js';
 import './extractors/extract_ip_addresses.js';
 import './extractors/extract_mac_addresses.js';
 import './extractors/extract_urls.js';
+import './extractors/extract_user_agents.js';
 import './flow_control/comment.js';
 import './flow_control/conditional_jump.js';
 import './flow_control/fork.js';

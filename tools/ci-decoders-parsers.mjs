@@ -291,16 +291,34 @@ fails('MITRE ATT&CK Lookup', 'empty input', '');
 // 00:00:0C is Cisco's original and very stable MA-L assignment. The MA-S case is derived from the data itself
 // so the longest-prefix logic is checked against a real 36-bit registration rather than a hard-coded guess.
 const masLine = JSON.parse(fixture('oui-sample.json'));
-const macBulk = '00:00:0C:11:22:33\n02:11:22:33:44:55\n01:00:5e:00:00:fb\nnope';
+const macBulk = '00:00:0C:11:22:33\n02:11:22:33:44:55\n01:00:5e:00:00:fb';
 test('MAC Vendor Lookup', 'Auto/Detailed for one well-known OUI (Cisco)', '00:00:0C:12:34:56', [], t => /Vendor:\s+Cisco/.test(t) && t.includes('MA-L (24-bit)') && t.includes('OUI 00:00:0C') && /unicast, globally unique/.test(t));
-test('MAC Vendor Lookup', 'Auto picks the table for many inputs', macBulk, [], t => /^Input\s+OUI\s+Vendor\s+Registrant\s+Block\s+Address/m.test(t) && /Cisco/.test(t) && /locally administered/.test(t) && /multicast\/broadcast/.test(t) && /invalid/.test(t));
-test('MAC Vendor Lookup', 'bare hex and OUI-only forms resolve', '00000C\n00-00-0c- aa-bb-cc', ['CSV'], t => (t.match(/Cisco/gi) || []).length >= 2);
+test('MAC Vendor Lookup', 'Auto picks the table for many inputs', macBulk, [], t => /^Input\s+OUI\s+Vendor\s+Registrant\s+Block\s+Address/m.test(t) && /Cisco/.test(t) && /locally administered/.test(t) && /multicast\/broadcast/.test(t));
+test('MAC Vendor Lookup', 'accepts colon, hyphen, Cisco dotted and bare hex forms', '00:00:0C:11:22:33\n00-00-0C-44-55-66\n0000.0c77.8899\n00000Caabbcc', ['CSV'], t => { const rows = t.trim().split('\n'); return rows.length === 5 && rows.slice(1).every(r => /,Cisco,/.test(r)); });
 test('MAC Vendor Lookup', 'longest-prefix MA-S match from the registry', masLine.mac, ['Detailed'], t => t.includes('MA-S (36-bit)') && t.includes(masLine.vendorSubstring));
+test('MAC Vendor Lookup', 'picks MACs out of log lines and ignores the prose (no bogus vendors)', 'Microsoft Windows [Version 10.0.26300]\nPhysical Address. . . . : 00-00-0C-12-34-56\nIP Routing Enabled. . . : No', ['Table'],
+  t => /Cisco/.test(t) && !/Microsoft|Windows|Routing/.test(t) && t.trim().split('\n').length === 3);
 test('MAC Vendor Lookup', 'CSV header and flags', macBulk, ['CSV'], t => t.split('\n')[0] === 'Input,OUI,Vendor,Registrant,Block,Address,Found,Local,Multicast' && /00:00:0C:11:22:33,00:00:0C,Cisco/.test(t) && /,true,false$/m.test(t));
 test('MAC Vendor Lookup', 'JSON structure', '00:00:0C:11:22:33\n02:aa:bb:cc:dd:ee', ['JSON'], t => { const j = JSON.parse(t); return Array.isArray(j) && j[0].vendor === 'Cisco' && j[0].found === true && j[0].locallyAdministered === false && j[1].locallyAdministered === true && j[1].found === false; });
-test('MAC Vendor Lookup', 'Summary counts by vendor and block', macBulk + '\n00:00:0C:99:88:77', ['Summary'], ['MAC addresses: 5', 'resolved to a vendor', 'By vendor', 'Cisco', 'By registration block', 'MA-L (24-bit)', 'locally administered', 'multicast/broadcast']);
-test('MAC Vendor Lookup', 'invalid line is reported, not fatal, in detailed mode', 'ab', ['Detailed'], t => /not a MAC address or OUI/.test(t));
+test('MAC Vendor Lookup', 'Summary counts by vendor and block', macBulk + '\n00:00:0C:99:88:77', ['Summary'], ['MAC addresses: 4', 'resolved to a vendor', 'By vendor', 'Cisco', 'By registration block', 'MA-L (24-bit)', 'locally administered', 'multicast/broadcast']);
+fails('MAC Vendor Lookup', 'a non-MAC input errors with guidance', 'ab');
+fails('MAC Vendor Lookup', 'a whole line of prose errors (no valid MAC)', 'Primary Dns Suffix . . . : example.local');
 fails('MAC Vendor Lookup', 'empty input', '');
+
+// ---- Extractors: pull MACs and user agents out of raw text, then feed the dedicated parsers ----
+const ipconfig = 'Windows IP Configuration\n\nEthernet adapter Ethernet:\n   Physical Address. . . . . . . . . : 00-00-0C-12-34-56\n   DHCP Enabled. . . . . . . . . . . : Yes\nWireless LAN adapter Wi-Fi:\n   Physical Address. . . . . . . . . : DC-A6-32-AA-BB-CC\n   IPv4 Address. . . . . . . . . . . : 192.168.1.10';
+test('Extract MAC addresses', 'pulls MACs out of ipconfig output, skipping prose', ipconfig, [true, true, false, false, false], t => t.split('\n').sort().join('|') === '00-00-0C-12-34-56|DC-A6-32-AA-BB-CC' || t.split('\n').length === 2 && /00-00-0C-12-34-56/.test(t) && /DC-A6-32-AA-BB-CC/.test(t));
+test('Extract MAC addresses', 'Cisco dotted and normalisation', 'ints: 0000.0c11.2233 and 00:00:0C:44:55:66', [true, true, false, true, false], t => t.includes('00:00:0c:11:22:33') && t.includes('00:00:0c:44:55:66'));
+test('Extract MAC addresses', 'bare 12-hex only when opted in', 'id=0000ABCDEF01 mac 00:00:0C:11:22:33', [true, true, true, false, false], t => t.split('\n').length === 2 && /0000ABCDEF01/.test(t));
+test('Extract MAC addresses', 'deduplicates case-insensitively', '00:00:0c:11:22:33\n00:00:0C:11:22:33', [true, true, false, false, false], t => t.split('\n').length === 1);
+test('Extract User Agents', 'pulls the UA from an access-log line', '10.0.0.1 - - [13/Oct/2026:10:00:00 +0000] "GET / HTTP/1.1" 200 42 "-" "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/140.0 Safari/537.36"', [true],
+  t => t.split('\n').length === 1 && t.startsWith('Mozilla/5.0') && t.includes('Chrome/140.0'));
+test('Extract User Agents', 'header, JSON field and raw line', 'User-Agent: curl/8.4.0\n{"user_agent":"python-requests/2.31.0"}\nMozilla/5.0 (X11; Linux x86_64) Firefox/128.0', [true],
+  t => { const u = t.split('\n'); return u.includes('curl/8.4.0') && u.includes('python-requests/2.31.0') && u.some(x => /Firefox\/128\.0/.test(x)); });
+test('Extract User Agents', 'ignores non-UA quoted fields and prose', '"GET / HTTP/1.1"\nsome log prose without an agent\n"Mozilla/5.0 (iPhone) Safari/604.1"', [true], t => t.split('\n').filter(Boolean).length === 1 && /iPhone/.test(t));
+test('Parse User Agent', 'skips non-UA lines and notes the count', 'Mozilla/5.0 (Windows NT 10.0) Chrome/140.0\nPrimary Dns Suffix . . . :\nNode Type . . . : Hybrid', ['Table'],
+  t => /Chrome/.test(t) && !/Primary Dns|Hybrid/.test(t) && /2 lines skipped: not a user-agent string/.test(t));
+fails('Parse User Agent', 'all-prose input errors with guidance', 'Primary Dns Suffix . . . :\nNode Type . . . : Hybrid');
 
 // @@NEXT-GROUP@@
 

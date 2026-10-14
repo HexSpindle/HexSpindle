@@ -10,13 +10,20 @@ function getTables() {
   return tablesPromise;
 }
 
-const hexOf = s => s.replace(/0x/gi, '').replace(/[^0-9a-fA-F]/g, '').toUpperCase();
+// Find MAC addresses / OUI prefixes in the input. Separated (3–8 octets, ':' or '-') and Cisco dotted forms are
+// matched anywhere — so MACs embedded in log lines (ipconfig, DHCP, ARP) are resolved — while bare hex is only
+// accepted when a whole line is exactly 6/12/16 hex digits, to avoid matching hashes, IDs or offsets in prose.
+const EMBEDDED = /\b[0-9A-Fa-f]{2}(?:[:-][0-9A-Fa-f]{2}){2,7}\b|\b[0-9A-Fa-f]{4}(?:\.[0-9A-Fa-f]{4}){1,3}\b/g;
+function findMacs(text) {
+  const tokens = [];
+  for (const m of text.matchAll(EMBEDDED)) tokens.push(m[0]);
+  for (const line of text.split(/\r?\n/)) { const s = line.trim(); if (/^(?:[0-9A-Fa-f]{6}|[0-9A-Fa-f]{12}|[0-9A-Fa-f]{16})$/.test(s)) tokens.push(s); }
+  return tokens;
+}
 
-// Parse one line into a structured record, resolving the longest registered prefix (MA-S, then MA-M, then MA-L).
-function lookup(line, tables) {
-  const input = line.trim();
-  const hex = hexOf(input);
-  if (hex.length < 6) return { input, valid: false, note: 'not a MAC address or OUI (need at least 3 bytes / 6 hex digits)' };
+function lookup(token, tables) {
+  const input = token.trim();
+  const hex = input.replace(/[.:-]/g, '').toUpperCase();
   const oui = hex.slice(0, 6).replace(/(..)(..)(..)/, '$1:$2:$3');
   const first = parseInt(hex.slice(0, 2), 16);
   const multicast = !!(first & 0x01), local = !!(first & 0x02);
@@ -24,23 +31,21 @@ function lookup(line, tables) {
   if (hex.length >= 9 && tables.mas.has(hex.slice(0, 9))) { hit = tables.mas.get(hex.slice(0, 9)); block = 'MA-S (36-bit)'; }
   else if (hex.length >= 7 && tables.mam.has(hex.slice(0, 7))) { hit = tables.mam.get(hex.slice(0, 7)); block = 'MA-M (28-bit)'; }
   else if (tables.mal.has(hex.slice(0, 6))) { hit = tables.mal.get(hex.slice(0, 6)); block = 'MA-L (24-bit)'; }
-  return { input, valid: true, oui, vendor: hit ? hit.short : '', registrant: hit ? hit.long : '', block: block || '', found: !!hit, local, multicast };
+  return { input, oui, vendor: hit ? hit.short : '', registrant: hit ? hit.long : '', block: block || '', found: !!hit, local, multicast };
 }
 
 const addrNote = r => r.multicast ? 'multicast/broadcast' : r.local ? 'locally administered (randomised/manual — OUI is not a real assignment)' : 'unicast, globally unique';
 
 function detailed(r) {
-  if (!r.valid) return `${r.input || '(empty)'}\n    ${r.note}`;
-  const lines = [`${r.input}  [OUI ${r.oui}]`,
-    `    Vendor:     ${r.found ? r.vendor : 'not found in the IEEE registry'}`];
+  const lines = [`${r.input}  [OUI ${r.oui}]`, `    Vendor:     ${r.found ? r.vendor : 'not found in the IEEE registry'}`];
   if (r.found && r.registrant && r.registrant !== r.vendor) lines.push(`    Registrant: ${r.registrant}`);
   if (r.found) lines.push(`    Block:      ${r.block}`);
   lines.push(`    Address:    ${addrNote(r)}`);
   return lines.join('\n');
 }
 
-const COLUMNS = [['Input', r => r.input], ['OUI', r => r.valid ? r.oui : ''], ['Vendor', r => r.found ? r.vendor : (r.valid ? 'not found' : 'invalid')],
-  ['Registrant', r => r.registrant], ['Block', r => r.block], ['Address', r => r.valid ? addrNote(r).split(' (')[0] : '']];
+const COLUMNS = [['Input', r => r.input], ['OUI', r => r.oui], ['Vendor', r => r.found ? r.vendor : 'not found'],
+  ['Registrant', r => r.registrant], ['Block', r => r.block], ['Address', r => addrNote(r).split(' (')[0]]];
 const csvCell = v => /[",\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v;
 
 function table(rows) {
@@ -49,28 +54,28 @@ function table(rows) {
   const line = vals => vals.map((v, i) => (v.length > widths[i] ? v.slice(0, widths[i] - 1) + '…' : v).padEnd(widths[i])).join('  ').trimEnd();
   return [line(COLUMNS.map(c => c[0])), line(widths.map(w => '-'.repeat(w))), ...cells.map(line)].join('\n');
 }
-const flat = r => ({ input: r.input, oui: r.valid ? r.oui : null, vendor: r.found ? r.vendor : null, registrant: r.found ? r.registrant : null, block: r.block || null, found: !!r.found, locallyAdministered: !!r.local, multicast: !!r.multicast });
+const flat = r => ({ input: r.input, oui: r.oui, vendor: r.found ? r.vendor : null, registrant: r.found ? r.registrant : null, block: r.block || null, found: !!r.found, locallyAdministered: !!r.local, multicast: !!r.multicast });
 
 function summary(rows) {
-  const valid = rows.filter(r => r.valid);
-  const tally = get => { const m = new Map(); for (const r of valid) { const k = get(r); if (!k) continue; m.set(k, (m.get(k) || 0) + 1); } return [...m].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])); };
+  const tally = get => { const m = new Map(); for (const r of rows) { const k = get(r); if (!k) continue; m.set(k, (m.get(k) || 0) + 1); } return [...m].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])); };
   const block = (title, get, limit = 20) => { const t = tally(get); return `${title}\n${t.slice(0, limit).map(([k, n]) => `${String(n).padStart(6)}  ${k}`).join('\n') || '  (none)'}${t.length > limit ? `\n        … and ${t.length - limit} more` : ''}`; };
-  const found = valid.filter(r => r.found).length;
-  return [`MAC addresses: ${rows.length} (${new Set(rows.map(r => r.input)).size} distinct), ${found} resolved to a vendor, ${valid.length - found} unknown, ${rows.length - valid.length} invalid`
-    + `\nAddress types: ${valid.filter(r => !r.local && !r.multicast).length} unicast/global, ${valid.filter(r => r.local).length} locally administered, ${valid.filter(r => r.multicast).length} multicast/broadcast`,
+  const found = rows.filter(r => r.found).length;
+  return [`MAC addresses: ${rows.length} (${new Set(rows.map(r => r.input)).size} distinct), ${found} resolved to a vendor, ${rows.length - found} unknown`
+    + `\nAddress types: ${rows.filter(r => !r.local && !r.multicast).length} unicast/global, ${rows.filter(r => r.local).length} locally administered, ${rows.filter(r => r.multicast).length} multicast/broadcast`,
     block('By vendor', r => r.found ? r.vendor : ''), block('By registration block', r => r.block)].join('\n\n');
 }
 
 module('MAC Vendor Lookup',
   'Looks up the manufacturer of a network interface from its MAC address or OUI prefix, using the public IEEE registry (MA-L, MA-M and MA-S blocks). '
-  + 'Accepts full MAC addresses or just the leading bytes in any common format (colons, hyphens, dots or bare hex), matching the longest registered prefix, and flags locally administered and multicast/broadcast addresses. '
-  + 'Give one address for a detailed breakdown, or many (one per line, for example a column from a DHCP lease or ARP table) for a table, CSV, JSON or a summary of counts by vendor.',
+  + 'Accepts MAC addresses in any common format — 00:1A:2B:3C:4D:5E, 00-1a-2b-3c-4d-5e, 001a.2b3c.4d5e, or bare hex (001A2B / 001A2B3C4D5E) — and finds the longest registered prefix. '
+  + 'MACs embedded in log lines (ipconfig, DHCP, ARP) are picked out automatically; text with no MAC in it returns an error rather than a bogus result. Locally administered and multicast/broadcast addresses are flagged. '
+  + 'Give one address for a detailed breakdown, or many for a table, CSV, JSON or a summary of counts by vendor.',
   [A.select('Output', ['Auto', 'Detailed', 'Table', 'CSV', 'JSON', 'Summary'])],
   async (t, output = 'Auto') => {
-    const lines = t.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
-    if (!lines.length) throw new Error('No MAC address or OUI in the input');
+    const tokens = findMacs(t);
+    if (!tokens.length) throw new Error('No MAC addresses or OUI prefixes found in the input. Expected e.g. 00:1A:2B:3C:4D:5E, 001a.2b3c.4d5e or 001A2B. (To list the MACs from logs on their own, use Extract MAC addresses.)');
     const tables = await getTables();
-    const rows = lines.map(l => lookup(l, tables));
+    const rows = tokens.map(tok => lookup(tok, tables));
     const mode = output === 'Auto' ? (rows.length === 1 ? 'Detailed' : 'Table') : output;
     if (mode === 'Detailed') return rows.map(detailed).join('\n\n');
     if (mode === 'Table') return table(rows);

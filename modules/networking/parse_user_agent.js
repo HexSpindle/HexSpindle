@@ -18,6 +18,19 @@ OS
 CPU
     Architecture: ${ua.cpu.architecture || 'unknown'}`;
 
+// A line is treated as a user agent if it carries a product/version token (Mozilla/5.0, curl/8.4.0, HTTP libs)
+// or a well-known UA marker, or the engine recognises a client/OS/engine. This rejects log prose and prompts.
+// Decide whether a line is a user agent. Many legitimate clients (bots, scanners, HTTP libraries) do not use the
+// Product/Version form, so a line counts as a UA when it carries a product/version token OR the engine recognises
+// a specific client/OS/engine in it. Two guards suppress false positives: HTTP request lines (which also contain a
+// slash-version), and the tabular "Label . . . . : value" layout of command output (ipconfig, systeminfo, netsh),
+// where the engine would otherwise latch onto an isolated word such as "Node".
+const UA_HINT = /\S\/\d|\b(?:Mozilla|Opera|AppleWebKit|Gecko|Trident|Presto|KHTML|Chrome|Safari|Firefox|Edge?|bot|crawler|spider|curl|Wget|okhttp|Dalvik|CFNetwork|facebookexternalhit)\b/i;
+const REQUEST_LINE = /^(?:GET|POST|PUT|DELETE|HEAD|OPTIONS|PATCH|CONNECT|TRACE|PROPFIND|MKCOL)\b.*\bHTTP\/\d/i;
+const TABULAR_PROSE = /(?:[.…]\s+){2,}|\.\s*\.\s*\.|:\s*$/;
+const recognised = line => { const p = parseUserAgent(line); return !!(p.browser.name || p.os.name || p.engine.name); };
+export const looksLikeUserAgent = line => !REQUEST_LINE.test(line) && !TABULAR_PROSE.test(line) && (UA_HINT.test(line) || recognised(line));
+
 const COLUMNS = [['Client', r => r.browser.name], ['Version', r => r.browser.version], ['Kind', r => r.kind], ['OS', r => r.os.name], ['OS version', r => r.os.version],
   ['Device', r => r.device.model], ['Vendor', r => r.device.vendor], ['Type', r => r.device.type], ['Engine', r => r.engine.name], ['CPU', r => r.cpu.architecture]];
 const flat = r => Object.fromEntries([...COLUMNS.map(([name, get]) => [name, get(r) || '']), ['User agent', r.ua]]);
@@ -41,16 +54,21 @@ function summary(rows) {
 
 module('Parse User Agent',
   'Identifies the client (browser, in-app browser, email client, HTTP library, command-line tool, crawler, monitoring probe or security scanner), its version, the device, rendering engine, operating system and CPU from User-Agent strings. '
-  + 'Give one user agent for a detailed breakdown, or many (one per line, for example a column from an access log) for a table, CSV, JSON or a summary of counts.',
+  + 'Each input line must be a user-agent string; lines that are not (log prose, headers around the value) are skipped — to pull user agents out of access logs, use Extract User Agents first. '
+  + 'Give one user agent for a detailed breakdown, or many (one per line) for a table, CSV, JSON or a summary of counts.',
   [A.select('Output', ['Auto', 'Detailed', 'Table', 'CSV', 'JSON', 'Summary'])],
   (t, output = 'Auto') => {
     const lines = t.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
     if (!lines.length) return detailed(parseUserAgent(''));
-    const mode = output === 'Auto' ? (lines.length === 1 ? 'Detailed' : 'Table') : output;
-    const rows = lines.map(parseUserAgent);
-    if (mode === 'Detailed') return rows.map((r, i) => (rows.length > 1 ? `# ${i + 1}: ${r.ua}\n` : '') + detailed(r)).join('\n\n');
-    if (mode === 'Table') return table(rows);
+    const valid = lines.filter(looksLikeUserAgent);
+    const skipped = lines.length - valid.length;
+    if (!valid.length) throw new Error('No user-agent strings found. A user agent looks like "Mozilla/5.0 (…) …" or "curl/8.4.0". To pull user agents out of access logs or JSON, run "Extract User Agents" first.');
+    const rows = valid.map(parseUserAgent);
+    const mode = output === 'Auto' ? (rows.length === 1 ? 'Detailed' : 'Table') : output;
+    const note = skipped ? `\n\n(${skipped} line${skipped === 1 ? '' : 's'} skipped: not a user-agent string)` : '';
+    if (mode === 'Detailed') return rows.map((r, i) => (rows.length > 1 ? `# ${i + 1}: ${r.ua}\n` : '') + detailed(r)).join('\n\n') + note;
+    if (mode === 'Table') return table(rows) + note;
     if (mode === 'CSV') return [[...COLUMNS.map(c => c[0]), 'User agent'].join(','), ...rows.map(r => Object.values(flat(r)).map(csvCell).join(','))].join('\n');
     if (mode === 'JSON') return JSON.stringify(rows.map(flat), null, 2);
-    return summary(rows);
+    return summary(rows) + note;
   }, { text: true, aliases: ['ua', 'useragent', 'user-agent', 'browser detection'] });
