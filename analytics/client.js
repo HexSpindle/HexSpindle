@@ -106,11 +106,21 @@ function footerButton(label, callback){
  return b;
 }
 function footerState(label,kind,title){
- const e=document.createElement('span');
+ const on=kind==='is-on';
+ const e=document.createElement(on?'a':'span');
  e.className='hs-analytics-state '+kind;
  e.textContent=label;
- e.title=title;
- e.setAttribute('role','status');
+ if(on){
+   e.href='./analytics/privacy.html';
+   e.setAttribute('aria-label','Analytics on — view analytics privacy notice');
+   e.title='View analytics privacy notice';
+ }else{
+   // Keyboard focus also exposes the reason on touch devices.
+   e.tabIndex=0;
+   e.dataset.reason=title;
+   e.setAttribute('aria-label',label+'. '+title);
+   e.title=title;
+ }
  return e;
 }
 function stopTracking(){
@@ -128,26 +138,23 @@ function startTracking(){
 function updateControls(){
  const bar=document.getElementById('hsAnalyticsPrefs');if(!bar)return;
  bar.replaceChildren();
- const a=document.createElement('a');
- a.href='./analytics/privacy.html';a.className='hs-analytics-link';a.textContent='Analytics Privacy';
- bar.append(a);
  if(!VALID_ENDPOINT){
-   bar.append(footerState('Unavailable','is-off','Analytics endpoint is not configured for this site.'));
+   bar.append(footerState('Analytics off','is-off','Analytics endpoint is not configured for this site.'));
    return;
  }
  if(navigator.globalPrivacyControl===true){
-   bar.append(footerState('Usage off · GPC','is-off','Detailed usage analytics is disabled by GPC'));
+   bar.append(footerState('Analytics off','is-off','Disabled by Global Privacy Control (GPC).'));
    return;
  }
  if(navigator.doNotTrack==='1'){
-   bar.append(footerState('Usage off · DNT','is-off','Detailed usage analytics is disabled by DNT'));
+   bar.append(footerState('Analytics off','is-off','Disabled by browser Do Not Track (DNT).'));
    return;
  }
  if(enabled){
-   bar.append(footerState('Analytics on','is-on','Only approved usage metadata is collected; forensic input and output are not sent.'));
+   bar.append(footerState('Analytics on','is-on','View analytics privacy notice'));
    bar.append(footerButton('Opt out',stopTracking));
  }else{
-   bar.append(footerState('Tracking off','is-off','Detailed usage analytics is off'));
+   bar.append(footerState('Analytics off','is-off','Disabled by your manual opt-out.'));
    bar.append(footerButton('Enable',startTracking));
  }
 }
