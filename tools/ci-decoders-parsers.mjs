@@ -273,6 +273,10 @@ for (const [label, ref] of Object.entries(disasm.arches)) {
 test('Disassemble', 'AT&T syntax switches operand style', disasm.arches['x86 (64-bit)'].code, ['x86 (64-bit)', 'AT&T', '0x1000', true], t => t.includes('%rbp') && t.includes('%rsp'));
 test('Disassemble', 'accepts spaced/0x hex and a base address', '0x55 0x48 0x89 0xe5', ['x86 (64-bit)', 'Intel', '0x400000', false], ['0x400000', 'push rbp', 'mov rbp, rsp']);
 test('Disassemble', 'reports bytes it cannot decode', 'c3ffff', ['x86 (64-bit)', 'Intel', '0', true], t => t.includes('ret') && /could not be disassembled/.test(t));
+test('Disassemble', 'stops at the max-instructions limit', '9090909090', ['x86 (64-bit)', 'Intel', '0', true, 2], t => (t.match(/\bnop\b/g) || []).length === 2 && /stopped at the 2-instruction limit; 3 more byte/.test(t));
+test('Disassemble', 'max instructions 0 decodes everything (small input)', '9090909090', ['x86 (64-bit)', 'Intel', '0', true, 0], t => (t.match(/\bnop\b/g) || []).length === 5 && !/stopped/.test(t));
+test('Disassemble', 'count 0 on a large dense input is bounded, not an engine abort', '90'.repeat(64 * 1024), ['x86 (64-bit)', 'Intel', '0', false, 0], t => (t.match(/\bnop\b/g) || []).length === 16000 && /stopped after 16000 instructions/.test(t));
+fails('Disassemble', 'input over 64 KiB is rejected', '90'.repeat(70000));
 fails('Disassemble', 'empty input', '');
 
 // ---- MITRE ATT&CK lookup (data distilled from the official MITRE STIX bundle) ----
@@ -287,12 +291,16 @@ fails('MITRE ATT&CK Lookup', 'empty input', '');
 // 00:00:0C is Cisco's original and very stable MA-L assignment. The MA-S case is derived from the data itself
 // so the longest-prefix logic is checked against a real 36-bit registration rather than a hard-coded guess.
 const masLine = JSON.parse(fixture('oui-sample.json'));
-test('MAC Vendor Lookup', 'well-known OUI (Cisco)', '00:00:0C:12:34:56', [true], t => /Cisco/i.test(t) && t.includes('MA-L (24-bit)') && t.includes('OUI 00:00:0C'));
-test('MAC Vendor Lookup', 'bare hex and OUI-only forms resolve', '00000C\n00-00-0c- aa-bb-cc', [true], t => (t.match(/Cisco/gi) || []).length >= 2);
-test('MAC Vendor Lookup', 'longest-prefix MA-S match from the registry', masLine.mac, [true], t => t.includes('MA-S (36-bit)') && t.includes(masLine.vendorSubstring));
-test('MAC Vendor Lookup', 'locally administered address is flagged', '02:11:22:33:44:55', [true], t => /locally administered/.test(t));
-test('MAC Vendor Lookup', 'multicast address is flagged', '01:00:5e:00:00:fb', [true], t => /multicast/.test(t));
-test('MAC Vendor Lookup', 'too-short input is reported per line, not fatal', 'ab', [true], t => /not a MAC address or OUI/.test(t));
+const macBulk = '00:00:0C:11:22:33\n02:11:22:33:44:55\n01:00:5e:00:00:fb\nnope';
+test('MAC Vendor Lookup', 'Auto/Detailed for one well-known OUI (Cisco)', '00:00:0C:12:34:56', [], t => /Vendor:\s+Cisco/.test(t) && t.includes('MA-L (24-bit)') && t.includes('OUI 00:00:0C') && /unicast, globally unique/.test(t));
+test('MAC Vendor Lookup', 'Auto picks the table for many inputs', macBulk, [], t => /^Input\s+OUI\s+Vendor\s+Registrant\s+Block\s+Address/m.test(t) && /Cisco/.test(t) && /locally administered/.test(t) && /multicast\/broadcast/.test(t) && /invalid/.test(t));
+test('MAC Vendor Lookup', 'bare hex and OUI-only forms resolve', '00000C\n00-00-0c- aa-bb-cc', ['CSV'], t => (t.match(/Cisco/gi) || []).length >= 2);
+test('MAC Vendor Lookup', 'longest-prefix MA-S match from the registry', masLine.mac, ['Detailed'], t => t.includes('MA-S (36-bit)') && t.includes(masLine.vendorSubstring));
+test('MAC Vendor Lookup', 'CSV header and flags', macBulk, ['CSV'], t => t.split('\n')[0] === 'Input,OUI,Vendor,Registrant,Block,Address,Found,Local,Multicast' && /00:00:0C:11:22:33,00:00:0C,Cisco/.test(t) && /,true,false$/m.test(t));
+test('MAC Vendor Lookup', 'JSON structure', '00:00:0C:11:22:33\n02:aa:bb:cc:dd:ee', ['JSON'], t => { const j = JSON.parse(t); return Array.isArray(j) && j[0].vendor === 'Cisco' && j[0].found === true && j[0].locallyAdministered === false && j[1].locallyAdministered === true && j[1].found === false; });
+test('MAC Vendor Lookup', 'Summary counts by vendor and block', macBulk + '\n00:00:0C:99:88:77', ['Summary'], ['MAC addresses: 5', 'resolved to a vendor', 'By vendor', 'Cisco', 'By registration block', 'MA-L (24-bit)', 'locally administered', 'multicast/broadcast']);
+test('MAC Vendor Lookup', 'invalid line is reported, not fatal, in detailed mode', 'ab', ['Detailed'], t => /not a MAC address or OUI/.test(t));
+fails('MAC Vendor Lookup', 'empty input', '');
 
 // @@NEXT-GROUP@@
 
