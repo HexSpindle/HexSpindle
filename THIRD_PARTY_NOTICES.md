@@ -282,6 +282,14 @@ Common license conditions appear in [`licenses/`](licenses/): [`MIT.txt`](licens
 - **Copyright/attribution:** Original xmldom copyright holders and contributors (see upstream LICENSE)
 - **Changes and additional notices:** Derived XML serializer; verify exact origin/version.
 
+### 35. `modules/forensics/_capstone.mjs`
+
+- **Upstream:** [capstone-wasm; Capstone disassembly engine](https://github.com/CzBiX/disasm-web)
+- **Version/build:** capstone-wasm 1.0.3 (WebAssembly build of Capstone 5.0); engine includes the x86, ARM and ARM64 architectures only
+- **License(s):** BSD-3-Clause (Capstone engine); MIT (capstone-wasm wrapper)
+- **Copyright/attribution:** Copyright 2013–2024 Nguyen Anh Quynh and the Capstone contributors; capstone-wasm © CzBiX
+- **Changes and additional notices:** The published package's separate `capstone.wasm` binary is embedded in this file as base64 and passed as `Module.wasmBinary` so the module is self-contained and fetches nothing; a default export that initializes the engine is appended. Preserve the embedded engine's BSD-3-Clause notice.
+
 ## HexSpindle DFIR operations expansion (2026-10-08)
 
 The 68 newly added JavaScript operation wrappers and their shared DFIR parsers under `modules/forensics/` are contributed as original HexSpindle code under the repository MIT license. **No additional third-party JavaScript bundle or binary dependency is included with this expansion.** This section is an internal licensing clarification, not an additional third-party attribution and not an independent verification of the implementation's originality. Existing third-party code and the unresolved notice-verification items in this document remain subject to their own licenses.

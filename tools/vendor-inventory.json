@@ -87,6 +87,13 @@
       ]
     },
     {
+      "path": "modules/forensics/_capstone.mjs",
+      "licenseFiles": [
+        "licenses/BSD-3-Clause.txt",
+        "licenses/MIT.txt"
+      ]
+    },
+    {
       "path": "modules/forensics/_libyara.mjs",
       "licenseFiles": [
         "licenses/ISC.txt",

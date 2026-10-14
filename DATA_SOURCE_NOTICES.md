@@ -75,3 +75,33 @@ as the database's updated date, and its separate download retrieval time. Subseq
 ordinary site deployments carry the last published version forward until an authorized
 new release is available. Turning the publishing variable off removes the copy from
 the next generated Pages artifact; prior browser or CDN copies cannot be remotely revoked.
+
+
+## Bundled reference datasets (offline operation data)
+
+Unlike the feeds above, the following datasets are distilled once from public sources and **bundled** into the
+site as lazily loaded modules under `modules/forensics/`. They are loaded only when the corresponding operation
+is used, and nothing is fetched at runtime. Regenerate them with the scripts in `tools/` (see each module header)
+to refresh.
+
+### MITRE ATT&CK® for Enterprise — `modules/forensics/_attack_data.mjs`
+
+**Attribution:** © The MITRE Corporation. This product uses the MITRE ATT&CK® knowledge base.
+ATT&CK® is a registered trademark of The MITRE Corporation.
+
+Source: the official ATT&CK STIX bundle at https://github.com/mitre/cti
+(`enterprise-attack/enterprise-attack.json`). The bundled module contains a distilled subset per technique
+(ID, name, tactics, platforms, sub-technique flag, a trimmed description, and mitigation names); it is **not**
+the complete STIX dataset. Use is governed by the ATT&CK Terms of Use:
+https://attack.mitre.org/resources/legal-and-branding/terms-of-use/ . Retain MITRE attribution in any
+redistribution. The data is a point-in-time snapshot (recorded in the module's `version` export); consult
+attack.mitre.org for the authoritative, current content.
+
+### IEEE MAC Address Block registry (OUI) — `modules/forensics/_oui_data.mjs`
+
+**Attribution:** Vendor-prefix data compiled by the Wireshark project in its `manuf` file
+(https://www.wireshark.org/download/automated/data/manuf), which is assembled from the public IEEE registries
+(MA-L, MA-M, MA-S) at https://standards-oui.ieee.org/ . The bundled module keeps only the prefix → vendor
+mapping (short tag and registrant name), split by block size for longest-prefix matching. Wireshark's `manuf`
+is distributed under the GPL-2.0-or-later; the underlying IEEE registry data is public. This is a point-in-time
+snapshot; consult the IEEE registry for authoritative, current assignments.

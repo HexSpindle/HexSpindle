@@ -258,6 +258,42 @@ test('Parse EML', 'decodes the quoted-printable text body', () => docs.eml, ['Te
 test('Parse EML', 'extracts the attachment bytes', () => docs.eml, ['Attachment', 1], (t, b) => Buffer.from(b).toString('base64') === docs.eml_attachment_b64);
 fails('Parse EML', 'no such attachment', () => docs.eml, ['Attachment', 5]);
 
+// ---- Disassembly (Capstone/WASM) — compared instruction-for-instruction against the Python capstone oracle ----
+const disasm = JSON.parse(fixture('disasm-reference.json'));
+const instrs = out => out.split('\n').filter(l => l && !l.startsWith(';'));
+for (const [label, ref] of Object.entries(disasm.arches)) {
+  if (label.startsWith('_')) continue;
+  const expected = ref.rows.map(r => `${r.mn}${r.op ? ' ' + r.op : ''}`);
+  test('Disassemble', `${label} matches the capstone oracle`, ref.code, [label, 'Intel', '0x1000', true], out => {
+    const lines = instrs(out);
+    if (lines.length !== ref.rows.length) return false;
+    return ref.rows.every((r, i) => lines[i].includes('0x' + r.addr.toString(16)) && lines[i].includes(expected[i]));
+  });
+}
+test('Disassemble', 'AT&T syntax switches operand style', disasm.arches['x86 (64-bit)'].code, ['x86 (64-bit)', 'AT&T', '0x1000', true], t => t.includes('%rbp') && t.includes('%rsp'));
+test('Disassemble', 'accepts spaced/0x hex and a base address', '0x55 0x48 0x89 0xe5', ['x86 (64-bit)', 'Intel', '0x400000', false], ['0x400000', 'push rbp', 'mov rbp, rsp']);
+test('Disassemble', 'reports bytes it cannot decode', 'c3ffff', ['x86 (64-bit)', 'Intel', '0', true], t => t.includes('ret') && /could not be disassembled/.test(t));
+fails('Disassemble', 'empty input', '');
+
+// ---- MITRE ATT&CK lookup (data distilled from the official MITRE STIX bundle) ----
+test('MITRE ATT&CK Lookup', 'technique details for a known sub-technique', 'T1059.001', ['Auto', false, 25],
+  ['T1059.001', 'PowerShell', 'sub-technique of T1059', 'Tactics:', 'Execution', 'attack.mitre.org/techniques/T1059/001', 'Mitigations:']);
+test('MITRE ATT&CK Lookup', 'several IDs at once', 'T1486, T1055', ['Auto', false, 25], t => t.includes('T1486') && /Data Encrypted for Impact/i.test(t) && t.includes('T1055') && /Process Injection/i.test(t));
+test('MITRE ATT&CK Lookup', 'keyword search by name', 'powershell', ['Auto', false, 25], t => /technique\(s\) match/.test(t) && t.includes('T1059.001') && t.includes('PowerShell'));
+test('MITRE ATT&CK Lookup', 'unknown ID is reported', 'T9999', ['Technique details', false, 25], ['T9999', 'not found']);
+fails('MITRE ATT&CK Lookup', 'empty input', '');
+
+// ---- MAC vendor lookup (IEEE registry via the Wireshark manuf file) ----
+// 00:00:0C is Cisco's original and very stable MA-L assignment. The MA-S case is derived from the data itself
+// so the longest-prefix logic is checked against a real 36-bit registration rather than a hard-coded guess.
+const masLine = JSON.parse(fixture('oui-sample.json'));
+test('MAC Vendor Lookup', 'well-known OUI (Cisco)', '00:00:0C:12:34:56', [true], t => /Cisco/i.test(t) && t.includes('MA-L (24-bit)') && t.includes('OUI 00:00:0C'));
+test('MAC Vendor Lookup', 'bare hex and OUI-only forms resolve', '00000C\n00-00-0c- aa-bb-cc', [true], t => (t.match(/Cisco/gi) || []).length >= 2);
+test('MAC Vendor Lookup', 'longest-prefix MA-S match from the registry', masLine.mac, [true], t => t.includes('MA-S (36-bit)') && t.includes(masLine.vendorSubstring));
+test('MAC Vendor Lookup', 'locally administered address is flagged', '02:11:22:33:44:55', [true], t => /locally administered/.test(t));
+test('MAC Vendor Lookup', 'multicast address is flagged', '01:00:5e:00:00:fb', [true], t => /multicast/.test(t));
+test('MAC Vendor Lookup', 'too-short input is reported per line, not fatal', 'ab', [true], t => /not a MAC address or OUI/.test(t));
+
 // @@NEXT-GROUP@@
 
 let passed = 0;
