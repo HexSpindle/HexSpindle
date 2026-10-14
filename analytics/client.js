@@ -136,18 +136,18 @@ function updateControls(){
    return;
  }
  if(navigator.globalPrivacyControl===true){
-   bar.append(footerState('Usage off · GPC','is-off','Detailed usage analytics is disabled by GPC; a seven-day operational IP request log may still apply.'));
+   bar.append(footerState('Usage off · GPC','is-off','Detailed usage analytics is disabled by GPC'));
    return;
  }
  if(navigator.doNotTrack==='1'){
-   bar.append(footerState('Usage off · DNT','is-off','Detailed usage analytics is disabled by DNT; a seven-day operational IP request log may still apply.'));
+   bar.append(footerState('Usage off · DNT','is-off','Detailed usage analytics is disabled by DNT'));
    return;
  }
  if(enabled){
    bar.append(footerState('Analytics on','is-on','Only approved usage metadata is collected; forensic input and output are not sent.'));
    bar.append(footerButton('Opt out',stopTracking));
  }else{
-   bar.append(footerState('Tracking off','is-off','Detailed usage analytics is off; a seven-day IP request log may still apply.'));
+   bar.append(footerState('Tracking off','is-off','Detailed usage analytics is off'));
    bar.append(footerButton('Enable',startTracking));
  }
 }
