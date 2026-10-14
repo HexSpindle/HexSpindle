@@ -358,6 +358,7 @@ import './flow_control/register.js';
 import './flow_control/return_op.js';
 import './flow_control/subsection.js';
 import './forensics/analyse_pdf.js';
+import './forensics/detect_executable.js';
 import './forensics/disassemble.js';
 import './forensics/extract_pdf_streams.js';
 import './forensics/extract_rtf_objects.js';

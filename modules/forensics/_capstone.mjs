@@ -7,7 +7,9 @@
 // Changes from the published package: (1) this header; (2) the capstone.wasm binary is embedded below as
 // base64 and passed as Module.wasmBinary, so this is a single self-contained file that fetches nothing
 // over the network; (3) a default export is appended that decodes the embedded binary, initializes the
-// engine and resolves to { Capstone, Const }.
+// engine and resolves to { Capstone, Const, disasmBuffer }; (4) a `disasmBuffer` helper is appended that
+// disassembles large inputs in constant memory by copying the code into the heap and decoding it in
+// fixed-size instruction batches. No upstream source was modified; only this header and the appended code.
 
 var capstone$1 = (()=>{
     var _scriptDir = import.meta.url;
@@ -20893,9 +20895,52 @@ function wasmBytes() {
   for (let i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i);
   return u8;
 }
+// Batched, malloc-based disassembly for large inputs. The Capstone class's own disasm() passes the code via
+// ccall('array'), which copies it onto the WASM stack and overflows past ~64 KiB; and decoding a whole large buffer
+// at once allocates one cs_insn array that exhausts the fixed heap. This routine instead copies the input into the
+// heap once (malloc + HEAPU8.set) and decodes it in fixed-size instruction batches, freeing each batch, so peak
+// memory stays small (input + one batch) no matter how large the input is. All identifiers used here are this
+// module's own internals (capstone, Capstone, _const, POINTER_SIZE, INSN_SIZE). Returns copied instruction records.
+export function disasmBuffer(arch, mode, bytes, options = {}) {
+  const { address = 0n, attSyntax = false, maxInstructions = 0, batchSize = 4096 } = options;
+  const cs = new Capstone(arch, mode);
+  if (attSyntax && arch === _const.CS_ARCH_X86) cs.setOption(_const.CS_OPT_SYNTAX, _const.CS_OPT_SYNTAX_ATT);
+  const M = capstone;
+  const dataPtr = Capstone.call('malloc', Math.max(1, bytes.length));
+  const insnPtrPtr = Capstone.call('malloc', POINTER_SIZE);
+  if (!dataPtr || !insnPtrPtr) { if (dataPtr) Capstone.call('free', dataPtr); if (insnPtrPtr) Capstone.call('free', insnPtrPtr); cs.close(); throw new Error('Out of memory allocating the input buffer'); }
+  try {
+    M.HEAPU8.set(bytes, dataPtr);
+    const insns = [];
+    const limit = maxInstructions > 0 ? maxInstructions : Infinity;
+    let offset = 0;
+    let addr = BigInt(address);
+    while (offset < bytes.length && insns.length < limit) {
+      const want = Math.min(batchSize, limit - insns.length);
+      // Call cs_disasm with the code as a heap POINTER (argType 'number'), not an 'array' marshalled onto the stack.
+      const count = M.ccall('cs_disasm', 'number', ['number', 'number', 'number', 'number', 'number', 'number'],
+        [cs.handle, dataPtr + offset, bytes.length - offset, addr, want, insnPtrPtr]);
+      if (count === 0) break;  // an undecodable byte at this offset stops the run
+      const insnPtr = M.getValue(insnPtrPtr, '*');
+      for (let i = 0; i < count; i++) {
+        const insn = Capstone.readInsn(insnPtr + i * INSN_SIZE);
+        insns.push({ address: addr, size: insn.size, bytes: insn.bytes.slice(), mnemonic: insn.mnemonic, opStr: insn.opStr });
+        offset += insn.size;
+        addr += BigInt(insn.size);
+      }
+      Capstone.call('cs_free', insnPtr, count);
+    }
+    return { insns, bytesConsumed: offset, hitLimit: insns.length >= limit && offset < bytes.length };
+  } finally {
+    Capstone.call('free', dataPtr);
+    Capstone.call('free', insnPtrPtr);
+    cs.close();
+  }
+}
+
 let readyPromise = null;
 export default function loadCapstoneEngine() {
   // factory and _const are this module's local bindings (exported above as loadCapstone and Const).
-  if (!readyPromise) readyPromise = factory({ wasmBinary: wasmBytes() }).then(() => ({ Capstone, Const: _const }));
+  if (!readyPromise) readyPromise = factory({ wasmBinary: wasmBytes() }).then(() => ({ Capstone, Const: _const, disasmBuffer }));
   return readyPromise;
 }

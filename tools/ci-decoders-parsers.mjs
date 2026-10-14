@@ -273,11 +273,28 @@ for (const [label, ref] of Object.entries(disasm.arches)) {
 test('Disassemble', 'AT&T syntax switches operand style', disasm.arches['x86 (64-bit)'].code, ['x86 (64-bit)', 'AT&T', '0x1000', true], t => t.includes('%rbp') && t.includes('%rsp'));
 test('Disassemble', 'accepts spaced/0x hex and a base address', '0x55 0x48 0x89 0xe5', ['x86 (64-bit)', 'Intel', '0x400000', false], ['0x400000', 'push rbp', 'mov rbp, rsp']);
 test('Disassemble', 'reports bytes it cannot decode', 'c3ffff', ['x86 (64-bit)', 'Intel', '0', true], t => t.includes('ret') && /could not be disassembled/.test(t));
-test('Disassemble', 'stops at the max-instructions limit', '9090909090', ['x86 (64-bit)', 'Intel', '0', true, 2], t => (t.match(/\bnop\b/g) || []).length === 2 && /stopped at the 2-instruction limit; 3 more byte/.test(t));
+test('Disassemble', 'stops at the max-instructions limit', '9090909090', ['x86 (64-bit)', 'Intel', '0', true, 2], t => (t.match(/\bnop\b/g) || []).length === 2 && /stopped at 2 instructions; 3 more byte/.test(t));
 test('Disassemble', 'max instructions 0 decodes everything (small input)', '9090909090', ['x86 (64-bit)', 'Intel', '0', true, 0], t => (t.match(/\bnop\b/g) || []).length === 5 && !/stopped/.test(t));
-test('Disassemble', 'count 0 on a large dense input is bounded, not an engine abort', '90'.repeat(64 * 1024), ['x86 (64-bit)', 'Intel', '0', false, 0], t => (t.match(/\bnop\b/g) || []).length === 16000 && /stopped after 16000 instructions/.test(t));
-fails('Disassemble', 'input over 64 KiB is rejected', '90'.repeat(70000));
+// Large input: the batched, malloc-based engine decodes well past the old 64 KiB stack limit with constant memory.
+test('Disassemble', 'fully decodes a 200 KiB input without OOM (well past the old 64 KiB limit)', new Uint8Array(200 * 1024).fill(0x90), ['x86 (64-bit)', 'Intel', '0', false, 0], t => (t.match(/\bnop\b/g) || []).length === 200 * 1024 && !/stopped/.test(t));
+test('Disassemble', 'caps a very large listing at 250000 and says so', new Uint8Array(260000).fill(0x90), ['x86 (64-bit)', 'Intel', '0', false, 0], t => (t.match(/\bnop\b/g) || []).length === 250000 && /stopped at 250000 instructions \(the maximum for one listing\)/.test(t));
+fails('Disassemble', 'input over 8 MiB is rejected', new Uint8Array(9 * 1024 * 1024).fill(0x90));
 fails('Disassemble', 'empty input', '');
+// ---- Detect Executable + Disassemble "Auto" (headers cross-checked with the lief parser) ----
+const exe = JSON.parse(fixture('exe-reference.json'));
+const exeBytes = k => b64(exe.bins[k].b64);
+test('Detect Executable', 'PE32+ x86-64', exeBytes('pe_x64'), ['Report'], ['PE32+', 'x86-64', 'executable', 'Windows console', 'Entry point:', 'Code section (.text)', 'x86 (64-bit)']);
+test('Detect Executable', 'ELF 64-bit x86-64', exeBytes('elf_x64'), ['Report'], ['ELF 64-bit', 'x86-64', 'executable', '.text']);
+test('Detect Executable', 'ELF ARM64', exeBytes('elf_arm64'), ['Report'], ['ELF 64-bit', 'ARM64', 'ARM64 (AArch64)']);
+test('Detect Executable', 'ELF 32-bit ARM', exeBytes('elf_arm32'), ['Report'], ['ELF 32-bit', 'ARM', '32-bit']);
+test('Detect Executable', 'Mach-O ARM64', exeBytes('macho_arm64'), ['Report'], ['Mach-O', 'ARM64']);
+test('Detect Executable', 'Mach-O universal (fat) lists slices', exeBytes('fat'), ['Report'], ['universal', 'x86-64', 'ARM64']);
+test('Detect Executable', 'JSON output', exeBytes('pe_x64'), ['JSON'], t => { const j = JSON.parse(t); return j.format === 'PE' && j.arch === 'x86-64' && j.bits === 64 && j.text.fileOffset === exe.bins.pe_x64.textFileOffset && j.entryPoint === exe.bins.pe_x64.entryPoint; });
+fails('Detect Executable', 'not an executable', bytes('just some text, not a binary at all'));
+test('Disassemble', 'Auto disassembles a PE .text at its virtual address', exeBytes('pe_x64'), ['Auto (detect PE / ELF / Mach-O)', 'Intel', '0', true, 0],
+  t => /PE x86-64 — disassembling the \.text section/.test(t) && t.includes('push rbp') && t.includes('mov rbp, rsp') && t.includes('pop rbp') && t.includes('ret') && t.includes('0x' + exe.bins.pe_x64.textVaddr.toString(16)));
+test('Disassemble', 'Auto on an ELF ARM64 picks ARM64', exeBytes('elf_arm64'), ['Auto (detect PE / ELF / Mach-O)', 'Intel', '0', true, 0], t => /ELF ARM64/.test(t) && /stp\s+x29, x30/.test(t) && /\bret\b/.test(t));
+fails('Disassemble', 'Auto on raw bytes (not an executable) errors', '9090c3', ['Auto (detect PE / ELF / Mach-O)']);
 
 // ---- MITRE ATT&CK lookup (data distilled from the official MITRE STIX bundle) ----
 test('MITRE ATT&CK Lookup', 'technique details for a known sub-technique', 'T1059.001', ['Auto', false, 25],

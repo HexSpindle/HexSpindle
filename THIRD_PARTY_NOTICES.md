@@ -2,7 +2,6 @@
 
 This document attributes third-party software and embedded data distributed within HexSpindle. HexSpindle's own original code is offered under the MIT license in the repository root `LICENSE`; that license **does not relicense third-party code**. Each third-party component continues under its applicable license. Versions and attributions below are based on identified module headers and a source inspection on 2026-10-08, and should be checked against exact upstream release artifacts when rebuilding bundles.
 
-
 ## License texts
 
 Common license conditions appear in [`licenses/`](licenses/): [`MIT.txt`](licenses/MIT.txt), [`ISC.txt`](licenses/ISC.txt), [`BSD-2-Clause.txt`](licenses/BSD-2-Clause.txt), [`BSD-3-Clause.txt`](licenses/BSD-3-Clause.txt), [`Apache-2.0.txt`](licenses/Apache-2.0.txt), [`GPL-3.txt`](licenses/GPL-3.txt) and [`LGPL-3.txt`](licenses/LGPL-3.txt). Copyright lines in the component entries below accompany the relevant common license text; where a bundle includes its own upstream copyright/license banners, **retain those original banners as well**. An SPDX name by itself is not a substitute for the complete applicable license conditions. Original upstream package license files/NOTICE files may contain additional author-specific language which must also be preserved.
@@ -289,7 +288,7 @@ Common license conditions appear in [`licenses/`](licenses/): [`MIT.txt`](licens
 - **Version/build:** capstone-wasm 1.0.3 (WebAssembly build of Capstone 5.0); engine includes the x86, ARM and ARM64 architectures only
 - **License(s):** BSD-3-Clause (Capstone engine); MIT (capstone-wasm wrapper)
 - **Copyright/attribution:** Copyright 2013–2024 Nguyen Anh Quynh and the Capstone contributors; capstone-wasm © CzBiX
-- **Changes and additional notices:** The published package's separate `capstone.wasm` binary is embedded in this file as base64 and passed as `Module.wasmBinary` so the module is self-contained and fetches nothing; a default export that initializes the engine is appended. Preserve the embedded engine's BSD-3-Clause notice.
+- **Changes and additional notices:** The published package's separate `capstone.wasm` binary is embedded in this file as base64 and passed as `Module.wasmBinary` so the module is self-contained and fetches nothing; a default export that initializes the engine, and a `disasmBuffer` helper that decodes large inputs in constant memory via batched `cs_disasm` over a heap buffer, are appended. No upstream source was modified. Preserve the embedded engine's BSD-3-Clause notice.
 
 ## HexSpindle DFIR operations expansion (2026-10-08)
 
