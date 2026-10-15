@@ -7,7 +7,9 @@
  */
 const META = document.querySelector('meta[name="hexspindle-analytics-endpoint"]');
 const ENDPOINT = META?.content?.trim() || '';
-const VALID_ENDPOINT = location.origin === 'https://hexspindle.github.io' && /^https:\/\/[a-z0-9-]+\.[a-z0-9-]+\.workers\.dev\/v1\/events$/i.test(ENDPOINT);
+// The portable launcher (desktop/) serves the app at http://127.0.0.1:<port>/ and marks the pages it serves.
+const LAUNCHER = /^http:\/\/127\.0\.0\.1:\d{1,5}$/.test(location.origin) && !!document.querySelector('meta[name="hexspindle-launcher"]');
+const VALID_ENDPOINT = (location.origin === 'https://hexspindle.github.io' || LAUNCHER) && /^https:\/\/[a-z0-9-]+\.[a-z0-9-]+\.workers\.dev\/v1\/events$/i.test(ENDPOINT);
 const PREFERENCE = 'hexspindle.analytics.preference.v1';
 const VISITOR = 'hexspindle.analytics.visitor.v1';
 const SESSION = 'hexspindle.analytics.session.v1';

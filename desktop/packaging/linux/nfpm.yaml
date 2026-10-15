@@ -1,0 +1,47 @@
+# Debian (.deb) and RPM (.rpm) packages for the HexSpindle portable launcher, built by desktop/build.sh with nfpm.
+# build.sh fills in the @...@ values.
+name: hexspindle
+arch: @ARCH@
+platform: linux
+version: @VERSION@
+version_schema: semver
+section: utils
+priority: optional
+maintainer: "@MAINTAINER@"
+vendor: HexSpindle
+homepage: https://github.com/HexSpindle/HexSpindle
+license: MIT
+description: |-
+  HexSpindle data transformation and forensics workbench.
+  Runs the HexSpindle web app on this computer and opens it in your browser.
+recommends:
+  - xdg-utils
+contents:
+  - src: @BINARY@
+    dst: /usr/bin/hexspindle
+    file_info:
+      mode: 0755
+  - src: @ROOT@/packaging/linux/hexspindle.desktop
+    dst: /usr/share/applications/hexspindle.desktop
+    file_info:
+      mode: 0644
+  - src: @ROOT@/packaging/icons/hexspindle-256.png
+    dst: /usr/share/icons/hicolor/256x256/apps/hexspindle.png
+    file_info:
+      mode: 0644
+  - src: @DOCS@/LICENSE
+    dst: /usr/share/doc/hexspindle/LICENSE
+    file_info:
+      mode: 0644
+  - src: @DOCS@/THIRD_PARTY_NOTICES.md
+    dst: /usr/share/doc/hexspindle/THIRD_PARTY_NOTICES.md
+    file_info:
+      mode: 0644
+  - src: @DOCS@/DATA_SOURCE_NOTICES.md
+    dst: /usr/share/doc/hexspindle/DATA_SOURCE_NOTICES.md
+    file_info:
+      mode: 0644
+  - src: @DOCS@/GO-LICENSE.txt
+    dst: /usr/share/doc/hexspindle/GO-LICENSE.txt
+    file_info:
+      mode: 0644

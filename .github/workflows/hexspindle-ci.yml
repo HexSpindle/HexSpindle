@@ -2,6 +2,7 @@ name: HexSpindle CI
 on:
   push:
     branches: [main]
+    tags: ['v*']
   pull_request:
 permissions:
   contents: read
@@ -99,6 +100,14 @@ jobs:
       - name: Record the tested bundle
         id: built
         run: echo "bundle_sha256=$(sha256sum ../dist/HexSpindle.js | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+      - name: Keep the tested site for the desktop packages
+        uses: actions/upload-artifact@v7
+        with:
+          name: tested-site
+          path: dist/
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 7
   deploy-pages:
     name: Deploy website
     needs: browser-smoke-test
@@ -162,3 +171,297 @@ jobs:
           fi
           git commit -m "Deploy HexSpindle ${GITHUB_SHA:0:7}"
           git push origin main
+  desktop-build:
+    name: Build desktop packages
+    needs: browser-smoke-test
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Download the tested site
+        uses: actions/download-artifact@v8
+        with:
+          name: tested-site
+          path: dist
+      - name: Verify the site is the build that was tested
+        shell: bash
+        env:
+          TESTED_SHA256: ${{ needs.browser-smoke-test.outputs.bundle_sha256 }}
+        run: |
+          set -euo pipefail
+          built="$(sha256sum dist/HexSpindle.js | cut -d' ' -f1)"
+          if [ -z "$TESTED_SHA256" ] || [ "$built" != "$TESTED_SHA256" ]; then
+            echo "Site bundle ($built) differs from the tested bundle (${TESTED_SHA256:-none})" >&2
+            exit 1
+          fi
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: desktop/go.mod
+          cache: false
+      - name: Choose the version
+        id: version
+        shell: bash
+        env:
+          REF_TYPE: ${{ github.ref_type }}
+          REF_NAME: ${{ github.ref_name }}
+          RUN_NUMBER: ${{ github.run_number }}
+        run: |
+          set -euo pipefail
+          if [ "$REF_TYPE" = tag ]; then
+            version="${REF_NAME#v}"
+            if ! [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
+              echo "Release tags must look like v1.2.3 or v1.2.3-rc.1, got $REF_NAME" >&2
+              exit 1
+            fi
+          else
+            version="0.0.0-dev.$RUN_NUMBER"
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "Version: $version"
+      - name: Vet and test the launcher
+        working-directory: desktop
+        run: |
+          go vet ./...
+          go test -race ./...
+      - name: Install rcodesign (ad-hoc signature for the macOS app)
+        shell: bash
+        run: |
+          set -euo pipefail
+          archive=apple-codesign-0.29.0-x86_64-unknown-linux-musl.tar.gz
+          curl -fsSL -o "$RUNNER_TEMP/$archive" "https://github.com/indygreg/apple-platform-rs/releases/download/apple-codesign%2F0.29.0/$archive"
+          echo "dbe85cedd8ee4217b64e9a0e4c2aef92ab8bcaaa41f20bde99781ff02e600002  $RUNNER_TEMP/$archive" | sha256sum --check --strict
+          tar -xzf "$RUNNER_TEMP/$archive" -C "$RUNNER_TEMP"
+          echo "RCODESIGN=$RUNNER_TEMP/${archive%.tar.gz}/rcodesign" >> "$GITHUB_ENV"
+      - name: Build packages
+        shell: bash
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          BUILD_NUMBER: ${{ github.run_number }}
+          REQUIRE_MACOS_SIGNATURE: '1'
+        run: bash desktop/build.sh --dist dist --out packages --version "$VERSION" --commit "${GITHUB_SHA:0:7}"
+      - name: Keep the packages
+        uses: actions/upload-artifact@v7
+        with:
+          name: desktop-packages
+          path: packages/
+          if-no-files-found: error
+          retention-days: 14
+  desktop-test:
+    name: Test desktop package (${{ matrix.name }})
+    needs: desktop-build
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Windows x64
+            os: windows-latest
+            package: windows-x64.exe
+            browser: true
+          - name: Windows ARM64
+            os: windows-11-arm
+            package: windows-arm64.exe
+          - name: macOS
+            os: macos-latest
+            package: macos-universal.zip
+          - name: Linux x64
+            os: ubuntu-latest
+            package: linux-x64.tar.gz
+            browser: true
+          - name: Linux ARM64
+            os: ubuntu-24.04-arm
+            package: linux-arm64.tar.gz
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+          package-manager-cache: false
+      - name: Download the packages
+        uses: actions/download-artifact@v8
+        with:
+          name: desktop-packages
+          path: packages
+      - name: Download the tested site
+        uses: actions/download-artifact@v8
+        with:
+          name: tested-site
+          path: dist
+      - name: Install the browser test tooling
+        if: matrix.browser
+        working-directory: tools
+        run: |
+          npm ci
+          npx playwright install --with-deps chromium
+      - name: Unpack and inspect the package
+        id: unpack
+        shell: bash
+        env:
+          VERSION: ${{ needs.desktop-build.outputs.version }}
+          PACKAGE: ${{ matrix.package }}
+        run: |
+          set -euo pipefail
+          file="packages/HexSpindle-$VERSION-$PACKAGE"
+          expected="$(grep -F " HexSpindle-$VERSION-$PACKAGE" packages/SHA256SUMS.txt | cut -d' ' -f1)"
+          actual="$(node -e "process.stdout.write(require('crypto').createHash('sha256').update(require('fs').readFileSync(process.argv[1])).digest('hex'))" "$file")"
+          if [ -z "$expected" ] || [ "$expected" != "$actual" ]; then
+            echo "$file does not match SHA256SUMS.txt" >&2
+            exit 1
+          fi
+          case "$PACKAGE" in
+            windows-*)
+              bin="$PWD/$file" ;;
+            macos-*)
+              ditto -x -k "$file" "$RUNNER_TEMP/mac"
+              app="$RUNNER_TEMP/mac/HexSpindle.app"
+              codesign --verify --deep --strict --verbose=2 "$app"
+              codesign --display --verbose=2 "$app" 2>&1 | grep -E '^(Identifier|Signature|Format)'
+              lipo "$app/Contents/MacOS/HexSpindle" -verify_arch x86_64 arm64
+              plutil -lint "$app/Contents/Info.plist"
+              bin="$app/Contents/MacOS/HexSpindle" ;;
+            linux-*)
+              label="${PACKAGE%.tar.gz}"
+              tar -xzf "$file" -C "$RUNNER_TEMP"
+              bin="$RUNNER_TEMP/HexSpindle-$VERSION-$label/hexspindle"
+              sudo dpkg -i "packages/HexSpindle-$VERSION-$label.deb"
+              /usr/bin/hexspindle --version | grep -F "launcher $VERSION"
+              test -f /usr/share/applications/hexspindle.desktop
+              test -f /usr/share/icons/hicolor/256x256/apps/hexspindle.png ;;
+          esac
+          echo "bin=$bin" >> "$GITHUB_OUTPUT"
+      - name: Test the launcher
+        working-directory: tools
+        shell: bash
+        env:
+          BIN: ${{ steps.unpack.outputs.bin }}
+          VERSION: ${{ needs.desktop-build.outputs.version }}
+          BROWSER: ${{ matrix.browser && 'yes' || '' }}
+        run: |
+          set -euo pipefail
+          args=(--bin "$BIN" --dist ../dist --expect-version "$VERSION")
+          if [ -n "$BROWSER" ]; then args+=(--browser); fi
+          node ci-desktop-launcher.mjs "${args[@]}"
+  desktop-source-test:
+    name: Test desktop package (source)
+    needs: [browser-smoke-test, desktop-build]
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+          package-manager-cache: false
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: desktop/go.mod
+          cache: false
+      - name: Download the packages
+        uses: actions/download-artifact@v8
+        with:
+          name: desktop-packages
+          path: packages
+      - name: Install the browser test tooling
+        working-directory: tools
+        run: |
+          npm ci
+          npx playwright install --with-deps chromium
+      - name: Rebuild the tested site and the launcher from the source package
+        id: source
+        shell: bash
+        env:
+          VERSION: ${{ needs.desktop-build.outputs.version }}
+          TESTED_SHA256: ${{ needs.browser-smoke-test.outputs.bundle_sha256 }}
+        run: |
+          set -euo pipefail
+          diff <(unzip -Z1 "packages/HexSpindle-$VERSION-source.zip" | sort) <(tar -tzf "packages/HexSpindle-$VERSION-source.tar.gz" | sort)
+          tar -xzf "packages/HexSpindle-$VERSION-source.tar.gz" -C "$RUNNER_TEMP"
+          src="$RUNNER_TEMP/HexSpindle-$VERSION-source"
+          (cd "$src/tools" && npm ci && node build-site.mjs --out ../dist)
+          built="$(sha256sum "$src/dist/HexSpindle.js" | cut -d' ' -f1)"
+          if [ "$built" != "$TESTED_SHA256" ]; then
+            echo "The source package builds bundle $built, not the tested $TESTED_SHA256" >&2
+            exit 1
+          fi
+          (cd "$src/desktop" && go build -trimpath -ldflags "-s -w -X main.version=$VERSION" -o "$RUNNER_TEMP/hexspindle-from-source" ./launcher)
+          echo "src=$src" >> "$GITHUB_OUTPUT"
+      - name: Test the launcher serving the source folder
+        working-directory: tools
+        env:
+          SRC: ${{ steps.source.outputs.src }}
+          VERSION: ${{ needs.desktop-build.outputs.version }}
+        run: node ci-desktop-launcher.mjs --bin "$RUNNER_TEMP/hexspindle-from-source" --dist "$SRC" --site "$SRC" --expect-version "$VERSION" --browser
+      - name: Test the launcher serving the site built from source
+        working-directory: tools
+        env:
+          SRC: ${{ steps.source.outputs.src }}
+          VERSION: ${{ needs.desktop-build.outputs.version }}
+        run: node ci-desktop-launcher.mjs --bin "$RUNNER_TEMP/hexspindle-from-source" --dist "$SRC/dist" --site "$SRC/dist" --expect-version "$VERSION"
+  desktop-release:
+    name: Publish GitHub release
+    needs: [desktop-build, desktop-test, desktop-source-test]
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    concurrency:
+      group: hexspindle-release-${{ github.ref }}
+      cancel-in-progress: false
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Download the packages
+        uses: actions/download-artifact@v8
+        with:
+          name: desktop-packages
+          path: packages
+      - name: Check the packages against their checksums
+        working-directory: packages
+        run: sha256sum --check --strict SHA256SUMS.txt
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@v4
+        with:
+          subject-path: packages/*
+      - name: Publish the release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+          VERSION: ${{ needs.desktop-build.outputs.version }}
+        run: |
+          set -euo pipefail
+          notes="$RUNNER_TEMP/notes.md"
+          sed -e "s/@VERSION@/$VERSION/g" -e "s/@TAG@/$TAG/g" desktop/packaging/release-notes.md > "$notes"
+          if changes="$(gh api "repos/$GITHUB_REPOSITORY/releases/generate-notes" -f tag_name="$TAG" --jq .body)"; then
+            printf '\n%s\n' "$changes" >> "$notes"
+          fi
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
+            echo "Release $TAG already exists; replacing its files"
+            gh release upload "$TAG" packages/* --repo "$GITHUB_REPOSITORY" --clobber
+            exit 0
+          fi
+          flags=()
+          if [[ "$VERSION" == *-* ]]; then flags+=(--prerelease); fi
+          gh release create "$TAG" packages/* --repo "$GITHUB_REPOSITORY" --verify-tag \
+            --title "HexSpindle $VERSION" --notes-file "$notes" "${flags[@]}"

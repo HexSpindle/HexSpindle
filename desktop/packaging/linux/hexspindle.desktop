@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=HexSpindle
+GenericName=Data Transformation Workbench
+Comment=Decode, transform and analyse data in your browser, on this computer
+Exec=hexspindle
+Icon=hexspindle
+Terminal=false
+Categories=Development;Utility;
+Keywords=decode;encode;hex;base64;forensics;cyberchef;
+StartupNotify=false

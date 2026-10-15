@@ -5,3 +5,8 @@ Thumbs.db
 .vscode/
 node_modules/
 dist/
+# Desktop launcher build output (desktop/build.sh)
+desktop/launcher/site/*
+!desktop/launcher/site/.placeholder
+desktop/launcher/rsrc_*.syso
+packages/

@@ -1,0 +1,230 @@
+# HexSpindle @VERSION@ — source package
+
+HexSpindle is a data transformation and forensics workbench that runs entirely in your browser. This package holds
+the source needed to run HexSpindle on your own computer, or to build the same programs that are published on the
+[releases page](https://github.com/HexSpindle/HexSpindle/releases). If you just want to use HexSpindle, the
+ready-made download for your system (`.exe`, `.app`, `.deb`, `.rpm` or `.tar.gz`) is simpler: it needs nothing
+installed.
+
+The repository's test suite and CI configuration are not included; they are in the
+[HexSpindle repository](https://github.com/HexSpindle/HexSpindle).
+
+## What is in this package
+
+| Path | Contents |
+| --- | --- |
+| `index.html`, `app.js`, `app.css`, `core/`, `modules/`, `assets/` | The HexSpindle web app. It runs as-is; no build step is needed. |
+| `analytics/` | The app's anonymous usage-analytics client and its privacy notice (see [Privacy](#privacy)). |
+| `licenses/`, `LICENSE`, `THIRD_PARTY_NOTICES.md`, `DATA_SOURCE_NOTICES.md` | License texts and notices. |
+| `tools/build-site.mjs`, `tools/vendor-inventory.json`, `tools/package.json`, `tools/package-lock.json` | Builds the optimised site (one bundle instead of hundreds of modules) and its third-party notice file. Needs Node.js. |
+| `desktop/launcher/` | The HexSpindle launcher: a small local web server, written in Go, that serves the app and opens your browser. |
+| `desktop/build.sh`, `desktop/tools/`, `desktop/packaging/` | Build scripts, icons and packaging metadata for the release downloads. |
+| `robots.txt`, `sitemap.xml`, `.nojekyll`, `google8833fe62b3f6acca.html` | Files of the public website; kept because the site build copies them. |
+
+## Start HexSpindle from source
+
+You need **[Go](https://go.dev/dl/) 1.27.2 or newer**. (An older Go from 1.21 on downloads the right version by
+itself the first time.) Nothing else is required: the launcher serves the app straight from this folder.
+
+The launcher prints the address, opens it in your default browser, and stops on its own about 15 seconds after the
+last HexSpindle tab is closed. To stop it sooner, press <kbd>Ctrl</kbd>+<kbd>C</kbd> in the terminal.
+
+### Windows
+
+Open **PowerShell** (or Command Prompt) in the folder where you extracted this package, then:
+
+```powershell
+cd desktop
+go run ./launcher --site ..
+```
+
+The launcher listens only on `127.0.0.1`, which other computers cannot reach, so it needs no firewall exception.
+
+### macOS
+
+Open **Terminal** in the folder where you extracted this package, then:
+
+```bash
+cd desktop
+go run ./launcher --site ..
+```
+
+Go is available from [go.dev/dl](https://go.dev/dl/) or Homebrew (`brew install go`).
+
+### Linux
+
+Open a terminal in the folder where you extracted this package, then:
+
+```bash
+cd desktop
+go run ./launcher --site ..
+```
+
+Install Go from [go.dev/dl](https://go.dev/dl/) if your distribution's `golang` package is older than 1.21. The
+browser is opened with `xdg-open`; on a machine without a desktop, add `--no-browser` and open the printed
+address yourself.
+
+### Then
+
+Your browser opens **http://127.0.0.1:47800/**. With `--site`, files are read from disk on every request, so if
+you edit the source, reload the page to see the change. Add `--keep-running` while you work on the code, so the
+launcher does not stop when you close the tab.
+
+## Use the optimised build
+
+Served from source, the app loads several hundred module files. The release downloads serve an optimised build
+instead (a single bundle plus the libraries that load on demand), which starts faster. To serve that build, you also
+need **[Node.js](https://nodejs.org/) 24** (the version HexSpindle is tested with).
+
+Windows (PowerShell):
+
+```powershell
+cd tools
+npm ci
+node build-site.mjs --out ..\dist
+cd ..\desktop
+go run ./launcher --site ..\dist
+```
+
+macOS and Linux:
+
+```bash
+cd tools
+npm ci
+node build-site.mjs --out ../dist
+cd ../desktop
+go run ./launcher --site ../dist
+```
+
+`npm ci` installs the exact tool versions in `tools/package-lock.json` into `tools/node_modules`. The site is
+built into `dist/`. The source files themselves are never modified.
+
+## Build your own single-file program
+
+To get a program like the release downloads, with the site built in so it runs without this folder, first build the
+site (see above), then copy it into the launcher and compile. The commands below produce a program for the system
+you are on. To build for another one, set `GOOS` and `GOARCH` first (for example `GOOS=windows GOARCH=arm64` in
+bash, or `$env:GOOS = "linux"; $env:GOARCH = "arm64"` in PowerShell).
+
+Windows (PowerShell):
+
+```powershell
+cd desktop
+go run ./tools/prepare-site --dist ..\dist --out launcher\site
+go build -trimpath -ldflags "-s -w -H=windowsgui -X main.version=@VERSION@" -o HexSpindle.exe ./launcher
+.\HexSpindle.exe
+```
+
+`-H=windowsgui` makes a program that opens without a console window when double-clicked, like the release
+download. Leave it out if you want to see the launcher's output when you start it from Explorer.
+
+macOS and Linux:
+
+```bash
+cd desktop
+go run ./tools/prepare-site --dist ../dist --out launcher/site
+go build -trimpath -ldflags "-s -w -X main.version=@VERSION@" -o hexspindle ./launcher
+./hexspindle
+```
+
+`prepare-site` compresses the site and adds the small script the launcher uses to notice when the last tab
+closes. The program does not use `launcher/site` after it is built; you can move it
+anywhere. (On macOS, a program you build yourself is signed automatically by the Go linker on Apple Silicon and is
+not quarantined, so it runs without the Gatekeeper steps the downloaded app needs.)
+
+### Build every release package
+
+`desktop/build.sh` builds the complete set of downloads, exactly as the release pipeline does: Windows `.exe`
+(x64 and ARM64, with icon and version information), the macOS universal `.app`, Linux `.tar.gz`, `.deb` and
+`.rpm` (x64 and ARM64), this source package, and `SHA256SUMS.txt`. It runs on Linux and macOS, and on Windows in
+Git Bash, and needs Go and a built site:
+
+```bash
+bash desktop/build.sh --dist dist --out packages --version @VERSION@
+```
+
+The source package step reads the file list from git, so run it from a git checkout of the repository. The macOS
+app is given its ad-hoc signature only when `RCODESIGN` points to an
+[rcodesign](https://github.com/indygreg/apple-platform-rs/releases) binary; without it the `.app` will not open on
+Apple Silicon Macs.
+
+## Launcher options
+
+```
+--site <folder>             serve this folder (the source folder, or a built site) instead of the built-in copy
+--port <n>                  use this port (default 47800, or the next free one up to 47809)
+--no-browser                do not open a browser tab; just print the address
+--keep-running              keep running after the last HexSpindle tab is closed (stop with Ctrl+C)
+--idle-timeout <duration>   for tabs that cannot hold a connection: treat one as closed after this long (default 30m)
+--exit-grace <duration>     wait this long after the last tab closes before exiting (default 15s)
+--first-connect-timeout <duration>
+                            exit if no tab opens the app within this time (default 5m)
+--feeds-upstream <url>      site that feed data is fetched from (default https://hexspindle.github.io)
+--no-analytics              turn off the app's anonymous usage analytics
+--version                   print the version and exit
+--licenses                  print the launcher's license notices and exit
+```
+
+Pass them after `go run ./launcher`, for example `go run ./launcher --site .. --port 48000 --keep-running`.
+
+## Good to know
+
+- **Saved data.** Recipes and settings live in your browser's storage for the address
+  `http://127.0.0.1:47800`. Every run uses the same address, so they are still there next time. A different
+  `--port` is a different address, with its own, separate storage.
+- **Already running.** If HexSpindle is already running (for example the downloaded app), starting it again just
+  opens a new tab on the running copy, even with `--site`. Close the HexSpindle tabs (or press Ctrl+C in its
+  terminal) first, or give the new run another `--port`.
+- **Feed data.** Operations that use threat-intelligence feeds read them from `data/feeds/`, which is not part of
+  the source (the public website refreshes them daily). The launcher fetches them from
+  https://hexspindle.github.io when an operation asks, so those operations need an internet connection. All other
+  processing happens locally in your browser.
+- **Port in use.** If another program uses ports 47800–47809, choose a free port with `--port`.
+- **Log.** Each run writes a short log to `HexSpindle/launcher.log` in your user cache folder
+  (`%LocalAppData%` on Windows, `~/Library/Caches` on macOS, `~/.cache` on Linux).
+
+## Other web servers
+
+The app is a static site, so other web servers can serve this folder too, for example
+`python3 -m http.server 8000 --bind 127.0.0.1`. Keep in mind:
+
+- The server must send `.js` and `.mjs` files as `text/javascript` and `.wasm` files as `application/wasm`.
+  Some servers on Windows take these types from the registry, where `.js` is often mapped to `text/plain`; the
+  browser then refuses to run the app and the page stays blank (the browser console reports a MIME type error).
+- Feed-based operations will not find `data/feeds/`, and the launcher's automatic stop does not apply.
+- Usage analytics stay off: the app sends them only from the public website and from pages the launcher serves.
+
+## Privacy
+
+All processing of your data happens in your browser, on your computer. Like the public website, HexSpindle served
+by the launcher sends **anonymous usage analytics**: which operations are used, whether they succeed and how long
+they take, never your inputs, outputs, files or recipe arguments. `analytics/privacy.html` (linked from the app's
+footer) describes exactly what is collected. Analytics are on by default, and there are three ways to turn them
+off:
+
+- click **Opt out** in the app's footer (remembered for the address `http://127.0.0.1:47800`),
+- turn on Global Privacy Control or Do Not Track in your browser, or
+- start the launcher with `--no-analytics`, for example `go run ./launcher --site .. --no-analytics`.
+
+The analytics are sent to the endpoint in the `hexspindle-analytics-endpoint` line of `index.html`.
+
+## Verify a download
+
+Each release lists the SHA-256 of every file in `SHA256SUMS.txt`, and each file has a build-provenance attestation
+that ties it to the GitHub Actions run that built it from the tagged commit. To check this package:
+
+```bash
+sha256sum --check --ignore-missing SHA256SUMS.txt
+gh attestation verify HexSpindle-@VERSION@-source.tar.gz --repo HexSpindle/HexSpindle
+```
+
+On Windows, `Get-FileHash HexSpindle-@VERSION@-source.zip` prints the SHA-256 to compare with the one in
+`SHA256SUMS.txt`; on macOS, `shasum -a 256 HexSpindle-@VERSION@-source.tar.gz` does the same. The `gh` command
+needs the [GitHub CLI](https://cli.github.com/).
+
+## License
+
+HexSpindle is released under the MIT License (see `LICENSE`). Bundled third-party code and data keep their own
+licenses, listed in `THIRD_PARTY_NOTICES.md`, `DATA_SOURCE_NOTICES.md` and `licenses/`. Programs built with Go also
+contain the Go runtime and standard library, distributed under the BSD-style license in
+`desktop/launcher/legal/GO-LICENSE.txt` (printed by `--licenses`).

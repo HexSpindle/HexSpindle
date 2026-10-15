@@ -134,6 +134,12 @@ The optional **Suggest** feature connects directly to Anthropic or OpenAI only w
 
 Network access is not required for normal local transformation workflows.
 
+## Desktop App
+
+HexSpindle can also run as a program on your own computer, for Windows (x64, ARM64), macOS (Apple Silicon and Intel) and Linux (x64, ARM64; `.deb`, `.rpm` or `.tar.gz`). Each download contains the tested site and a small local web server that opens it in your browser at `http://127.0.0.1:47800/`. It needs no installation and stops by itself when you close the last HexSpindle tab. A source package with its own README explains how to run HexSpindle from source on each system, or build the packages yourself.
+
+Downloads are on the [releases page](https://github.com/HexSpindle/HexSpindle/releases). See [desktop/README.md](desktop/README.md) for first-start steps, options, privacy and how releases are built.
+
 ## License
 
 HexSpindle's original code is released under the **MIT License**. Vendored third-party components retain their respective licenses.

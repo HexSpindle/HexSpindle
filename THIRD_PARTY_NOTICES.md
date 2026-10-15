@@ -314,6 +314,10 @@ Dependency names alone do not prove code copying. If additional files are derive
 
 The file `modules/public_key/_openpgp.mjs` retains the OpenPGP.js LGPL banner. OpenPGP.js 6.3.2 source release: <https://github.com/openpgpjs/openpgpjs/tree/v6.3.2>. This is a **source-location reference**, not confirmation that a deployed bundle exactly matches that tag. Ensure that recipients are provided the corresponding source for the exact version and any HexSpindle changes, along with the required notices and an LGPL-compliant ability to modify/replace the library as appropriate to the mode of distribution. The actual obligations depend on the distribution/integration model; consult the LGPLv3 terms and counsel if shipping a combined/minified work. The LGPLv3 and GPLv3 terms are included under `licenses/`.
 
+## Desktop packages
+
+The desktop packages (`desktop/`) embed the same built site, including every file and notice listed here; on-demand libraries keep their exact bytes. The launcher that serves it is written in Go, and the Go runtime and standard library compiled into it are distributed under the BSD-3-Clause license reproduced in `desktop/launcher/legal/GO-LICENSE.txt`. Each package carries that file next to `LICENSE`, `THIRD_PARTY_NOTICES.md` and `DATA_SOURCE_NOTICES.md`, and the launcher prints it with `--licenses`. Each release also includes a source package with the corresponding source of the app and the launcher. The launcher uses no other third-party Go code; the build tools go-winres, nfpm and rcodesign are used only to package it and are not distributed.
+
 ## Before publishing a release
 
 1. **Tesseract.js:** The original 7.0.0 generated-license sidecar is included at [`licenses/TESSERACT-BUNDLED-LICENSES.txt`](licenses/TESSERACT-BUNDLED-LICENSES.txt) (regenerator-runtime MIT notice). Retain that file and the Apache-2.0 license in every distribution; verify any additional upstream notices if the bundled version or build changes.
