@@ -94,6 +94,7 @@ function get(path, { method = 'GET', headers = {}, host = `127.0.0.1:${port}` } 
 const decoded = res => res.headers['content-encoding'] === 'gzip' ? gunzipSync(res.body) : res.body;
 
 let launcher = null;
+let context = null;
 const work = mkdtempSync(join(tmpdir(), 'hexspindle-launcher-test-'));
 try {
   // 1. Command-line information.
@@ -184,7 +185,9 @@ try {
   check((await socketStatus('https://attacker.example', 'test-socket-0001')).status === 403, 'Other sites cannot open a tab socket');
   const sock = await socketStatus(origin, 'test-socket-0002');
   check(sock.status === 101 && sock.accept === 's3pPLMBiTxaQ9kYGzzhZRbK+xOo=', 'The launcher accepts a tab socket from its own pages');
-  sock.socket?.destroy();
+  // This socket stands in for an open tab until the browser's first page holds its own; were it closed now, the
+  // launcher would rightly stop after its grace period (2 s here) unless Chromium connected faster than that.
+  const keeper = sock.socket;
 
   // 6. A second start reuses the running launcher instead of failing on the port.
   const second = await runOnce(['--no-browser', '--port', String(port), ...(site ? ['--site', site] : [])]);
@@ -232,9 +235,12 @@ try {
       catch { return { ok: false, got: await page.evaluate(() => document.getElementById('output').value.slice(0, 200)) }; }
     };
 
-    let context = await chromium.launchPersistentContext(profile, { headless: true });
+    context = await chromium.launchPersistentContext(profile, { headless: true });
     await withStandIns(context);
     const first = await open(context, origin + '/');
+    // The first page stays open for the whole run, as a user's tab would, while the checks below open and close
+    // others; it now keeps the launcher running, so the stand-in socket can go.
+    keeper?.destroy();
     check(first.errors.length === 0, 'App starts in the browser without console errors', first.errors.join(' | '));
     const opCount = await first.page.evaluate(() => { const m = /(\d+)\s*ops/.exec(document.body.textContent); return m ? +m[1] : 0; });
     check(opCount >= 700, `Operation list is populated (${opCount} operations)`);
@@ -246,7 +252,6 @@ try {
       check(collected.some(c => c.origin === origin && c.url.endsWith('/v1/events') && c.body.includes('"page_view"')), 'Analytics events are sent from the launcher origin', JSON.stringify(collected.slice(0, 2)));
     }
     await first.page.evaluate(() => localStorage.setItem('hexspindle.ci.persist', 'kept'));
-    await closeTab(first.page);
 
     const recipes = JSON.parse(readFileSync(join(HERE, 'ci-recipes.json'), 'utf8'));
     let recipeFailures = 0;
@@ -275,8 +280,9 @@ try {
     check(feedRequests.some(r => r.path === '/data/feeds/manifest.json'), 'Feed-based operations get their data through the launcher', JSON.stringify(feedRequests));
     await closeTab(run.page);
 
-    // Closing the last tab stops the launcher by itself.
+    // Closing the browser, and with it the first page, stops the launcher by itself.
     await closeTabs(context);
+    context = null;
     const stopped = await Promise.race([launcher.exited, sleep(30000).then(() => null)]);
     check(stopped && stopped.code === 0, 'Launcher exits by itself after the last tab closes', JSON.stringify(stopped) + '\n' + launcher.output());
     if (!stopped) throw new Error('the launcher is still running');
@@ -295,6 +301,7 @@ try {
     const footer = await again.page.evaluate(() => document.getElementById('hsAnalyticsPrefs')?.textContent || '');
     check(/Analytics off/.test(footer) && collected.length === 0 && again.errors.length === 0, '--no-analytics turns analytics off', JSON.stringify({ footer, collected: collected.length, errors: again.errors }));
     await closeTabs(context);
+    context = null;
     const stoppedAgain = await Promise.race([launcher.exited, sleep(30000).then(() => null)]);
     check(stoppedAgain && stoppedAgain.code === 0, 'Launcher exits again after its last tab closes', JSON.stringify(stoppedAgain));
     launcher = null;
@@ -302,6 +309,7 @@ try {
     // Without a browser, simulate a tab: it opens, closes, and the launcher stops by itself.
     check((await get('/__hexspindle/heartbeat?tab=test-tab-0001', { method: 'POST', headers: { 'Sec-Fetch-Site': 'same-origin' } })).status === 204, 'A tab can register');
     check((await get('/__hexspindle/bye?tab=test-tab-0001', { method: 'POST' })).status === 204, 'A tab can sign off');
+    keeper?.destroy(); // the last open tab goes away
     const stopped = await Promise.race([launcher.exited, sleep(20000).then(() => null)]);
     check(stopped && stopped.code === 0, 'Launcher exits by itself after the last tab closes', JSON.stringify(stopped) + '\n' + launcher.output());
     launcher = null;
@@ -318,9 +326,11 @@ try {
   failures.push(String(error?.stack || error));
   console.error(`FAIL ${error?.stack || error}`);
 } finally {
+  if (context) await context.close().catch(() => {});
   if (launcher) { launcher.child.kill(); await Promise.race([launcher.exited, sleep(5000)]); }
   await new Promise(done => feeds.close(done));
-  rmSync(work, { recursive: true, force: true, maxRetries: 5, retryDelay: 500 });
+  // Windows can keep the browser profile locked for a moment after Chromium exits; a leftover temp folder is harmless.
+  try { rmSync(work, { recursive: true, force: true, maxRetries: 5, retryDelay: 500 }); } catch (error) { console.warn(`Could not remove ${work}: ${error.code || error}`); }
 }
 console.log(`Desktop launcher checks: ${passed}/${passed + failures.length} passed`);
 if (failures.length) process.exitCode = 1;

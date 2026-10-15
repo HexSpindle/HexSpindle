@@ -25,9 +25,7 @@ first time macOS says it cannot verify it: open **System Settings → Privacy & 
 (or run `hexspindle`). With the `.tar.gz`, extract it and run `./hexspindle`.
 
 HexSpindle opens at `http://127.0.0.1:47800/` in your default browser. It has no window of its own and stops by
-itself shortly after you close its last tab. Your data is processed locally in the browser. Like the website, the
-app sends anonymous usage analytics (never your data), which you can turn off with **Opt out** in its footer or by
-starting it with `--no-analytics`. Operations that use threat-intelligence feeds download them from
+itself shortly after you close its last tab. Your data is processed locally in the browser. Like the website. Operations that use threat-intelligence feeds download them from
 hexspindle.github.io when needed. More: [desktop/README.md](https://github.com/HexSpindle/HexSpindle/blob/@TAG@/desktop/README.md).
 
 **Verify a download:** `SHA256SUMS.txt` lists every file's SHA-256, and each file has a build-provenance
